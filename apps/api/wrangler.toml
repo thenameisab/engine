@@ -1,0 +1,6 @@
+name = "engine-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# DATABASE_URL is bound as a secret (`wrangler secret put DATABASE_URL`),
+# never committed here.

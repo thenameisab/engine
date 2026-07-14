@@ -1,0 +1,22 @@
+{
+  "name": "@engine/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@engine/core": "workspace:*",
+    "hono": "^4.6.0",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241224.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.99.0"
+  }
+}
