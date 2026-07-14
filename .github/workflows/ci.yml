@@ -25,3 +25,5 @@ jobs:
       - run: pnpm turbo run typecheck
 
       - run: pnpm turbo run build
+
+      - run: pnpm turbo run test
