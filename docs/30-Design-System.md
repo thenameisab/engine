@@ -1,120 +1,118 @@
 # Engine — Design System & Motion Language
 
-**Status:** v1.0 · Last updated 2026-07-14
+**Status:** v2.0 · Last updated 2026-07-14
 **Companion to:** [Master PRD §7 K](00-Master-PRD.md) · [Architecture §1 L4](20-Architecture.md)
-**Live reference:** [Pulse hero mockup](mockups/pulse.html) — the design as a working, interactive artifact.
-**Sources:** Apple *Designing Fluid Interfaces* (apple-design), Emil Kowalski's design-engineering philosophy, iOS 26 Liquid Glass (translated to web).
+**Live reference:** [Pulse mockup](mockups/pulse.html) — the design as a working, interactive artifact.
+**Lineage:** the flat, functional product-UI tradition — **Linear, Notion, GitHub, Stripe.** Design serves the task; the tool disappears into the work.
 
-> **The one-line design thesis:** *One number, then depth — rendered on honest glass.* Engine is an **instrument**, and its signature is **honesty**: every AI-influenced metric is shown as a **confidence range**, never a false-precise point. The single deliberate gradient on any screen is the confidence band. Everything else is quiet.
+> **The one-line design thesis:** *One number, then depth — rendered plainly.* Engine is an **instrument**, and its signature is **honesty**: every AI-influenced metric is shown as a **confidence range**, never a false-precise point. The interface itself is quiet — flat surfaces, hairline borders, one restrained accent — so the data is the only thing that speaks.
+
+> **v2.0 note:** this replaces the earlier Liquid-Glass language. We removed translucency, backdrop-blur, ambient color washes, and materialize/blur choreography in favor of a flat, dense, functional aesthetic. The rationale: Engine is a task surface people live in daily; earned familiarity and legibility beat spectacle. Beauty here is *restraint done precisely*, not material effects.
 
 ---
 
 ## 0. Why this matters (from the strategy)
-The competitor teardown says measurement is table stakes; the moat is execution + trust. Design carries the *trust* half. Two incumbent UX failures we attack directly: **overwhelming dashboards** and **12-click navigation**. Our answer is progressive disclosure ("one number, then depth"), max-2-level IA, and confidence bands as a visible integrity signal. Beauty is leverage — "why can't all products look this good" is a growth strategy, not vanity.
+The competitor teardown says measurement is table stakes; the moat is execution + trust. Design carries the *trust* half. Two incumbent UX failures we attack directly: **overwhelming dashboards** and **12-click navigation**. Our answer is progressive disclosure ("one number, then depth"), max-2-level IA, and confidence bands as a visible integrity signal. The bar (per the product register) is: would a user fluent in Linear / Notion / Stripe sit down and *trust* this interface immediately, or pause at every subtly-off component? We aim for instant trust.
 
 ---
 
 ## 1. Color
 
-Neutrals are **cool, biased toward the azure accent** — chosen, not defaulted to grey. One accent. Semantic colors are separate from the accent and never used decoratively.
+**True neutrals — not tinted toward the accent.** A clean gray ramp on a near-white canvas (light) or near-black canvas (dark), in the GitHub/Linear tradition. One accent, used only for primary actions, current selection, links, and focus — never decoration. Semantic colors are separate and used sparingly on data.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `--accent` | `#2E6BF0` | `#4C86FF` | The single signal color. Solid — never a hero gradient. |
-| `--good` | `#12A66A` | `#2FD79A` | Up / verified / positive delta |
-| `--watch` | `#E0951F` | `#F0B450` | Watch / measuring |
-| `--risk` | `#E0455E` | `#FF6B84` | Risk / negative delta |
-| `--bg` / `--bg-2` | `#EAEEF6` / `#E1E7F2` | `#080B12` / `#0C1220` | Ground (cool, not grey) |
-| `--text` / `--muted` / `--faint` | `#0E1526` / `#5A6478` / `#8A93A6` | `#EAEEF7` / `#9AA5BC` / `#626C82` | Type hierarchy |
-| `--band` / `--band-edge` | `rgba(46,107,240,.16)` / `.42` | `rgba(76,134,255,.20)` / `.55` | **The confidence aura — the only signature gradient** |
+| `--accent` | `#2f6feb` | `#4d84ff` | The single interaction color (primary action, selection, link, focus). Solid — never a gradient. |
+| `--accent-wash` | `#eef3fe` | `#16223c` | Low-emphasis accent fill: active nav, selected rows |
+| `--good` | `#1a7f52` | `#3fb27f` | Up / verified / positive delta |
+| `--watch` | `#9a6700` | `#d0a215` | Watch / measuring |
+| `--risk` | `#cf3049` | `#f2607a` | Risk / negative delta |
+| `--bg` | `#f7f8fa` | `#0d0f12` | App canvas |
+| `--surface` / `--surface-2` | `#ffffff` / `#f1f2f4` | `#16181d` / `#1d2026` | Panels/cards · insets/hover fills |
+| `--text` / `--muted` / `--faint` | `#1a1d21` / `#616a75` / `#8b95a1` | `#e7e9ec` / `#9aa2ad` / `#6b7480` | Type hierarchy |
+| `--border` / `--border-strong` | `#e4e7eb` / `#d3d8de` | `#262a31` / `#333842` | Hairline structure · hover/emphasis edges |
 
-**Rule:** the accent appears solid (marks, active nav, meters, endpoints). Gradients are reserved for (a) the confidence band and (b) the faint ambient wash behind glass. No purple→blue hero gradients, no acid-green pop, no decorative gradients on cards (deliberately avoiding the AI-default look).
-
-**Both themes are first-class.** Palette lives as CSS custom properties; only tokens are redefined under `@media (prefers-color-scheme)` and `:root[data-theme]` (toggle wins over OS in both directions). Style components through tokens, never inside the media query.
+**Rules:**
+- **Structure comes from borders, not shadows.** Panels and cards are a solid `--surface` with a 1px `--border`. Elevation exists only where something genuinely floats (popover, modal, command bar) via one soft `--shadow-pop`.
+- **Body text hits ≥4.5:1.** `--muted` is the floor for secondary text on `--surface`; never lighter for "elegance."
+- **The accent is rationed.** Roughly ≤10% of any screen. Active nav uses `--accent-wash` + accent text, not a saturated fill.
+- **Both themes are first-class.** Tokens redefine under `@media (prefers-color-scheme)` and `:root[data-theme]` (explicit toggle wins over OS in both directions). Components read tokens only — never hard-coded colors, never values inside the media query.
 
 ---
 
 ## 2. Typography — the instrument voice
 
-Engine is an instrument, so **every number and label is monospace** (`ui-mono`, tabular figures) — an instrument-panel readout. Prose and headings use the system UI face with Apple-grade optical craft.
+One sans family (`system-ui` stack) carries headings, labels, buttons, and body. A **monospace** face (`ui-mono`, tabular figures) is reserved for what is literally data: metrics, deltas, counts, keyboard hints. That mono/sans split is the "instrument readout" signature — but labels are **sentence case**, not the uppercase-tracked eyebrows of v1.
 
 | Role | Family | Treatment |
 |---|---|---|
-| Display / headings | `ui-sans-serif, system-ui` | weight 600–650, **tight negative tracking** (`-0.025em`), `text-wrap: balance` |
-| Body | `ui-sans-serif, system-ui` | weight 400–500, leading ~1.5, ~65ch measure |
-| **Data / metrics / labels** | `ui-monospace` | `font-variant-numeric: tabular-nums`; uppercase labels at `.09em` tracking |
+| Page heading (h1) | `system-ui` | 20px, weight 600, tracking −0.01em |
+| Panel heading (h3) | `system-ui` | 13.5px, weight 600 |
+| Body / labels | `system-ui` | 13–14px, weight 400–550, sentence case |
+| **Data / metrics / hints** | `ui-monospace` | `font-variant-numeric: tabular-nums`; the hero score at 46px, cell values at 24px |
 
-Tracking is **size-specific** (tight on the 92px score, near-0 on body) — never one letter-spacing value everywhere. System font first: it already ships optical sizing and legibility tuning, and it keeps us honest with the apple-design lineage.
+**Fixed rem scale, not fluid clamp** (product register: users view at consistent DPI; a shrinking sidebar heading looks worse). Tight ~1.15–1.2 ratio between steps — many type elements here, so exaggerated contrast just adds noise. Prose caps at 65–75ch; dense data can run tighter.
 
 ---
 
-## 3. Material — Liquid Glass on the web
+## 3. Surfaces — flat, bordered, dense
 
-The iOS 26 Liquid Glass language, translated to the web via `backdrop-filter` (per apple-design §12). Glass is a **floating functional layer**, not decoration.
+No glass, no blur, no translucency as decoration. Surfaces are opaque and defined by hairlines.
 
 ```css
-.glass {
-  background: var(--glass);                 /* light: .62 white · dark: .055 white */
-  backdrop-filter: blur(22px) saturate(180%);
-  border: 1px solid var(--hairline);
-  border-top-color: var(--glass-edge);      /* bright top edge = light catching the material */
-  box-shadow: var(--glass-shadow);          /* context-aware depth */
-  border-radius: 22px;
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;           /* 6/8/10 scale — tight, not pill-round */
 }
+/* elevation only where something truly floats */
+.copilot { box-shadow: var(--shadow-pop); border: 1px solid var(--border-strong); }
 ```
 
-**Rules carried from Liquid Glass + apple-design:**
-- **Group glass, don't scatter it.** Related glass elements share a container (the web analog of `GlassEffectContainer`) — improves coherence and lets neighbors read as one material.
-- **Never stack light glass on light glass** — legibility collapses. Chips inside a glass panel use a lighter fill, not another blur layer.
-- **Bigger surface = thicker material** — stronger blur + deeper shadow than small chips.
-- **Bright top edge** on every panel (light catching a real material).
-- **Materialize, don't fade.** Glass enters by animating blur + scale + opacity together (§5), so it reads as a material arriving.
-- **Dim to focus.** The ⌘K copilot pairs its glass with a dimming scrim and pushes the background back — a modal task. Parallel panels use translucency *without* a scrim.
-- **Needs something to refract:** a faint ambient radial wash sits behind all glass so the blur has content to bend. Keep it subtle — never a loud gradient hero.
-- **Ambient background must be re-checked for contrast** so vibrant text stays legible over it.
+**Rules:**
+- **One radius scale, small:** `--r-sm 6` · `--r 8` · `--r-lg 10`. Nothing pill-shaped except status counts and meters.
+- **Dividers over gaps** for related groups: the Fix Queue lanes are separated by 1px borders, not floating cards with shadows.
+- **Second neutral layer** (`--bg` inside a `--surface`) marks insets — contribution cells, Fix Queue cards — instead of another elevation tier.
+- **The one permitted blur** is a 6px backdrop on the sticky topbar so scrolled content doesn't muddy it — a functional legibility aid, not a material.
+- **No side-stripe accent borders, no gradient text, no glass cards, no ambient washes.** (See §9.)
 
 ---
 
 ## 4. The confidence band — our visual signature
 
-The honesty principle (PRD X1) made visible. Wherever an AI-influenced number appears, its **range** is shown:
+The honesty principle (PRD X1) made visible, now rendered *flat*. Wherever an AI-influenced number appears, its **range** shows — but as plain, legible data viz, not a glowing gradient:
 
-- **On the hero score:** a horizontal band track (`68 ——●—— 76`) with the point marker glowing; the gradient fades at both ends to say "this is a range, not an edge."
-- **On charts:** a translucent `--band` area is drawn *around* the trend line, not just the line. The line is the estimate; the band is the truth.
-- **On chips:** AI Share of Model shows `44–52` with a `± range` tag; organic/local (measured, not sampled) show a single figure — the asymmetry itself teaches which numbers are sampled.
+- **On the hero score:** a thin bordered range bar beside the number — a filled inner segment (`68 ▓ 76`) with a solid accent tick at the point estimate. No glow, no shadow.
+- **On charts:** a quiet shaded area is drawn *around* the trend line (a low-opacity accent fill), so the band reads as "the truth is in here," the line as the estimate.
+- **On cells:** AI Share of Model shows `44–52` with a neutral `± range` tag; organic/local (measured, not sampled) show a single figure — the asymmetry itself teaches which numbers are sampled.
 
-This is the one place we spend visual boldness. It is unique to Engine and structurally hard for false-precision competitors to copy without admitting their own uncertainty.
+This remains the one place we spend a little visual emphasis. It is structurally hard for false-precision competitors to copy without admitting their own uncertainty — and it now earns attention by being the *only* non-neutral data mark on the page, not by glowing.
 
 ---
 
 ## 5. Motion language
 
-Motion and visuals are designed together (apple-design §17); motion is never a layer added after. Governed by Emil's decision framework: **animate only with a purpose, keep UI motion <300ms, never animate keyboard-repeated actions.**
+Product-register motion: **state, not decoration.** Users are in flow; the interface loads into a task rather than performing an entrance. 120–250ms, `transform`/`opacity` only.
 
-### Easing tokens
+### Easing token
 ```css
---ease-out: cubic-bezier(0.23, 1, 0.32, 1);   /* entrances, feedback — strong, punchy */
---ease-io:  cubic-bezier(0.77, 0, 0.175, 1);   /* on-screen movement / morphing */
+--ease: cubic-bezier(0.2, 0, 0, 1);   /* ease-out; quiet, quick settle */
 ```
-Built-in CSS easings are too weak; use these. **Never `ease-in`** on UI (sluggish at the moment the user is watching).
+No bounce, no elastic, no `ease-in` on UI.
 
 ### The rules we ship
 | Interaction | Spec |
 |---|---|
-| Any pressable (button, chip, card, nav) | `:active { transform: scale(0.97) }`, ~120–160ms `ease-out` — instant "it heard me" feedback |
-| Card / panel entrance | **Materialize**: `translateY(14px) + scale(.98) + blur(6px) → 0`, 600ms `ease-out`, **staggered 40–60ms** |
-| Never from `scale(0)` | Entrances start at `scale(.95–.98)` + opacity — nothing appears from nothing |
-| Hero score | Counts up 0→72 with an `ease-out` (cubic) curve, spring-like settle |
-| ⌘K copilot | Materializes from `translateY(-8px) + scale(.965) + blur(8px)`, `transform-origin: top center`; scrim fades in; **Esc / click-out** closes |
-| Fix Queue card hover | `translateY(-2px)` + shadow + brighter glass — telegraphs "grab me" |
-| Live pulse dot | Expanding ring ping on the Fix Queue header — the one ambient loop, slow and quiet |
-| Keyboard actions (⌘K toggle, nav) | **No open/close animation on repeat** — repeated actions must feel instant (Raycast principle) |
+| Hover (nav, chip, card, row) | Background/border tint, ~120ms — cheap, immediate feedback |
+| Focus | Visible accent ring on every interactive element |
+| Hero score | Counts up 0→72 over ~650ms `ease-out` — the one bit of arrival, because a number ticking up *is* state |
+| ⌘K copilot | Opens with a 6px rise + fade over ~140ms + a dim scrim; **Esc / click-out** closes |
+| Meters / bands | Rendered at final state; never animate `width` in hot paths |
 
 ### Discipline
-- **Only animate `transform` and `opacity`** (GPU; skips layout/paint). Meters/bands never animate `width` in hot paths.
-- **CSS transitions over keyframes** for anything rapidly re-triggered (interruptible, retargetable).
-- **Springs** reserved for gesture/drag and "alive" elements; bounce kept subtle (0.1–0.3) and only after momentum.
-- Where we later add drag (Fix Queue reordering, sheets): 1:1 pointer tracking with capture, velocity handoff, momentum projection, rubber-banding at edges (apple-design §2–9).
+- **No orchestrated page-load sequence, no staggered materialize.** The v1 blur-in choreography is gone; content is present on first paint.
+- **Reveal animations enhance an already-visible default** — never gate content visibility on a transition (it never fires in headless renderers / hidden tabs).
+- **`prefers-reduced-motion`** drops the score count-up (show final value) and reduces transitions to instant. Required, not optional.
 
 ---
 
@@ -133,21 +131,22 @@ Directly attacks the "12-click navigation" incumbent failure. Nav items are **na
 ---
 
 ## 7. Performance & accessibility budget (non-negotiable)
-- **FMP < 1.5s; every dashboard query < 500ms** (ClickHouse makes this real). Skeleton loading everywhere; offline-tolerant report viewing.
-- `prefers-reduced-motion`: replace movement/blur entrances with short opacity fades; drop the score count-up (show final value); keep comprehension-aiding color/opacity.
-- `prefers-reduced-transparency`: frostier/solid glass — raise background opacity, drop blur.
-- `prefers-contrast: more`: near-solid panels with defined borders.
-- Visible keyboard focus on every interactive element; `@media (hover: hover)` gates hover states so touch taps don't false-trigger them.
-- Text on glass uses vibrancy discipline: higher contrast, slightly heavier weight, small tracking bump — never flat grey on a translucent surface.
+- **FMP < 1.5s; every dashboard query < 500ms** (ClickHouse makes this real). Skeleton loading (not center-spinners); offline-tolerant report viewing.
+- Every interactive component ships the full state set: default, hover, focus, active, disabled, loading, error.
+- Body text ≥4.5:1, large text ≥3:1, placeholders ≥4.5:1 — verified in both themes.
+- `prefers-reduced-motion`: drop the score count-up and movement; keep comprehension-aiding color.
+- `prefers-contrast: more`: lean on `--border-strong` for defined edges.
+- Visible keyboard focus on every interactive element; `@media (hover: hover)` gates hover so touch taps don't false-trigger.
+- Empty states teach the interface (not "nothing here"); consistent affordances screen-to-screen (same button, same form controls, same icon style).
 
 ---
 
 ## 8. Component inventory (v1)
-Glass panel · glass chip / filter · nav item (rail) · floating topbar chrome · hero score + confidence band · trend chart with band · contribution cell (meter) · win/risk row (status dot + delta) · Fix Queue lane + card (kind / title / impact-effort pills) · ⌘K copilot (scrim + input + suggestions) · theme toggle · icon button.
+Panel (surface + hairline) · chip / filter · nav item (rail) · sticky topbar · hero score + confidence range bar · trend chart with band · contribution cell (meter) · win/risk row (status dot + delta) · Fix Queue lane + card (kind / title / impact-effort pills) · ⌘K copilot (scrim + input + suggestions) · theme toggle · icon button.
 
 Build stack (from blueprint): **React + TypeScript, Tailwind + custom token layer, Radix primitives, TanStack Query/Table, ECharts/visx for charts, Motion (Framer Motion) used sparingly.** The tokens and motion specs above map 1:1 onto that stack; the [Pulse mockup](mockups/pulse.html) is the reference implementation of the visual + motion language in plain HTML/CSS.
 
 ---
 
 ## 9. What we deliberately avoid
-Generic AI-design tells: warm-cream + serif + terracotta, lone acid-green pop on near-black, purple→blue gradient hero, Inter/Space-Grotesk as the "safe" face, emoji as section markers, everything centered, `rounded-lg` on everything, decorative accent rails on cards. Engine's identity — mono instrument readouts, the confidence-band gradient as the *only* signature gradient, cool azure-biased neutrals, Liquid Glass depth — is chosen against those defaults.
+Generic AI-design tells: warm-cream + serif + terracotta, lone acid-green pop on near-black, purple→blue gradient hero, gradient text, glassmorphism-as-default, decorative side-stripe accent rails on cards, uppercase tracked eyebrows above every section, numbered `01/02/03` section markers, identical icon-card grids, everything centered, `rounded-lg` on everything. Engine's identity — a flat neutral canvas, mono readouts for data only, the confidence range as the one place emphasis is spent, and a single rationed accent — is chosen against those defaults. The tell to guard against here isn't flatness; it's **strangeness without purpose** (invented affordances, mismatched controls, gratuitous motion). Earned familiarity is the goal.
