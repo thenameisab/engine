@@ -1,0 +1,17 @@
+# Installed skill copies (reproducible from skills-lock.json)
+.agents/
+.claude/skills/
+
+# Local, machine-specific settings
+.claude/settings.local.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+
+# Deps / build
+node_modules/
+dist/
+.env
+.env.*

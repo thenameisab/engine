@@ -1,0 +1,538 @@
+<title>Engine &mdash; Pulse</title>
+<style>
+  /* ============ TOKENS ============ */
+  :root {
+    --accent: #2E6BF0;
+    --accent-ink: #ffffff;
+    --good: #12A66A;
+    --watch: #E0951F;
+    --risk: #E0455E;
+
+    /* cool neutrals, biased toward the azure accent */
+    --bg: #EAEEF6;
+    --bg-2: #E1E7F2;
+    --text: #0E1526;
+    --text-muted: #5A6478;
+    --text-faint: #8A93A6;
+    --hairline: rgba(14, 21, 38, 0.10);
+
+    /* glass */
+    --glass: rgba(255, 255, 255, 0.62);
+    --glass-strong: rgba(255, 255, 255, 0.78);
+    --glass-edge: rgba(255, 255, 255, 0.85);
+    --glass-shadow: 0 12px 40px -12px rgba(14, 30, 70, 0.28);
+    --glass-shadow-lg: 0 30px 80px -20px rgba(14, 30, 70, 0.40);
+    --blur: 22px;
+
+    --band: rgba(46, 107, 240, 0.16);
+    --band-edge: rgba(46, 107, 240, 0.42);
+
+    --r-sm: 10px; --r: 16px; --r-lg: 22px; --r-xl: 30px;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-io: cubic-bezier(0.77, 0, 0.175, 1);
+
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #4C86FF; --accent-ink: #05080F;
+      --good: #2FD79A; --watch: #F0B450; --risk: #FF6B84;
+      --bg: #080B12; --bg-2: #0C1220;
+      --text: #EAEEF7; --text-muted: #9AA5BC; --text-faint: #626C82;
+      --hairline: rgba(255, 255, 255, 0.10);
+      --glass: rgba(255, 255, 255, 0.055); --glass-strong: rgba(255, 255, 255, 0.09);
+      --glass-edge: rgba(255, 255, 255, 0.14);
+      --glass-shadow: 0 16px 46px -14px rgba(0, 0, 0, 0.62);
+      --glass-shadow-lg: 0 36px 90px -22px rgba(0, 0, 0, 0.78);
+      --band: rgba(76, 134, 255, 0.20); --band-edge: rgba(76, 134, 255, 0.55);
+    }
+  }
+  /* explicit toggle wins over OS in both directions */
+  :root[data-theme="light"] {
+    --accent: #2E6BF0; --accent-ink: #fff; --good:#12A66A; --watch:#E0951F; --risk:#E0455E;
+    --bg:#EAEEF6; --bg-2:#E1E7F2; --text:#0E1526; --text-muted:#5A6478; --text-faint:#8A93A6;
+    --hairline:rgba(14,21,38,.10);
+    --glass:rgba(255,255,255,.62); --glass-strong:rgba(255,255,255,.78); --glass-edge:rgba(255,255,255,.85);
+    --glass-shadow:0 12px 40px -12px rgba(14,30,70,.28); --glass-shadow-lg:0 30px 80px -20px rgba(14,30,70,.40);
+    --band:rgba(46,107,240,.16); --band-edge:rgba(46,107,240,.42);
+  }
+  :root[data-theme="dark"] {
+    --accent:#4C86FF; --accent-ink:#05080F; --good:#2FD79A; --watch:#F0B450; --risk:#FF6B84;
+    --bg:#080B12; --bg-2:#0C1220; --text:#EAEEF7; --text-muted:#9AA5BC; --text-faint:#626C82;
+    --hairline:rgba(255,255,255,.10);
+    --glass:rgba(255,255,255,.055); --glass-strong:rgba(255,255,255,.09); --glass-edge:rgba(255,255,255,.14);
+    --glass-shadow:0 16px 46px -14px rgba(0,0,0,.62); --glass-shadow-lg:0 36px 90px -22px rgba(0,0,0,.78);
+    --band:rgba(76,134,255,.20); --band-edge:rgba(76,134,255,.55);
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font);
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+  /* ambient wash so the glass has something to refract */
+  .atmosphere {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(60vw 50vh at 12% -8%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 60%),
+      radial-gradient(55vw 45vh at 96% 4%, color-mix(in srgb, var(--good) 16%, transparent), transparent 62%),
+      radial-gradient(70vw 60vh at 80% 110%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+      var(--bg-2);
+  }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+
+  /* ============ GLASS ============ */
+  .glass {
+    position: relative;
+    background: var(--glass);
+    backdrop-filter: blur(var(--blur)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+    border: 1px solid var(--hairline);
+    border-top-color: var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+    border-radius: var(--r-lg);
+  }
+
+  /* ============ SHELL ============ */
+  .app { position: relative; z-index: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+  /* rail */
+  .rail { padding: 22px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 6px 10px 22px; }
+  .mark {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7db0ff));
+    box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--accent) 60%, transparent), inset 0 1px 0 rgba(255,255,255,.5);
+    display: grid; place-items: center;
+  }
+  .mark svg { width: 17px; height: 17px; }
+  .brand b { font-size: 16px; letter-spacing: -.02em; font-weight: 650; }
+  .navitem {
+    display: flex; align-items: center; gap: 11px; padding: 9px 11px; border-radius: 11px;
+    color: var(--text-muted); font-size: 14px; font-weight: 500; cursor: pointer;
+    text-decoration: none; transition: background .18s var(--ease-out), color .18s var(--ease-out), transform .1s var(--ease-out);
+  }
+  .navitem svg { width: 17px; height: 17px; opacity: .8; }
+  .navitem:hover { background: var(--glass); color: var(--text); }
+  .navitem:active { transform: scale(.98); }
+  .navitem.on {
+    background: var(--glass-strong); color: var(--text);
+    backdrop-filter: blur(12px); border: 1px solid var(--hairline); border-top-color: var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+  }
+  .navitem.on svg { color: var(--accent); opacity: 1; }
+  .rail .spacer { flex: 1; }
+  .rail-foot { padding: 10px; display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg,#8a63f5,#4C86FF); flex: none; }
+  .rail-foot small { display: block; color: var(--text-faint); font-size: 11px; }
+  .rail-foot span { font-size: 13px; font-weight: 550; }
+
+  /* main */
+  .main { padding: 18px 26px 60px; min-width: 0; }
+
+  /* topbar (floating translucent chrome) */
+  .topbar {
+    position: sticky; top: 12px; z-index: 20;
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 12px; margin-bottom: 22px;
+    border-radius: var(--r);
+  }
+  .filters { display: flex; gap: 7px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 12px; border-radius: 999px; cursor: pointer;
+    background: var(--glass); border: 1px solid var(--hairline); border-top-color: var(--glass-edge);
+    font-size: 12.5px; font-weight: 550; color: var(--text);
+    transition: transform .12s var(--ease-out), background .18s var(--ease-out);
+  }
+  .chip .k { color: var(--text-faint); font-weight: 500; }
+  .chip:hover { background: var(--glass-strong); }
+  .chip:active { transform: scale(.97); }
+  .chip svg { width: 13px; height: 13px; opacity: .6; }
+  .topbar .grow { flex: 1; }
+  .cmdk {
+    display: inline-flex; align-items: center; gap: 9px; padding: 8px 12px; border-radius: 11px;
+    background: var(--glass); border: 1px solid var(--hairline); border-top-color: var(--glass-edge);
+    color: var(--text-muted); font-size: 13px; cursor: text; min-width: 230px;
+    transition: transform .12s var(--ease-out), background .18s;
+  }
+  .cmdk:hover { background: var(--glass-strong); }
+  .cmdk:active { transform: scale(.99); }
+  .cmdk kbd {
+    margin-left: auto; font-family: var(--mono); font-size: 11px; padding: 2px 6px; border-radius: 6px;
+    background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text-muted); border: 1px solid var(--hairline);
+  }
+  .iconbtn {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; cursor: pointer;
+    background: var(--glass); border: 1px solid var(--hairline); border-top-color: var(--glass-edge); color: var(--text);
+    transition: transform .12s var(--ease-out), background .18s;
+  }
+  .iconbtn:hover { background: var(--glass-strong); }
+  .iconbtn:active { transform: scale(.94); }
+  .iconbtn svg { width: 17px; height: 17px; }
+
+  /* headline */
+  .pagehead { margin: 4px 2px 20px; }
+  .pagehead h1 { font-size: 26px; font-weight: 650; letter-spacing: -.025em; text-wrap: balance; }
+  .pagehead p { color: var(--text-muted); font-size: 14px; margin-top: 3px; }
+  .pagehead b { color: var(--text); font-weight: 600; }
+
+  /* grid */
+  .grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 1080px) { .grid { grid-template-columns: 1fr; } .app { grid-template-columns: 1fr; } .rail { display: none; } }
+
+  /* HERO SCORE */
+  .hero { padding: 26px 28px; }
+  .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .scorewrap { display: flex; align-items: baseline; gap: 16px; margin-top: 10px; }
+  .score {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 92px; font-weight: 600; line-height: .9; letter-spacing: -.04em;
+  }
+  /* the confidence band &mdash; the one signature gradient on the page */
+  .band {
+    align-self: flex-end; margin-bottom: 14px;
+    display: inline-flex; flex-direction: column; gap: 6px;
+  }
+  .band-track {
+    position: relative; width: 132px; height: 30px; border-radius: 8px;
+    background: linear-gradient(90deg, transparent, var(--band) 22%, var(--band) 78%, transparent);
+    border: 1px solid var(--band-edge); border-left: none; border-right: none;
+    display: flex; align-items: center;
+  }
+  .band-track::before {
+    content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px;
+    background: var(--accent); border-radius: 2px; box-shadow: 0 0 10px var(--accent);
+  }
+  .band-nums { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  .delta { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--good); }
+  .delta svg { width: 14px; height: 14px; }
+
+  .spark { margin-top: 22px; width: 100%; height: 78px; display: block; }
+
+  .contrib { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+  .cell {
+    padding: 14px; border-radius: var(--r);
+    background: var(--glass); border: 1px solid var(--hairline); border-top-color: var(--glass-edge);
+  }
+  .cell .top { display: flex; justify-content: space-between; align-items: center; }
+  .cell h4 { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+  .cell .v { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 600; letter-spacing: -.03em; margin-top: 6px; }
+  .cell .sub { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+  .cell .meter { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 8%, transparent); margin-top: 11px; overflow: hidden; }
+  .cell .meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+  .tagband { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); font-size: 10px; padding: 2px 6px; border-radius: 5px; font-family: var(--mono); letter-spacing: .04em; }
+
+  /* right column */
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+  .panel { padding: 18px 20px; }
+  .panel > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .panel h3 { font-size: 14px; font-weight: 620; letter-spacing: -.01em; }
+  .panel .more { font-size: 12px; color: var(--accent); cursor: pointer; font-weight: 550; }
+
+  .list { display: flex; flex-direction: column; gap: 2px; }
+  .row { display: flex; align-items: flex-start; gap: 11px; padding: 9px 8px; border-radius: 10px; transition: background .16s var(--ease-out); }
+  .row:hover { background: var(--glass); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }
+  .dot.g { background: var(--good); box-shadow: 0 0 8px color-mix(in srgb, var(--good) 70%, transparent); }
+  .dot.r { background: var(--risk); box-shadow: 0 0 8px color-mix(in srgb, var(--risk) 70%, transparent); }
+  .row .t { font-size: 13px; font-weight: 500; line-height: 1.35; }
+  .row .m { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+  .row .mv { margin-left: auto; font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+  .mv.g { color: var(--good); } .mv.r { color: var(--risk); }
+
+  /* FIX QUEUE &mdash; the moat */
+  .fq { margin-top: 18px; padding: 20px 22px; }
+  .fq-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .fq-head h3 { font-size: 15px; font-weight: 640; letter-spacing: -.015em; }
+  .fq-head .pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: ping 2.4s var(--ease-out) infinite; }
+  @keyframes ping { 0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent);} 70%,100%{box-shadow:0 0 0 9px transparent;} }
+  .fq-sub { color: var(--text-muted); font-size: 12.5px; margin-left: auto; }
+  .lanes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 720px){ .lanes { grid-template-columns: 1fr 1fr; } }
+  .lane-h { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; padding: 0 2px; }
+  .lane-h .label { color: var(--text-muted); }
+  .lane-h .n { font-family: var(--mono); font-size: 11px; color: var(--text-faint); background: color-mix(in srgb, var(--text) 7%, transparent); padding: 1px 6px; border-radius: 5px; }
+  .card {
+    padding: 12px; border-radius: var(--r); margin-bottom: 9px; cursor: pointer;
+    background: var(--glass); border: 1px solid var(--hairline); border-top-color: var(--glass-edge);
+    transition: transform .16s var(--ease-out), box-shadow .2s var(--ease-out), background .18s;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--glass-shadow); background: var(--glass-strong); }
+  .card:active { transform: scale(.98); }
+  .card .kind { font-family: var(--mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+  .card .ttl { font-size: 12.5px; font-weight: 550; margin-top: 5px; line-height: 1.35; }
+  .card .foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+  .pill { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+  .pill.impact { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+  .pill.effort { color: var(--text-muted); background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .card.verified { opacity: .82; }
+  .card.verified .kind { color: var(--good); }
+  .lane-empty { font-family: var(--mono); font-size: 11px; color: var(--text-faint); padding: 14px 8px; text-align: center; border: 1px dashed var(--hairline); border-radius: var(--r); }
+
+  /* entrance: materialize (scale + blur + rise), staggered */
+  .enter { opacity: 0; transform: translateY(14px) scale(.98); filter: blur(6px); animation: mat .6s var(--ease-out) forwards; }
+  @keyframes mat { to { opacity: 1; transform: none; filter: blur(0); } }
+
+  /* ============ COPILOT (&#8984;K) ============ */
+  .scrim {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    background: color-mix(in srgb, #05070d 55%, transparent);
+    backdrop-filter: blur(3px); align-items: flex-start; justify-content: center; padding-top: 12vh;
+  }
+  .scrim.open { display: flex; animation: fade .25s var(--ease-out); }
+  @keyframes fade { from { opacity: 0; } }
+  .copilot {
+    width: min(640px, 92vw); border-radius: var(--r-lg); overflow: hidden;
+    background: var(--glass-strong); backdrop-filter: blur(40px) saturate(200%);
+    border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow-lg);
+    transform-origin: top center; animation: materialize .42s var(--ease-out);
+  }
+  @keyframes materialize { from { opacity: 0; transform: translateY(-8px) scale(.965); filter: blur(8px); } }
+  .cp-input { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--hairline); }
+  .cp-input svg { width: 19px; height: 19px; color: var(--accent); flex: none; }
+  .cp-input input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 16px; font-family: var(--font); }
+  .cp-input input::placeholder { color: var(--text-faint); }
+  .cp-input .esc { font-family: var(--mono); font-size: 11px; color: var(--text-muted); border: 1px solid var(--hairline); padding: 2px 7px; border-radius: 6px; }
+  .cp-body { padding: 14px 12px 16px; }
+  .cp-lbl { padding: 6px 10px; }
+  .cp-opt { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px; cursor: pointer; transition: background .15s var(--ease-out); }
+  .cp-opt:hover, .cp-opt.hi { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .cp-opt svg { width: 17px; height: 17px; color: var(--text-muted); flex: none; }
+  .cp-opt:hover svg, .cp-opt.hi svg { color: var(--accent); }
+  .cp-opt .txt { font-size: 14px; font-weight: 500; }
+  .cp-opt .hint { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    .enter { opacity: 1; transform: none; filter: none; }
+  }
+</style>
+
+<div class="atmosphere"></div>
+
+<div class="app">
+  <!-- RAIL -->
+  <aside class="rail">
+    <div class="brand">
+      <span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" fill="#fff"/></svg></span>
+      <b>Engine</b>
+    </div>
+    <a class="navitem on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l2 6 4-14 2 8h6" stroke-linecap="round" stroke-linejoin="round"/></svg>Pulse</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4" stroke-linecap="round"/></svg>Visibility</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="10" rx="1.5"/></svg>Fix Queue</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5" stroke-linejoin="round"/></svg>Content Studio</a>
+    <a class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5m4 14V9m4 10V7m4 12v-6m4 6V4" stroke-linecap="round"/></svg>Reports</a>
+    <div class="spacer"></div>
+    <div class="rail-foot glass" style="border-radius:14px">
+      <span class="avatar"></span>
+      <div><span>Aditya G.</span><small>Owner &middot; Growth plan</small></div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <!-- floating chrome -->
+    <div class="topbar glass">
+      <div class="filters">
+        <button class="chip"><span class="k">Market</span> India <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round"/></svg></button>
+        <button class="chip"><span class="k">Lang</span> EN &middot; HI <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round"/></svg></button>
+        <button class="chip"><span class="k">Engine</span> All <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round"/></svg></button>
+        <button class="chip"><span class="k">Device</span> All <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="grow"></div>
+      <div class="cmdk" id="cmdk">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4" stroke-linecap="round"/></svg>
+        Ask Copilot&hellip;
+        <kbd>&#8984;K</kbd>
+      </div>
+      <button class="iconbtn" id="theme" title="Toggle theme"><svg id="theme-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" stroke-linejoin="round"/></svg></button>
+    </div>
+
+    <div class="pagehead">
+      <h1>Good morning, Aditya.</h1>
+      <p>Your unified visibility is <b>up 4.2 points</b> this month &mdash; and <b>6 fixes</b> are waiting for your approval.</p>
+    </div>
+
+    <div class="grid">
+      <!-- LEFT: hero score -->
+      <section class="hero glass enter" style="animation-delay:.02s">
+        <div class="hero-top">
+          <div>
+            <div class="label">Unified Visibility Score</div>
+            <div class="scorewrap">
+              <div class="score" id="score">0</div>
+              <div class="band">
+                <div class="band-track" title="We report AI-influenced metrics as a range, never a false point."></div>
+                <div class="band-nums"><span>68</span><span>76</span></div>
+              </div>
+            </div>
+            <div style="margin-top:14px;display:flex;align-items:center;gap:12px">
+              <span class="delta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M7 17 17 7M17 7H9M17 7v8" stroke-linecap="round" stroke-linejoin="round"/></svg>4.2</span>
+              <span class="num" style="font-size:12px;color:var(--text-faint)">vs. 30 days ago &middot; organic + AI + local, weighted by your traffic mix</span>
+            </div>
+          </div>
+        </div>
+
+        <svg class="spark" viewBox="0 0 560 78" preserveAspectRatio="none" fill="none">
+          <defs>
+            <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="var(--accent)" stop-opacity="0.28"/>
+              <stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <!-- confidence band around the trend line: honesty as a visual signature -->
+          <path d="M0,52 L56,50 L112,53 L168,44 L224,46 L280,40 L336,42 L392,34 L448,33 L504,28 L560,22 L560,40 L504,44 L448,47 L392,48 L336,54 L280,52 L224,57 L168,55 L112,62 L56,60 L0,61 Z" fill="var(--band)"/>
+          <path d="M0,56 L56,55 L112,58 L168,50 L224,52 L280,46 L336,48 L392,41 L448,40 L504,36 L560,31 L560,78 L0,78 Z" fill="url(#fill)"/>
+          <path d="M0,56 L56,55 L112,58 L168,50 L224,52 L280,46 L336,48 L392,41 L448,40 L504,36 L560,31" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="560" cy="31" r="4" fill="var(--accent)"/>
+          <circle cx="560" cy="31" r="8" fill="var(--accent)" opacity=".22"/>
+        </svg>
+
+        <div class="contrib">
+          <div class="cell">
+            <div class="top"><h4>Organic SoV</h4></div>
+            <div class="v">61</div>
+            <div class="sub">rank presence &middot; 2,480 kw</div>
+            <div class="meter"><i style="width:61%"></i></div>
+          </div>
+          <div class="cell">
+            <div class="top"><h4>AI Share of Model</h4><span class="tagband">&plusmn; range</span></div>
+            <div class="v">44<span style="font-size:15px;color:var(--text-faint)">&ndash;52</span></div>
+            <div class="sub">5 engines &middot; n=5 sampled</div>
+            <div class="meter"><i style="width:48%"></i></div>
+          </div>
+          <div class="cell">
+            <div class="top"><h4>Local SoV</h4></div>
+            <div class="v">78</div>
+            <div class="sub">map pack &middot; 12 locations</div>
+            <div class="meter"><i style="width:78%"></i></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: wins + risks -->
+      <div class="stack">
+        <section class="panel glass enter" style="animation-delay:.1s">
+          <header><h3>Top wins</h3><span class="more">This week</span></header>
+          <div class="list">
+            <div class="row"><span class="dot g"></span><div><div class="t">Cited by Perplexity for &ldquo;best UPI payment gateway&rdquo;</div><div class="m">new &middot; 3 competitors displaced</div></div><span class="mv g">+8</span></div>
+            <div class="row"><span class="dot g"></span><div><div class="t">FAQ schema deployed on 214 product pages</div><div class="m">via Cloudflare Worker &middot; verified</div></div><span class="mv g">+5</span></div>
+            <div class="row"><span class="dot g"></span><div><div class="t">Featured snippet recovered in Mumbai</div><div class="m">&ldquo;small business loan eligibility&rdquo;</div></div><span class="mv g">+3</span></div>
+          </div>
+        </section>
+
+        <section class="panel glass enter" style="animation-delay:.16s">
+          <header><h3>Top risks</h3><span class="more">Needs attention</span></header>
+          <div class="list">
+            <div class="row"><span class="dot r"></span><div><div class="t">GPTBot blocked in robots.txt</div><div class="m">ChatGPT can&rsquo;t read 1,900 pages</div></div><span class="mv r">&minus;6</span></div>
+            <div class="row"><span class="dot r"></span><div><div class="t">AI citations dropped in Germany</div><div class="m">Gemini &middot; &minus;31% over 14 days</div></div><span class="mv r">&minus;4</span></div>
+            <div class="row"><span class="dot r"></span><div><div class="t">Content decay on 3 pillar pages</div><div class="m">traffic &minus;18% since April</div></div><span class="mv r">&minus;2</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- FIX QUEUE &mdash; the moat -->
+    <section class="fq glass enter" style="animation-delay:.22s">
+      <div class="fq-head">
+        <span class="pulse-dot"></span>
+        <h3>Fix Queue</h3>
+        <span class="fq-sub">Propose &rarr; preview &rarr; approve &rarr; deploy &rarr; verify. Every fix is reversible.</span>
+      </div>
+      <div class="lanes">
+        <div>
+          <div class="lane-h"><span class="label">Proposed</span><span class="n">6</span></div>
+          <div class="card"><div class="kind">Schema</div><div class="ttl">Add Organization + sameAs across 214 pages</div><div class="foot"><span class="pill impact">+8 impact</span><span class="pill effort">1-click</span></div></div>
+          <div class="card"><div class="kind">Robots</div><div class="ttl">Unblock GPTBot &amp; PerplexityBot</div><div class="foot"><span class="pill impact">+6 impact</span><span class="pill effort">edge</span></div></div>
+          <div class="card"><div class="kind">Content</div><div class="ttl">Answer-first rewrite &middot; 3 pillar pages</div><div class="foot"><span class="pill impact">+4 impact</span><span class="pill effort">review</span></div></div>
+        </div>
+        <div>
+          <div class="lane-h"><span class="label">Approved</span><span class="n">3</span></div>
+          <div class="card"><div class="kind">Meta</div><div class="ttl">Regenerate titles &middot; 88 category pages</div><div class="foot"><span class="pill impact">+3 impact</span><span class="pill effort">auto</span></div></div>
+          <div class="card"><div class="kind">Redirect</div><div class="ttl">Fix 12-hop chain on /pricing</div><div class="foot"><span class="pill impact">+2 impact</span><span class="pill effort">PR</span></div></div>
+        </div>
+        <div>
+          <div class="lane-h"><span class="label">Deployed</span><span class="n">2</span></div>
+          <div class="card"><div class="kind">Schema</div><div class="ttl">FAQ blocks live on 214 pages</div><div class="foot"><span class="pill effort">measuring&hellip;</span></div></div>
+          <div class="card"><div class="kind">GBP</div><div class="ttl">Hours + attributes &middot; 12 locations</div><div class="foot"><span class="pill effort">measuring&hellip;</span></div></div>
+        </div>
+        <div>
+          <div class="lane-h"><span class="label">Verified</span><span class="n">4</span></div>
+          <div class="card verified"><div class="kind">&#10003; Snippet recovered</div><div class="ttl">&ldquo;small business loan eligibility&rdquo;</div><div class="foot"><span class="pill impact">moved +3</span></div></div>
+          <div class="card verified"><div class="kind">&#10003; Cited by Perplexity</div><div class="ttl">&ldquo;best UPI payment gateway&rdquo;</div><div class="foot"><span class="pill impact">moved +8</span></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- COPILOT -->
+<div class="scrim" id="scrim">
+  <div class="copilot" id="copilot" role="dialog" aria-label="Copilot">
+    <div class="cp-input">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5L13 3Z" stroke-linejoin="round"/></svg>
+      <input id="cp-field" placeholder="Why did our AI citations drop in Germany last month?" autocomplete="off"/>
+      <span class="esc">esc</span>
+    </div>
+    <div class="cp-body">
+      <div class="cp-lbl label">Suggested</div>
+      <div class="cp-opt hi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l2 6 4-14 2 8h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="txt">Explain the 4.2-point rise this month</span><span class="hint">cited</span></div>
+      <div class="cp-opt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18" stroke-linecap="round"/></svg><span class="txt">Compare our Share of Model to competitors</span><span class="hint">GEO</span></div>
+      <div class="cp-opt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="10" rx="1.5"/></svg><span class="txt">Which proposed fix will move the score most?</span><span class="hint">Fix Queue</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- theme toggle (stamps data-theme, wins over OS) ----
+  const root = document.documentElement, tbtn = document.getElementById('theme');
+  const sun = 'M12 4V2M12 22v-2M4 12H2M22 12h-2M6 6 4.5 4.5M19.5 19.5 18 18M18 6l1.5-1.5M4.5 19.5 6 18';
+  function setIcon(){
+    const dark = getComputedStyle(root).getPropertyValue('--bg').trim().startsWith('#08') || root.getAttribute('data-theme')==='dark';
+    document.getElementById('theme-i').innerHTML = dark
+      ? '<circle cx="12" cy="12" r="4.5"/><path d="'+sun+'" stroke-linecap="round"/>'
+      : '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" stroke-linejoin="round"/>';
+  }
+  tbtn.addEventListener('click', () => {
+    const cur = root.getAttribute('data-theme')
+      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    setIcon();
+  });
+  setIcon();
+
+  // ---- score count-up with ease-out (spring feel), respects reduced motion ----
+  const scoreEl = document.getElementById('score'), target = 72;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { scoreEl.textContent = target; }
+  else {
+    const dur = 1100, t0 = performance.now();
+    const ease = x => 1 - Math.pow(1 - x, 3);
+    (function tick(now){
+      const p = Math.min(1, (now - t0) / dur);
+      scoreEl.textContent = Math.round(ease(p) * target);
+      if (p < 1) requestAnimationFrame(tick);
+    })(t0);
+  }
+
+  // ---- &#8984;K copilot: materialize with scrim (dim to focus) ----
+  const scrim = document.getElementById('scrim'), field = document.getElementById('cp-field');
+  function openCP(){ scrim.classList.add('open'); setTimeout(()=>field.focus(), 60); }
+  function closeCP(){ scrim.classList.remove('open'); }
+  document.getElementById('cmdk').addEventListener('click', openCP);
+  addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); scrim.classList.contains('open') ? closeCP() : openCP(); }
+    if (e.key === 'Escape') closeCP();
+  });
+  scrim.addEventListener('click', e => { if (e.target === scrim) closeCP(); });
+</script>
