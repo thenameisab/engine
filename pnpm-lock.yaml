@@ -20,6 +20,9 @@ importers:
       '@engine/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@engine/diagnosis':
+        specifier: workspace:*
+        version: link:../../packages/diagnosis
       '@engine/scoring':
         specifier: workspace:*
         version: link:../../packages/scoring
@@ -55,6 +58,19 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  packages/diagnosis:
+    dependencies:
+      '@engine/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9
 
   packages/scoring:
     dependencies:

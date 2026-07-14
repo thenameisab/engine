@@ -5,6 +5,7 @@ import {
   type SurfaceScores,
   type ChannelMix,
 } from '@engine/scoring';
+import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { createDb } from './db.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 
@@ -40,6 +41,20 @@ app.post('/projects/:projectId/pulse', async (c) => {
   const body = await c.req.json<{ surfaces: SurfaceScores; mix?: ChannelMix }>();
   const score = unifiedVisibilityScore(body.surfaces, body.mix ?? DEFAULT_CHANNEL_MIX);
   return c.json({ projectId: c.req.param('projectId'), score });
+});
+
+/**
+ * Run the B1 technical audit (M1.3) over a set of crawled pages and return the
+ * scored `Finding` inventory plus the lead technical-health score. The crawl
+ * itself (B1.1 Playwright, Cloudflare Queues) runs out-of-band and persists
+ * `CrawledPage` records; here we take them directly so the diagnosis rule engine
+ * (pure, in @engine/diagnosis) is integration-testable and the crawl transport
+ * stays swappable.
+ */
+app.post('/projects/:projectId/audit', async (c) => {
+  const body = await c.req.json<{ pages: CrawledPage[] }>();
+  const result = runAudit(body.pages ?? []);
+  return c.json({ projectId: c.req.param('projectId'), ...result });
 });
 
 export default app;
