@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -20,17 +20,17 @@
        committed teaser default; light + OS preference both honored.
        ———————————————————————————————————————————————— */
     :root {
-      --accent: #4d84ff;
-      --accent-wash: #16223c;
-      --good: #3fb27f;
-      --bg: #0d0f12;
-      --surface: #16181d;
-      --surface-2: #1d2026;
-      --text: #e7e9ec;
-      --muted: #9aa2ad;
-      --faint: #6b7480;
-      --border: #262a31;
-      --border-strong: #333842;
+      --accent: #2f6feb;
+      --accent-wash: #eef3fe;
+      --good: #1a7f52;
+      --bg: #f7f8fa;
+      --surface: #ffffff;
+      --surface-2: #f1f2f4;
+      --text: #1a1d21;
+      --muted: #616a75;
+      --faint: #8b95a1;
+      --border: #e4e7eb;
+      --border-strong: #d3d8de;
 
       --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
       --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -43,28 +43,19 @@
       --z-bg: 0; --z-content: 10; --z-nav: 20;
     }
 
-    :root[data-theme="light"] {
-      --accent: #2f6feb;
-      --accent-wash: #eef3fe;
-      --good: #1a7f52;
-      --bg: #f7f8fa;
-      --surface: #ffffff;
-      --surface-2: #f1f2f4;
-      --text: #1a1d21;
-      --muted: #616a75;
-      --faint: #8b95a1;
-      --border: #e4e7eb;
-      --border-strong: #d3d8de;
-    }
-
-    /* OS preference wins only when the user hasn't explicitly chosen. */
-    @media (prefers-color-scheme: light) {
-      :root:not([data-theme]) {
-        --accent: #2f6feb; --accent-wash: #eef3fe; --good: #1a7f52;
-        --bg: #f7f8fa; --surface: #ffffff; --surface-2: #f1f2f4;
-        --text: #1a1d21; --muted: #616a75; --faint: #8b95a1;
-        --border: #e4e7eb; --border-strong: #d3d8de;
-      }
+    /* Light is the default. Dark is opt-in via the toggle (persisted). */
+    :root[data-theme="dark"] {
+      --accent: #4d84ff;
+      --accent-wash: #16223c;
+      --good: #3fb27f;
+      --bg: #0d0f12;
+      --surface: #16181d;
+      --surface-2: #1d2026;
+      --text: #e7e9ec;
+      --muted: #9aa2ad;
+      --faint: #6b7480;
+      --border: #262a31;
+      --border-strong: #333842;
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -144,10 +135,6 @@
     .toggle .moon { display: none; }
     :root[data-theme="dark"] .toggle .sun { display: none; }
     :root[data-theme="dark"] .toggle .moon { display: block; }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme]) .toggle .sun { display: none; }
-      :root:not([data-theme]) .toggle .moon { display: block; }
-    }
 
     /* ———————— hero ———————— */
     main {
