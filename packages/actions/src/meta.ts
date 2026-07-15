@@ -34,7 +34,7 @@ export function generateMetaTitleAction(findingId: string, ctx: ActionContext, e
     findingId,
     type: 'meta',
     target: ctx.target,
-    diff: { before: ctx.currentTitle ?? '', after: proposeTitle(ctx), format: 'text' },
+    diff: { before: ctx.currentTitle ?? '', after: proposeTitle(ctx), format: 'text', field: 'title' },
     env,
   });
 }
@@ -44,7 +44,7 @@ export function generateMetaDescriptionAction(findingId: string, ctx: ActionCont
     findingId,
     type: 'meta',
     target: ctx.target,
-    diff: { before: ctx.currentMetaDescription ?? '', after: proposeDescription(ctx), format: 'text' },
+    diff: { before: ctx.currentMetaDescription ?? '', after: proposeDescription(ctx), format: 'text', field: 'description' },
     env,
   });
 }

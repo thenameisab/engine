@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/actions" },
     { "path": "../../packages/core" },
+    { "path": "../../packages/deploy" },
     { "path": "../../packages/diagnosis" },
     { "path": "../../packages/scoring" }
   ],

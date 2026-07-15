@@ -1,5 +1,5 @@
 {
-  "name": "@engine/api",
+  "name": "@engine/workers",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,12 +10,8 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@engine/actions": "workspace:*",
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
-    "@engine/diagnosis": "workspace:*",
-    "@engine/scoring": "workspace:*",
-    "hono": "^4.6.0",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
