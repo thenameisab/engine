@@ -93,12 +93,14 @@ app.get('/projects/:projectId/actions/:actionId', async (c) => {
  */
 function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
   return async (c: Context<{ Bindings: Env }>) => {
-    const body = await c.req.json<{ actor?: string }>().catch(() => ({}) as { actor?: string });
+    const body = await c.req
+      .json<{ actor?: string; detail?: object }>()
+      .catch(() => ({}) as { actor?: string; detail?: object });
     const db = createDb(c.env.DATABASE_URL);
     const action = await getAction(db, c.req.param('actionId') as string);
     if (!action) return c.json({ error: 'action not found' }, 404);
     try {
-      const next = transition(action, to, defaultEnv(), body.actor ?? 'system');
+      const next = transition(action, to, defaultEnv(), body.actor ?? 'system', body.detail);
       const saved = await saveActionTransition(db, next);
       return c.json({ action: saved });
     } catch (err) {
