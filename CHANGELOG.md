@@ -10,6 +10,42 @@ versions.
 
 ---
 
+## 2026-07-15 — Product dashboard (K): the real Pulse + Fix Queue SPA
+
+### Added
+- **`apps/dashboard`** — the product SPA the roadmap kept flagging as missing
+  (distinct from `apps/web`, the marketing placeholder). No framework, no
+  bundler: TypeScript compiled to browser ES modules, served static on
+  Cloudflare Pages. Ports the design-system v2.0 visual language (flat/minimal,
+  the confidence band as the one signature) from `docs/mockups/pulse.html` into
+  a live, API-wired app. Five views behind a hash router + rail nav + theme
+  toggle (light default, dark honored/toggleable):
+  - **Pulse** — Unified Visibility Score with its confidence-band range bar
+    (a wider band visibly fills more track — uncertainty is legible), count-up,
+    trend sparkline, channel decomposition (organic / AI Share-of-Model with
+    ±range / local), wins & risks.
+  - **Fix Queue** — the lifecycle kanban (proposed → approved → deployed →
+    verified); card actions call the live transition endpoints and fall back to
+    a local move (with a plain-spoken toast) when there's no live DB.
+  - **Audit** — the B1 findings inventory (severity, predicted impact,
+    auto-fixable), shaped exactly like `@engine/diagnosis`'s output.
+  - **Integrations** — reads `GET /health/integrations` **live** and shows,
+    per external account, what's wired vs. missing (ties directly to the
+    integration-readiness layer).
+  - **Settings** — point the app at a running `apps/api` (base URL + project id,
+    persisted in `localStorage`).
+- **Live-or-sample, honestly labelled.** Every view tries the live API and
+  falls back to built-in sample data, showing a `live`/`sample` badge. Two
+  routes genuinely work live with no database — `/health/integrations` and
+  `/projects/:id/pulse` (the A3 score math is pure) — and the client sends the
+  exact `SurfaceScores` body + parses the real band. DB-backed views stay on
+  sample until Postgres is wired.
+- **10 unit tests** on the pure presentation helpers (confidence-band bar
+  geometry, sparkline path building, delta formatting, lifecycle transitions).
+  Battle-tested in-browser: all five views render in light **and** dark, the
+  Fix Queue lifecycle transition moves a card + updates its next action, zero
+  console errors, no horizontal overflow.
+
 ## 2026-07-15 — Real crawler (B1.1): Playwright feeds the diagnosis engine live
 
 ### Added

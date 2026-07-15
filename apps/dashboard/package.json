@@ -1,0 +1,17 @@
+{
+  "name": "@engine/dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Engine product dashboard (Pulse + Fix Queue) — Cloudflare Pages SPA, wired to apps/api",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsc -p tsconfig.json -w"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

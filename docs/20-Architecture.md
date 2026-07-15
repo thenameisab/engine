@@ -88,7 +88,8 @@ Monorepo with workspaces (pnpm/Turborepo):
 ```
 engine/
   apps/
-    web/            # React + TS SPA  → Cloudflare Pages
+    web/            # marketing / pre-launch placeholder → Cloudflare Pages
+    dashboard/      # product SPA (Pulse + Fix Queue), TS→ESM → Cloudflare Pages
     api/            # API + GraphQL   → Cloudflare Workers (Hono) or containerized
     workers/        # edge fix-deploy Workers, cron pollers, queue consumers
     mcp/            # MCP server
