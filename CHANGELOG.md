@@ -10,6 +10,55 @@ versions.
 
 ---
 
+## 2026-07-15 — Real crawler (B1.1): Playwright feeds the diagnosis engine live
+
+### Added
+- **`packages/crawler`** — the B1.1 Playwright crawler that was the one piece
+  of the diagnosis pipeline still synthetic-input-only. Unlike M1.4–M1.7,
+  this needed no external account (no Google/Stripe dependency), so it's
+  fully built *and* integration-tested against real Chromium, not just
+  smoke-scripted. `robots.ts` (robots.txt parser — per-user-agent groups,
+  longest-match-wins with `$`-anchoring, feeds B1.6's
+  GPTBot/ClaudeBot/PerplexityBot/Google-Extended verdicts), `sitemap.ts`
+  (sitemap + sitemap-index fetch/parse, `Sitemap:` directive extraction from
+  robots.txt), `structuredData.ts` (JSON-LD extraction incl. `@graph`
+  flattening with `@context` inheritance, validation against required
+  schema.org properties per type), `vitals.ts` (lab Core Web Vitals via real
+  `PerformanceObserver` LCP/CLS entries, plus a synthetic-click INP proxy —
+  documented approximation, same idea as Lighthouse's lab TBT), `browser.ts`
+  (Chromium lifecycle), `crawlPage.ts` (orchestrates one URL into a full
+  `CrawledPage` matching `@engine/diagnosis`'s contract exactly — status,
+  redirect chain via `redirectedFrom()`, canonical/indexability, noindex
+  source resolution across header/meta/robots, hreflang, structured data, AI
+  crawler access, CWV), `crawlSite.ts` (multi-URL orchestration: explicit
+  seed list or same-origin BFS discovery, a budget cap defaulting to the
+  spec's 100k/project, and a politeness delay between requests — discovered
+  links are filtered through robots.txt before ever being queued), `report.ts`
+  + `cli.ts` (`engine-crawl` — a standalone runner process, since a Cloudflare
+  Worker can't launch a browser; crawls a site then POSTs the pages to the
+  already-existing `POST /projects/:id/audit`, which was built in M1.3
+  specifically to take `CrawledPage[]` from an out-of-band crawler).
+- **28 tests, all against a real local HTTP server + real headless Chromium**
+  — no mocked browser, no `page.setContent` shortcuts. A tiny test-only
+  `node:http` server serves real HTTP responses (status codes, redirects,
+  headers, robots.txt, sitemap.xml) so `crawlPage`/`crawlSite` exercise
+  genuine network behavior. Caught 4 real bugs this way before they shipped:
+  a `@graph` validator falsely failing on inherited `@context`, a relative
+  `Sitemap:` directive not resolved against origin, a missing charset header
+  mangling non-ASCII page titles, and a wrong test expectation in
+  `normalizeUrl`.
+- Added a `playwright install --with-deps chromium` step to
+  `.github/workflows/ci.yml` ahead of `turbo run typecheck/build/test`.
+
+### Known gaps
+None specific to this package — it needs no external account and every code
+path (robots parsing, sitemap resolution, structured-data validation, CWV
+capture, redirect/noindex/hreflang extraction, BFS discovery + robots
+filtering + budget cap) is exercised against a real browser and a real HTTP
+server in CI. The only thing still out-of-band is Postgres persistence on
+the `apps/api` side of `/projects/:id/audit`, which is the same standing gap
+as M1.4–M1.7 (no live Postgres in this environment), not a crawler gap.
+
 ## 2026-07-15 — Fix Queue goes live: deploy, automatic rollback, onboarding & billing scaffolding
 
 ### Added
@@ -239,15 +288,17 @@ Per [`docs/10-Roadmap.md`](docs/10-Roadmap.md), Phase 1 (MVP) milestones:
 |---|---|---|
 | M1.1 | Data spine live | ✅ Done |
 | M1.2 | Visibility MVP (A1+A2+A3 with confidence bands) | ✅ Scoring done; live A1/A2 ingestion still pending |
-| M1.3 | Diagnosis MVP (B1 → scored Findings) | ✅ Done |
+| M1.3 | Diagnosis MVP (B1 → scored Findings) | ✅ Done — rule engine + real B1.1 Playwright crawler both live |
 | M1.4 | First fix deployed (proposed→approved→deployed→verified via plugin/worker) | ✅ Built and smoke-tested end to end (`packages/deploy`, `apps/workers`); not yet exercised against a live Postgres + real Cloudflare deploy |
 | M1.5 | Rollback proven | ✅ Automatic rollback (C1.7) built and staged-tested; same live-infra caveat as M1.4 |
 | M1.6 | Self-serve onboarding | 🟡 KPI tracking + GSC OAuth scaffolding built; blocked on a real Google Cloud OAuth client + the product SPA (onboarding wizard UI) |
 | M1.7 | Billing live | 🟡 Webhook sync + plan/usage logic built and fully unit-tested; blocked on a real Stripe account |
 
-Also outstanding: real crawler (B1.1 Playwright) and A1/A2 connector runtimes
-(interfaces exist, no live ingestion yet), the product app (`apps/web` today
-is the pre-launch marketing placeholder, not the dashboard — no onboarding
-wizard or billing UI exists yet even though the backend does), X0 competitor
-teardown research track, and provisioning the two external accounts (Google
-Cloud OAuth client, Stripe) needed to take M1.6/M1.7 from scaffolded to live.
+Also outstanding: A1/A2 connector runtimes (interfaces exist, no live
+ingestion yet — both need a paid third-party API account: a SERP data
+provider for A1, per-engine LLM API access for A2), the product app
+(`apps/web` today is the pre-launch marketing placeholder, not the
+dashboard — no onboarding wizard or billing UI exists yet even though the
+backend does), X0 competitor teardown research track, and provisioning the
+two external accounts (Google Cloud OAuth client, Stripe) needed to take
+M1.6/M1.7 from scaffolded to live.
