@@ -9,6 +9,8 @@ import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { generateActions, transition, defaultEnv, type ActionContext } from '@engine/actions';
 import { verifyHtmlDeploy, verifyRobotsDeploy } from '@engine/deploy';
 import { verifyStripeSignature, mapStripeSubscriptionEvent, isOverLimit, type StripeWebhookEvent } from '@engine/billing';
+import { evaluateReadiness } from '@engine/config';
+import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { createDb } from './db.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
@@ -32,11 +34,65 @@ interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** JSON map of Stripe price id -> our PlanTier, e.g. {"price_growth_monthly":"growth"}. */
   STRIPE_PRICE_TO_TIER?: string;
+  STRIPE_SECRET_KEY?: string;
+  /** SERP data (A1). SERP_PROVIDER defaults to 'serper'. */
+  SERP_PROVIDER?: string;
+  SERPER_API_KEY?: string;
+  /** LLM engines (A2). Each engine activates only when its key is present. */
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
+
+/**
+ * Integration readiness (pre-alpha wiring check). Reports, per external
+ * integration (Google OAuth/GSC, Stripe, Serper SERP, OpenAI, Gemini),
+ * whether its required secrets/vars are present — without ever echoing a
+ * secret value. `mvpReady` is true only when every required-for-MVP
+ * integration is fully configured. Drives the internal "what's wired?" view.
+ */
+app.get('/health/integrations', (c) => {
+  const report = evaluateReadiness(c.env as unknown as Record<string, string | undefined>);
+  return c.json(report);
+});
+
+/**
+ * A1 rank poll. Fetches live SERP results for the supplied queries via the
+ * configured SERP connector (Serper.dev by default). Returns 503 when no SERP
+ * key is wired, so a missing account degrades cleanly instead of 500-ing.
+ * Persisting results to ClickHouse is out-of-band (same pattern as /audit).
+ */
+app.post('/projects/:projectId/rank/poll', async (c) => {
+  const connector = createSerpConnector(c.env as unknown as Record<string, string | undefined>);
+  if (!connector) {
+    return c.json({ error: 'SERP provider not configured (set SERPER_API_KEY)' }, 503);
+  }
+  const body = await c.req.json<{ queries: SerpQuery[] }>();
+  const results = await Promise.all((body.queries ?? []).map((q) => connector.fetch(q)));
+  return c.json({ projectId: c.req.param('projectId'), vendor: connector.vendor, results });
+});
+
+/**
+ * A2 AI-visibility poll. Polls every configured LLM engine (OpenAI and/or
+ * Gemini) n times for the prompt and returns per-engine samples with citation
+ * events. Returns 503 when no LLM key is wired. Aggregating samples into a
+ * confidence-band `CitationMeasurement` (A2.6) happens upstream in @engine/scoring.
+ */
+app.post('/projects/:projectId/ai/poll', async (c) => {
+  const connectors = createLlmConnectors(c.env as unknown as Record<string, string | undefined>);
+  if (connectors.length === 0) {
+    return c.json({ error: 'No LLM engine configured (set OPENAI_API_KEY and/or GEMINI_API_KEY)' }, 503);
+  }
+  const body = await c.req.json<{ query: PromptQuery; nSamples?: number }>();
+  const nSamples = Math.min(Math.max(body.nSamples ?? 3, 1), 5); // A2 n=3–5
+  const results = await Promise.all(connectors.map((engine) => engine.poll(body.query, nSamples)));
+  return c.json({ projectId: c.req.param('projectId'), engines: connectors.map((e) => e.engine), results });
+});
 
 app.get('/projects/:projectId/entities', async (c) => {
   const db = createDb(c.env.DATABASE_URL);

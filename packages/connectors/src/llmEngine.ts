@@ -10,6 +10,13 @@ import type { CitationMethod } from '@engine/core';
 export interface PromptQuery {
   prompt: string;
   entityId: string;
+  /**
+   * Domains and/or brand names that count as "the entity was cited" (A2). The
+   * caller resolves these from the entity's facts. Domain targets (contain a
+   * dot) match cited source hosts; name targets match the answer text. Absent
+   * → the connector still returns the sources it found but can't decide `cited`.
+   */
+  citationTargets?: string[];
 }
 
 export interface CitationEvent {

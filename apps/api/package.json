@@ -12,6 +12,8 @@
   "dependencies": {
     "@engine/actions": "workspace:*",
     "@engine/billing": "workspace:*",
+    "@engine/config": "workspace:*",
+    "@engine/connectors": "workspace:*",
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",
