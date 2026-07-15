@@ -10,6 +10,65 @@ versions.
 
 ---
 
+## 2026-07-15 — Fix Queue goes live: deploy, automatic rollback, onboarding & billing scaffolding
+
+### Added
+- **Edge-worker deploy target (`packages/deploy`, `apps/workers`)** — the
+  executable half of the C2/C3.2/C4.4 deploy targets. Pure HTML/robots.txt
+  transforms (`applySchemaDiff`/`applyMetaDiff`/`applyHtmlActions` — insert-
+  or-replace JSON-LD, `<title>`, meta description, HTML-escaped;
+  `applyRobotsActions` — latest deployed action wins) plus `verifyHtmlDeploy`/
+  `verifyRobotsDeploy` to confirm a diff actually landed before the Fix Queue
+  moves an action to `verified`. `apps/workers` is the real Cloudflare Worker:
+  reverse-proxies a customer origin and rewrites the response with every
+  live `deployed`/`verified` action for the project, read straight from
+  Postgres per request — deploy/rollback are pure DB status flips, no
+  separate push to the worker. Added a `field: 'title' | 'description'`
+  discriminator to `@engine/core`'s `Diff` type so a deploy target knows
+  which element a meta action targets. Wired the Fix Queue lifecycle into
+  `apps/api`: `POST /projects/:id/actions/{approve,deploy,rollback,verify}`.
+  12 new unit tests. ([PR #13](https://github.com/thenameisab/engine/pull/13))
+- **Automatic rollback (C1.7, `packages/deploy/src/health.ts`)** — every
+  transform the edge worker serves is now health-checked before going out:
+  origin 5xx, a page-shrunk-below-50%-of-original heuristic (catches a
+  mangled transform), and JSON-LD re-validation for HTML; non-empty +
+  well-formed checks for robots.txt. A failing check makes the worker fail
+  safe — serve the untransformed origin response, never a broken fix — and
+  fires a background rollback call to the API with the failure reason
+  recorded on the action's audit log (`actor: 'system:edge-worker-health-
+  check'`). Extended the transition endpoints to accept an optional `detail`
+  object so the reason lands in the immutable audit log. 9 new unit tests.
+  ([PR #14](https://github.com/thenameisab/engine/pull/14))
+- **Onboarding + billing backend scaffolding (M1.6/M1.7)** — both need real
+  external accounts (a Google Cloud OAuth client for GSC, a Stripe account)
+  that can't be provisioned in this environment, so this is the
+  fully-testable backend slice behind env-var seams. `@engine/core` gained
+  `OnboardingProgress` (set-once E1–E3 milestone timestamps + `durationMs`
+  for KPI math) and a `Subscription`/`PlanTier`/`UsageCounters` billing read
+  model. New **`packages/billing`** package: Stripe webhook signature
+  verification reimplemented on Web Crypto (no Stripe SDK, portable to
+  Workers *and* Node — unit-tested against signatures computed independently
+  via `node:crypto` as a cross-check, not just self-consistency),
+  `PLAN_LIMITS`/`isOverLimit` (G1/G5 — only Starter's caps are blueprint-
+  pinned), and a pure `customer.subscription.*` event mapper. 15 new unit
+  tests — the one piece of M1.6/M1.7 that's genuinely fully tested, since
+  signature verification is just crypto. `infra/migrations/postgres/
+  0002_onboarding_billing.sql` added `onboarding_progress` and
+  `subscriptions` tables. New `apps/api` endpoints: onboarding checklist +
+  E2/E3 KPI reporting, a pure GSC OAuth connect-URL builder plus the
+  callback token-exchange (code-complete, not live-tested against a real
+  Google client), a signature-gated `POST /billing/webhook`, and
+  `GET /accounts/:id/plan`. The existing `/audit`, `/actions/generate`, and
+  deploy endpoints now mark onboarding milestones automatically as a side
+  effect of normal use. ([PR #15](https://github.com/thenameisab/engine/pull/15))
+
+### Known gaps (flagged in each PR, not yet exercised)
+No live Postgres or Cloudflare deploy access in this environment: the
+Fix Queue's DB round-trip, the edge worker's live HTTP request, the GSC
+OAuth token exchange, and real Stripe webhook traffic are all typechecked
+and logically verified via scratch smoke scripts, but not integration-tested
+against real infra.
+
 ## 2026-07-15 — Pre-launch site + Fix Queue execution layer
 
 ### Added
@@ -181,12 +240,14 @@ Per [`docs/10-Roadmap.md`](docs/10-Roadmap.md), Phase 1 (MVP) milestones:
 | M1.1 | Data spine live | ✅ Done |
 | M1.2 | Visibility MVP (A1+A2+A3 with confidence bands) | ✅ Scoring done; live A1/A2 ingestion still pending |
 | M1.3 | Diagnosis MVP (B1 → scored Findings) | ✅ Done |
-| M1.4 | First fix deployed (proposed→approved→deployed→verified via plugin/worker) | 🟡 Action generation + Fix Queue lifecycle done; real deploy transport (WordPress/Shopify plugin, Cloudflare Worker) not yet built |
-| M1.5 | Rollback proven | 🟡 State machine supports it; not yet exercised against a real deploy |
-| M1.6 | Self-serve onboarding | ⬜ Not started |
-| M1.7 | Billing live | ⬜ Not started |
+| M1.4 | First fix deployed (proposed→approved→deployed→verified via plugin/worker) | ✅ Built and smoke-tested end to end (`packages/deploy`, `apps/workers`); not yet exercised against a live Postgres + real Cloudflare deploy |
+| M1.5 | Rollback proven | ✅ Automatic rollback (C1.7) built and staged-tested; same live-infra caveat as M1.4 |
+| M1.6 | Self-serve onboarding | 🟡 KPI tracking + GSC OAuth scaffolding built; blocked on a real Google Cloud OAuth client + the product SPA (onboarding wizard UI) |
+| M1.7 | Billing live | 🟡 Webhook sync + plan/usage logic built and fully unit-tested; blocked on a real Stripe account |
 
 Also outstanding: real crawler (B1.1 Playwright) and A1/A2 connector runtimes
 (interfaces exist, no live ingestion yet), the product app (`apps/web` today
-is the pre-launch marketing placeholder, not the dashboard), X0 competitor
-teardown research track.
+is the pre-launch marketing placeholder, not the dashboard — no onboarding
+wizard or billing UI exists yet even though the backend does), X0 competitor
+teardown research track, and provisioning the two external accounts (Google
+Cloud OAuth client, Stripe) needed to take M1.6/M1.7 from scaffolded to live.
