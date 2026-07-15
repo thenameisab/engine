@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Engine — Be the answer AI gives</title>
+  <meta name="description" content="Engine measures how visible you are across AI answers and search — as an honest range, never a false-precise score — then deploys the fixes that move it." />
+
+  <meta property="og:title" content="Engine — Be the answer AI gives" />
+  <meta property="og:description" content="AI & search visibility, measured honestly. Then fixed." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ————————————————————————————————————————————————
+       Tokens (from docs/30-Design-System.md v2.0). Dark is the
+       committed teaser default; light + OS preference both honored.
+       ———————————————————————————————————————————————— */
+    :root {
+      --accent: #4d84ff;
+      --accent-wash: #16223c;
+      --good: #3fb27f;
+      --bg: #0d0f12;
+      --surface: #16181d;
+      --surface-2: #1d2026;
+      --text: #e7e9ec;
+      --muted: #9aa2ad;
+      --faint: #6b7480;
+      --border: #262a31;
+      --border-strong: #333842;
+
+      --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+      /* Emil's stronger curves — the built-in easings lack punch. */
+      --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+
+      --z-bg: 0; --z-content: 10; --z-nav: 20;
+    }
+
+    :root[data-theme="light"] {
+      --accent: #2f6feb;
+      --accent-wash: #eef3fe;
+      --good: #1a7f52;
+      --bg: #f7f8fa;
+      --surface: #ffffff;
+      --surface-2: #f1f2f4;
+      --text: #1a1d21;
+      --muted: #616a75;
+      --faint: #8b95a1;
+      --border: #e4e7eb;
+      --border-strong: #d3d8de;
+    }
+
+    /* OS preference wins only when the user hasn't explicitly chosen. */
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme]) {
+        --accent: #2f6feb; --accent-wash: #eef3fe; --good: #1a7f52;
+        --bg: #f7f8fa; --surface: #ffffff; --surface-2: #f1f2f4;
+        --text: #1a1d21; --muted: #616a75; --faint: #8b95a1;
+        --border: #e4e7eb; --border-strong: #d3d8de;
+      }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      min-height: 100svh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      overflow-x: hidden;
+      transition: background 320ms var(--ease-out), color 320ms var(--ease-out);
+    }
+
+    a { color: inherit; }
+
+    /* Background instrument field — a quiet, cursor-parallax dot grid. */
+    #field {
+      position: fixed; inset: 0; z-index: var(--z-bg);
+      width: 100%; height: 100%;
+      opacity: 0.9; pointer-events: none;
+    }
+
+    .shell {
+      position: relative; z-index: var(--z-content);
+      min-height: 100svh;
+      display: flex; flex-direction: column;
+      max-width: 1120px; margin: 0 auto;
+      padding: clamp(20px, 4vw, 36px);
+    }
+
+    /* ———————— top bar ———————— */
+    nav {
+      z-index: var(--z-nav);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px;
+    }
+    .wordmark {
+      font-family: var(--serif); font-size: 26px; letter-spacing: 0.01em;
+      line-height: 1; display: inline-flex; align-items: baseline; gap: 8px;
+    }
+    .wordmark .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 60%, transparent);
+      animation: pulse 3.4s var(--ease-out) infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent); }
+      50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 0%, transparent); }
+    }
+    .nav-right { display: flex; align-items: center; gap: 14px; }
+    .status {
+      font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.02em;
+      color: var(--muted); display: inline-flex; align-items: center; gap: 7px;
+      padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px;
+      background: color-mix(in oklab, var(--surface) 60%, transparent);
+    }
+    .status i {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 8px var(--good);
+    }
+    .toggle {
+      appearance: none; cursor: pointer;
+      width: 34px; height: 34px; border-radius: 9px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--muted); display: grid; place-items: center;
+      transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out), color 160ms var(--ease-out);
+    }
+    .toggle:hover { color: var(--text); border-color: var(--border-strong); }
+    .toggle:active { transform: scale(0.94); }
+    .toggle svg { width: 17px; height: 17px; }
+    .toggle .moon { display: none; }
+    :root[data-theme="dark"] .toggle .sun { display: none; }
+    :root[data-theme="dark"] .toggle .moon { display: block; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) .toggle .sun { display: none; }
+      :root:not([data-theme]) .toggle .moon { display: block; }
+    }
+
+    /* ———————— hero ———————— */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      align-items: center;
+      gap: clamp(32px, 6vw, 88px);
+      padding: clamp(40px, 8vh, 96px) 0;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; gap: 44px; padding: 48px 0; }
+    }
+
+    .lede { max-width: 42ch; }
+
+    .kicker {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+      color: var(--accent); margin: 0 0 22px;
+      display: inline-flex; align-items: center; gap: 9px;
+    }
+    .kicker::before {
+      content: ""; width: 22px; height: 1px; background: var(--accent);
+      display: inline-block;
+    }
+
+    h1 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: clamp(2.9rem, 8.5vw, 5.4rem);
+      line-height: 0.98; letter-spacing: -0.02em;
+      margin: 0; text-wrap: balance;
+      color: var(--text);
+    }
+    h1 .em { font-style: italic; color: var(--accent); }
+    h1 .word {
+      display: inline-block;
+      opacity: 0; transform: translateY(0.32em);
+      filter: blur(6px);
+    }
+    .reveal h1 .word {
+      animation: word-in 720ms var(--ease-out-quint) forwards;
+    }
+    @keyframes word-in {
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+
+    .sub {
+      margin: 26px 0 0; font-size: clamp(1rem, 1.5vw, 1.15rem);
+      color: var(--muted); max-width: 46ch; line-height: 1.6;
+      opacity: 0; transform: translateY(8px);
+    }
+    .reveal .sub { animation: soft-in 700ms var(--ease-out) 480ms forwards; }
+    @keyframes soft-in { to { opacity: 1; transform: translateY(0); } }
+
+    /* ———————— the confidence readout (the signature) ———————— */
+    .instrument {
+      opacity: 0; transform: translateY(14px) scale(0.985);
+      will-change: transform;
+    }
+    .reveal .instrument { animation: soft-in 820ms var(--ease-out-quint) 240ms forwards; }
+
+    .panel {
+      border: 1px solid var(--border); border-radius: 16px;
+      background: color-mix(in oklab, var(--surface) 82%, transparent);
+      padding: clamp(22px, 3vw, 30px);
+      transform-style: preserve-3d;
+    }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.03em;
+      color: var(--faint); margin-bottom: 20px;
+    }
+    .panel-head .live { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+    .panel-head .live i {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+      animation: blink 2.2s var(--ease-out) infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    .score {
+      font-family: var(--mono); font-variant-numeric: tabular-nums;
+      font-size: clamp(3.4rem, 8vw, 4.6rem); line-height: 1;
+      letter-spacing: -0.02em; color: var(--text);
+      display: flex; align-items: baseline; gap: 10px;
+    }
+    .score .unit { font-size: 1.05rem; color: var(--faint); letter-spacing: 0; }
+
+    .metric-label {
+      font-size: 13px; color: var(--muted); margin-top: 8px;
+    }
+
+    /* range bar: [low ▓▓ high] with an accent tick at the point estimate */
+    .band { margin-top: 26px; }
+    .band-track {
+      position: relative; height: 12px; border-radius: 7px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-2); overflow: hidden;
+    }
+    .band-fill {
+      position: absolute; top: 0; bottom: 0;
+      background: color-mix(in oklab, var(--accent) 26%, transparent);
+      border-left: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
+      border-right: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
+      left: 50%; right: 50%;
+      transition: left 60ms linear, right 60ms linear;
+    }
+    .band-tick {
+      position: absolute; top: -3px; bottom: -3px; width: 2px;
+      background: var(--accent); left: 50%;
+      box-shadow: 0 0 10px color-mix(in oklab, var(--accent) 70%, transparent);
+      transition: left 60ms linear;
+    }
+    .band-scale {
+      display: flex; justify-content: space-between;
+      font-family: var(--mono); font-size: 11px; color: var(--faint);
+      margin-top: 9px; font-variant-numeric: tabular-nums;
+    }
+    .band-caption {
+      margin-top: 16px; font-size: 12.5px; color: var(--faint);
+      line-height: 1.5; display: flex; align-items: flex-start; gap: 8px;
+    }
+    .band-caption b { color: var(--muted); font-weight: 500; }
+
+    /* ———————— waitlist ———————— */
+    .waitlist {
+      margin-top: 8px; grid-column: 1 / -1;
+      border-top: 1px solid var(--border);
+      padding-top: clamp(28px, 5vh, 44px);
+      display: grid; grid-template-columns: 0.9fr 1.1fr;
+      gap: clamp(24px, 5vw, 64px); align-items: start;
+    }
+    @media (max-width: 900px) { .waitlist { grid-template-columns: 1fr; gap: 22px; } }
+
+    .waitlist h2 {
+      font-family: var(--serif); font-weight: 400;
+      font-size: clamp(1.7rem, 3.4vw, 2.3rem); line-height: 1.04;
+      letter-spacing: -0.015em; margin: 0 0 12px; text-wrap: balance;
+    }
+    .waitlist p { margin: 0; color: var(--muted); font-size: 15px; max-width: 40ch; }
+    .form-wrap {
+      border: 1px solid var(--border); border-radius: 14px;
+      background: var(--surface); padding: 8px 18px 4px;
+      min-height: 120px;
+    }
+
+    footer {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap;
+      padding-top: 28px; margin-top: 8px;
+      font-family: var(--mono); font-size: 11.5px; color: var(--faint);
+      letter-spacing: 0.02em;
+    }
+    footer .sep { color: var(--border-strong); }
+
+    :focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 120ms !important; }
+      .word, .sub, .instrument { opacity: 1 !important; transform: none !important; filter: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="field" aria-hidden="true"></canvas>
+
+  <div class="shell">
+    <nav>
+      <span class="wordmark">Engine<span class="dot"></span></span>
+      <div class="nav-right">
+        <span class="status"><i></i> Private beta</span>
+        <button class="toggle" id="theme" type="button" aria-label="Toggle color theme">
+          <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+          <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/></svg>
+        </button>
+      </div>
+    </nav>
+
+    <main>
+      <div class="lede">
+        <p class="kicker">AI &amp; search visibility</p>
+        <h1 id="headline">
+          <span class="word">Be</span> <span class="word">the</span> <span class="word em">answer</span><br>
+          <span class="word">AI</span> <span class="word">gives.</span>
+        </h1>
+        <p class="sub">
+          Engine measures how visible you are across AI answers and search —
+          as an honest <b style="color:var(--text);font-weight:500">range</b>, never a false-precise score —
+          then deploys the fixes that move it.
+        </p>
+      </div>
+
+      <div class="instrument" aria-hidden="true">
+        <div class="panel" id="panel">
+          <div class="panel-head">
+            <span>Unified visibility</span>
+            <span class="live"><i></i> measuring</span>
+          </div>
+          <div class="score"><span id="score">0</span><span class="unit">/ 100</span></div>
+          <div class="metric-label">Across ChatGPT, Perplexity, Google AI &amp; organic search</div>
+
+          <div class="band">
+            <div class="band-track">
+              <div class="band-fill" id="fill"></div>
+              <div class="band-tick" id="tick"></div>
+            </div>
+            <div class="band-scale"><span>0</span><span id="range">— confidence range —</span><span>100</span></div>
+            <div class="band-caption">
+              <span>The truth is a range.</span>
+              <span><b>We show the band, not a fake decimal.</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="waitlist">
+        <div>
+          <h2>Request early&nbsp;access</h2>
+          <p>We're onboarding a small group of design partners. Add your domain and we'll be in touch.</p>
+        </div>
+        <div class="form-wrap">
+          <iframe data-tally-src="https://tally.so/embed/eqlzaE?hideTitle=1&transparentBackground=1&dynamicHeight=1&formEventsForwarding=1" loading="lazy" width="100%" height="200" frameborder="0" marginheight="0" marginwidth="0" title="Waitlist"></iframe>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Engine — AI visibility, measured and fixed.</span>
+      <span>© 2026 <span class="sep">·</span> Built for the answer engines.</span>
+    </footer>
+  </div>
+
+  <script>
+    /* ————— theme toggle (explicit choice wins, persisted) ————— */
+    (function () {
+      const root = document.documentElement;
+      const saved = localStorage.getItem("engine-theme");
+      if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+      document.getElementById("theme").addEventListener("click", function () {
+        const dark = getComputedStyle(root).getPropertyValue("--bg").trim().startsWith("#0");
+        const next = dark ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        localStorage.setItem("engine-theme", next);
+      });
+    })();
+
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    /* ————— the signature: a score resolving out of uncertainty ————— */
+    (function () {
+      const POINT = 64, LOW = 57, HIGH = 72;           // settled band
+      const scoreEl = document.getElementById("score");
+      const fill = document.getElementById("fill");
+      const tick = document.getElementById("tick");
+      const rangeEl = document.getElementById("range");
+      const pct = (v) => v + "%";
+
+      function settle() {
+        scoreEl.textContent = POINT;
+        fill.style.left = pct(LOW); fill.style.right = pct(100 - HIGH);
+        tick.style.left = pct(POINT);
+        rangeEl.textContent = LOW + "–" + HIGH;
+      }
+
+      if (reduce) { settle(); return; }
+
+      // Band starts fully uncertain [0,100] and narrows; number scrambles
+      // within the live range, then locks to the point estimate.
+      const DUR = 1650, t0 = performance.now();
+      const easeOutQuint = (x) => 1 - Math.pow(1 - x, 5);
+
+      function frame(now) {
+        const p = Math.min(1, (now - t0) / DUR);
+        const e = easeOutQuint(p);
+        const lo = LOW * e;
+        const hi = 100 - (100 - HIGH) * e;
+        fill.style.left = pct(lo.toFixed(2));
+        fill.style.right = pct((100 - hi).toFixed(2));
+        const tk = lo + (POINT - lo) * e;
+        tick.style.left = pct(tk.toFixed(2));
+        // scramble the readout inside the current band until nearly settled
+        if (p < 0.92) {
+          const jitter = lo + Math.random() * (hi - lo);
+          scoreEl.textContent = Math.round(jitter);
+          rangeEl.textContent = Math.round(lo) + "–" + Math.round(hi);
+        } else {
+          scoreEl.textContent = POINT;
+          rangeEl.textContent = LOW + "–" + HIGH;
+        }
+        if (p < 1) requestAnimationFrame(frame);
+        else {
+          settle();
+          breathe();
+        }
+      }
+
+      // subtle continuous "measuring" — the band never sits perfectly still
+      function breathe() {
+        let r = 0;
+        (function loop() {
+          r += 0.02;
+          const d = Math.sin(r) * 0.6;               // ±0.6%
+          fill.style.left = pct((LOW - d).toFixed(2));
+          fill.style.right = pct((100 - HIGH - d).toFixed(2));
+          requestAnimationFrame(loop);
+        })();
+      }
+
+      requestAnimationFrame(frame);
+    })();
+
+    /* ————— reveal choreography ————— */
+    (function () {
+      const words = document.querySelectorAll("#headline .word");
+      words.forEach((w, i) => { w.style.animationDelay = (120 + i * 70) + "ms"; });
+      requestAnimationFrame(() => document.body.classList.add("reveal"));
+    })();
+
+    /* ————— cursor-reactive parallax (spring-eased) + panel tilt ————— */
+    (function () {
+      if (reduce || !window.matchMedia("(pointer: fine)").matches) return;
+      const panel = document.getElementById("panel");
+      let tx = 0, ty = 0, cx = 0, cy = 0;   // target vs current (spring)
+      window.addEventListener("pointermove", (e) => {
+        tx = (e.clientX / window.innerWidth - 0.5) * 2;
+        ty = (e.clientY / window.innerHeight - 0.5) * 2;
+        field.parallax(tx, ty);
+      }, { passive: true });
+      (function spring() {
+        cx += (tx - cx) * 0.06; cy += (ty - cy) * 0.06;   // damping ≈ momentum
+        panel.style.transform =
+          "perspective(900px) rotateY(" + (cx * 2.6).toFixed(3) + "deg) rotateX(" + (-cy * 2.2).toFixed(3) + "deg)";
+        requestAnimationFrame(spring);
+      })();
+    })();
+
+    /* ————— background instrument field: a quiet drifting dot grid ————— */
+    const field = (function () {
+      const c = document.getElementById("field");
+      const ctx = c.getContext("2d");
+      let w, h, dpr, dots = [], off = { x: 0, y: 0 }, toff = { x: 0, y: 0 };
+      const GAP = 46;
+
+      function color() {
+        return getComputedStyle(document.documentElement).getPropertyValue("--faint").trim();
+      }
+      function accent() {
+        return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+      }
+      function build() {
+        dpr = Math.min(2, window.devicePixelRatio || 1);
+        w = c.width = Math.floor(innerWidth * dpr);
+        h = c.height = Math.floor(innerHeight * dpr);
+        c.style.width = innerWidth + "px"; c.style.height = innerHeight + "px";
+        dots = [];
+        for (let y = GAP; y < innerHeight + GAP; y += GAP)
+          for (let x = GAP; x < innerWidth + GAP; x += GAP)
+            dots.push({ x, y, p: Math.random() * Math.PI * 2, hot: Math.random() < 0.045 });
+      }
+      function draw() {
+        toff.x += (off.x - toff.x) * 0.05;
+        toff.y += (off.y - toff.y) * 0.05;
+        ctx.clearRect(0, 0, w, h);
+        const base = color(), acc = accent();
+        const t = performance.now() / 1000;
+        for (const d of dots) {
+          const tw = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(t * 0.8 + d.p);
+          const r = (d.hot ? 1.7 : 1.0) * dpr;
+          ctx.globalAlpha = (d.hot ? 0.55 : 0.22) * tw;
+          ctx.fillStyle = d.hot ? acc : base;
+          ctx.beginPath();
+          ctx.arc((d.x + toff.x) * dpr, (d.y + toff.y) * dpr, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        requestAnimationFrame(draw);
+      }
+      addEventListener("resize", build);
+      build(); requestAnimationFrame(draw);
+      return { parallax(x, y) { off.x = -x * 16; off.y = -y * 16; } };
+    })();
+  </script>
+
+  <!-- Tally embed loader -->
+  <script>var d=document,w="https://tally.so/widgets/embed.js",v=function(){"undefined"!=typeof Tally?Tally.loadEmbeds():d.querySelectorAll("iframe[data-tally-src]:not([src])").forEach((function(e){e.src=e.dataset.tallySrc}))};if("undefined"!=typeof Tally)v();else if(d.querySelector('script[src="'+w+'"]')==null){var s=d.createElement("script");s.src=w,s.onload=v,s.onerror=v,d.body.appendChild(s);}</script>
+</body>
+</html>
