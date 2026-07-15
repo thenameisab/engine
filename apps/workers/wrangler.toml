@@ -9,4 +9,4 @@ compatibility_date = "2024-12-01"
 
 [env.example]
 name = "engine-edge-example"
-vars = { ORIGIN = "https://example-customer-origin.com", PROJECT_ID = "00000000-0000-0000-0000-000000000000" }
+vars = { ORIGIN = "https://example-customer-origin.com", PROJECT_ID = "00000000-0000-0000-0000-000000000000", API_BASE_URL = "https://api.engine.example" }
