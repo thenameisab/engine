@@ -1,5 +1,5 @@
 {
-  "name": "@engine/connectors",
+  "name": "@engine/config",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,10 +8,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@engine/core": "workspace:*"
+    "test": "vitest run",
+    "gen:dev-vars": "node scripts/genDevVars.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

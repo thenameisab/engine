@@ -41,9 +41,9 @@
 ```
 
 ### Layer 1 — Data Acquisition
-- **SERP data:** managed APIs first — **DataForSEO** (~$0.60/1k) primary, **SerpAPI** failover. *No Google scraper in year one* (parser maintenance + legal exposure). Revisit at >$50k/mo spend.
+- **SERP data:** managed APIs first, behind the swappable `SerpConnector` interface. **Pre-alpha starts on [Serper.dev](40-Integrations.md#4-serp-data--serperdev-serp_provider-serper_api_key)** (2,500 free credits, prepaid so no bill-shock); **DataForSEO** (~$0.60/1k) is the primary switch-target at volume, **SerpAPI** the subscription-capped alternative. *No Google scraper in year one* (parser maintenance + legal exposure). Revisit vendor at >$50k/mo spend.
 - **LLM answer polling:** **adapter-per-engine behind a common interface.**
-  - *API-based:* OpenAI, Gemini, Perplexity (Sonar), Anthropic — cheap; but API ≠ consumer answers.
+  - *API-based:* **OpenAI (primary) + Gemini (built for readiness)** shipped; Perplexity (Sonar), Anthropic to follow — cheap; but API ≠ consumer answers. See [Integrations §5](40-Integrations.md#5-llm-engines--openai-primary--google-gemini-readiness).
   - *Consumer-surface capture:* headless browser sessions for ground truth on a **sampled** basis. Run APIs daily, consumer capture weekly on a stratified sample; reconcile statistically.
   - *Non-determinism:* every prompt runs **n=3–5×/cycle**; store as ranges + confidence bands.
 - **Crawling:** distributed **Playwright cluster** with JS rendering, polite rate-limiting, per-project crawl budgets (cap 100k URLs/project; enterprise lifts caps).

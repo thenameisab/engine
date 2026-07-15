@@ -23,6 +23,12 @@ importers:
       '@engine/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@engine/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@engine/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@engine/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -102,6 +108,15 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.43)
 
+  packages/config:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.43)
+
   packages/connectors:
     dependencies:
       '@engine/core':
@@ -111,6 +126,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.43)
 
   packages/core:
     devDependencies:

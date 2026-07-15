@@ -8,6 +8,8 @@
   "references": [
     { "path": "../../packages/actions" },
     { "path": "../../packages/billing" },
+    { "path": "../../packages/config" },
+    { "path": "../../packages/connectors" },
     { "path": "../../packages/core" },
     { "path": "../../packages/deploy" },
     { "path": "../../packages/diagnosis" },

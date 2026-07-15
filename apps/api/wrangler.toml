@@ -2,5 +2,20 @@ name = "engine-api"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
-# DATABASE_URL is bound as a secret (`wrangler secret put DATABASE_URL`),
-# never committed here.
+# ── External integrations ──────────────────────────────────────────────────
+# Secrets (set via `wrangler secret put <NAME>`, never committed):
+#   DATABASE_URL          Neon Postgres connection string
+#   GSC_CLIENT_SECRET     Google OAuth client secret (GSC connect)
+#   STRIPE_WEBHOOK_SECRET Stripe webhook signing secret
+#   STRIPE_SECRET_KEY     Stripe secret key (optional — outbound calls only)
+#   SERPER_API_KEY        Serper.dev SERP API key (A1 rank tracking)
+#   OPENAI_API_KEY        OpenAI API key (A2 AI visibility)
+#   GEMINI_API_KEY        Google Gemini API key (A2 AI visibility)
+#
+# Non-secret vars (safe to set as plaintext `vars` per environment, or in
+# `.dev.vars` locally): GSC_CLIENT_ID, GSC_REDIRECT_URI, STRIPE_PRICE_TO_TIER,
+# SERP_PROVIDER, OPENAI_MODEL, GEMINI_MODEL.
+#
+# Full catalogue + provisioning steps: docs/40-Integrations.md
+# Local dev: copy `.dev.vars.example` → `.dev.vars` and fill in.
+# Readiness at runtime: GET /health/integrations

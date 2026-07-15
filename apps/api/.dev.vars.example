@@ -1,0 +1,56 @@
+# Engine — local/dev environment variables (example)
+#
+# Copy to `.dev.vars` (gitignored) for `wrangler dev`, or set each as a
+# Worker secret in production via `wrangler secret put <NAME>`.
+# Generated from @engine/config INTEGRATIONS — edit the registry, not this file.
+
+# ── Postgres (Neon) (data) ──
+# Primary operational store — accounts, projects, entities, findings, actions, onboarding, subscriptions.
+# Account: Neon (managed Postgres, AWS ap-southeast-1 / Singapore). Identity via Neon Auth.
+# Neon Postgres connection string (pooled). Bound as a Worker secret. [secret, required]
+DATABASE_URL=postgres://user:password@ep-xxxx.ap-southeast-1.aws.neon.tech/engine?sslmode=require
+
+# ── Google Search Console (OAuth) (identity) ──
+# E1 onboarding: the user connects their GSC property so we can read verified search performance (field CWV, queries).
+# Account: Google Cloud project with an OAuth 2.0 Web client + the Search Console API enabled.
+# OAuth 2.0 client ID from the Google Cloud console. [config, required]
+GSC_CLIENT_ID=1234567890-abcdefg.apps.googleusercontent.com
+# OAuth 2.0 client secret. Bound as a Worker secret. [secret, required]
+GSC_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
+# The registered OAuth redirect URI — must match `/oauth/gsc/callback` exactly. [config, required]
+GSC_REDIRECT_URI=https://api.engine.example/oauth/gsc/callback
+
+# ── Stripe (billing) (billing) ──
+# G3 billing: subscription lifecycle synced from Stripe webhooks into our read-model; plan/usage/over-limit enforcement.
+# Account: Stripe account (test mode is enough for pre-alpha) with products/prices for the plan tiers and a webhook endpoint.
+# Signing secret for the `/billing/webhook` endpoint (whsec_...). Bound as a Worker secret. [secret, required]
+STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
+# JSON map of Stripe price id → our PlanTier, e.g. {"price_starter":"starter","price_growth":"growth"}. [config, required]
+STRIPE_PRICE_TO_TIER={"price_starter_monthly":"starter","price_growth_monthly":"growth"}
+# Stripe secret API key — only needed for outbound calls (creating checkout sessions / portal links). Webhook verification does not use it. [secret, optional]
+STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
+
+# ── Serper.dev (SERP data) (serp) ──
+# A1 rank tracking: Google SERP positions + features (AI Overview presence, local pack, PAA) per tracked keyword/geo/device.
+# Account: Serper.dev account (2,500 free credits on signup; prepaid credits after — cannot bill-shock).
+# Which SERP adapter to use. 'serper' today; the interface also supports 'dataforseo'/'serpapi' for a later switch. [config, optional]
+SERP_PROVIDER=serper
+# Serper.dev API key (X-API-KEY header). Bound as a Worker secret. [secret, required]
+SERPER_API_KEY=serper_xxxxxxxxxxxxxxxxxxxxxxxx
+
+# ── OpenAI (LLM engine) (llm) ──
+# A2 AI visibility: poll OpenAI for answers to tracked prompts, extract citations/sources (n-sampling → confidence band).
+# Account: OpenAI API account with a funded key.
+# OpenAI API key. Bound as a Worker secret. [secret, required]
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx
+# Model id to poll (defaults to a current small model if unset). [config, optional]
+OPENAI_MODEL=gpt-4o-mini
+
+# ── Google Gemini (LLM engine) (llm) ──
+# A2 AI visibility: second LLM engine — Gemini readiness alongside OpenAI, with grounding-source citation extraction.
+# Account: Google AI Studio / Gemini API key (generous free tier).
+# (optional for pre-alpha)
+# Google Gemini API key (AI Studio). Bound as a Worker secret. [secret, required]
+GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxx
+# Gemini model id to poll (defaults to a current flash model if unset). [config, optional]
+GEMINI_MODEL=gemini-2.0-flash

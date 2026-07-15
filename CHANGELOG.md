@@ -10,6 +10,54 @@ versions.
 
 ---
 
+## 2026-07-15 — Integration readiness: config layer, Serper SERP + OpenAI/Gemini adapters
+
+### Added
+- **`packages/config`** — one registry (`INTEGRATIONS`) as the single source of
+  truth for every external account Engine depends on (Postgres/Neon, GSC OAuth,
+  Stripe, Serper.dev SERP, OpenAI, Gemini): each carries its env vars,
+  secret/required flags, purpose, account, and provisioning notes. Drives three
+  things off that one definition so they can't drift: a pure readiness
+  evaluator (`evaluateReadiness` → per-integration `configured`/`partial`/
+  `missing` + an `mvpReady` roll-up), the `.dev.vars.example` generator, and
+  the human docs. 8 unit tests.
+- **Serper.dev SERP adapter (`packages/connectors`)** — the first concrete
+  `SerpConnector`. Chosen for the most generous free tier (2,500 credits) +
+  prepaid billing (structurally can't bill-shock). Pure Serper-response→
+  `SerpResult` mapping with SERP-feature detection incl. **AI Overview
+  presence** (the GEO-critical chip), local pack, PAA. Extended the `vendor`
+  union to `serper | dataforseo | serpapi` so switching later stays a small
+  change. Google-only, prepaid, no SDK.
+- **OpenAI + Google Gemini LLM adapters (`packages/connectors`)** — both
+  implement `LlmEngineConnector` with n-sampling (A2 n=3–5). Shared, pure
+  citation extractor (`buildCitationEvent`): domain-target matches against
+  cited source hosts, brand-name targets against answer text; sentiment/
+  accuracy honestly left `null` pending the A2.5 judge. **OpenAI** is the
+  primary (Chat Completions); **Gemini** is built for readiness with the Google
+  Search grounding tool on by default, so it returns real source URIs.
+  Added `citationTargets?` to `PromptQuery` (additive) so the caller supplies
+  the entity's domains/names. A connector factory instantiates whichever
+  providers have a key present, gracefully returning nothing when none do.
+  27 connector unit tests (all fixture-based — no live keys).
+- **Wired into `apps/api`**: `GET /health/integrations` (readiness, never
+  echoes a secret), `POST /projects/:id/rank/poll` (live SERP via the
+  configured connector, `503` when unwired), `POST /projects/:id/ai/poll`
+  (polls every configured LLM engine, `503` when none). Extended the Worker
+  `Env` bindings, documented every secret/var in `wrangler.toml`, and generated
+  `apps/api/.dev.vars.example` from the registry. `.dev.vars` (real local
+  secrets) is now gitignored; the `.example` is committed.
+- **`docs/40-Integrations.md`** — every external account: what/why, provisioning
+  steps, env vars, cost/free-tier posture, and the decisions (SERP = Serper.dev
+  to start; LLM = OpenAI primary + Gemini readiness). Cross-linked from the docs
+  index and Architecture (which now names Serper as the pre-alpha SERP start).
+
+### Known gaps
+Every adapter is fixture-tested and typechecks, but none has been run against a
+live third-party account in this environment (same posture as the OAuth/Stripe
+scaffolding): the SERP/LLM polls need real keys, and the GSC OAuth + Stripe
+paths still need their accounts. `GET /health/integrations` reports exactly
+which of these are wired at any moment.
+
 ## 2026-07-15 — Real crawler (B1.1): Playwright feeds the diagnosis engine live
 
 ### Added
