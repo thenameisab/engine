@@ -36,7 +36,14 @@ export interface SerpResult {
   polledAt: string;
 }
 
+/**
+ * SERP vendors behind this interface. `serper` (Serper.dev) is the pre-alpha
+ * default — most generous free tier + prepaid billing (no bill shock).
+ * `dataforseo`/`serpapi` remain valid switch targets for higher volume.
+ */
+export type SerpVendor = 'serper' | 'dataforseo' | 'serpapi';
+
 export interface SerpConnector {
-  vendor: 'dataforseo' | 'serpapi';
+  vendor: SerpVendor;
   fetch(query: SerpQuery): Promise<SerpResult>;
 }
