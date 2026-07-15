@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -20,17 +20,17 @@
        committed teaser default; light + OS preference both honored.
        ———————————————————————————————————————————————— */
     :root {
-      --accent: #4d84ff;
-      --accent-wash: #16223c;
-      --good: #3fb27f;
-      --bg: #0d0f12;
-      --surface: #16181d;
-      --surface-2: #1d2026;
-      --text: #e7e9ec;
-      --muted: #9aa2ad;
-      --faint: #6b7480;
-      --border: #262a31;
-      --border-strong: #333842;
+      --accent: #2f6feb;
+      --accent-wash: #eef3fe;
+      --good: #1a7f52;
+      --bg: #f7f8fa;
+      --surface: #ffffff;
+      --surface-2: #f1f2f4;
+      --text: #1a1d21;
+      --muted: #616a75;
+      --faint: #8b95a1;
+      --border: #e4e7eb;
+      --border-strong: #d3d8de;
 
       --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
       --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -43,28 +43,19 @@
       --z-bg: 0; --z-content: 10; --z-nav: 20;
     }
 
-    :root[data-theme="light"] {
-      --accent: #2f6feb;
-      --accent-wash: #eef3fe;
-      --good: #1a7f52;
-      --bg: #f7f8fa;
-      --surface: #ffffff;
-      --surface-2: #f1f2f4;
-      --text: #1a1d21;
-      --muted: #616a75;
-      --faint: #8b95a1;
-      --border: #e4e7eb;
-      --border-strong: #d3d8de;
-    }
-
-    /* OS preference wins only when the user hasn't explicitly chosen. */
-    @media (prefers-color-scheme: light) {
-      :root:not([data-theme]) {
-        --accent: #2f6feb; --accent-wash: #eef3fe; --good: #1a7f52;
-        --bg: #f7f8fa; --surface: #ffffff; --surface-2: #f1f2f4;
-        --text: #1a1d21; --muted: #616a75; --faint: #8b95a1;
-        --border: #e4e7eb; --border-strong: #d3d8de;
-      }
+    /* Light is the default. Dark is opt-in via the toggle (persisted). */
+    :root[data-theme="dark"] {
+      --accent: #4d84ff;
+      --accent-wash: #16223c;
+      --good: #3fb27f;
+      --bg: #0d0f12;
+      --surface: #16181d;
+      --surface-2: #1d2026;
+      --text: #e7e9ec;
+      --muted: #9aa2ad;
+      --faint: #6b7480;
+      --border: #262a31;
+      --border-strong: #333842;
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -144,10 +135,6 @@
     .toggle .moon { display: none; }
     :root[data-theme="dark"] .toggle .sun { display: none; }
     :root[data-theme="dark"] .toggle .moon { display: block; }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme]) .toggle .sun { display: none; }
-      :root:not([data-theme]) .toggle .moon { display: block; }
-    }
 
     /* ———————— hero ———————— */
     main {
@@ -310,9 +297,129 @@
       *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 120ms !important; }
       .word, .sub, .instrument { opacity: 1 !important; transform: none !important; filter: none !important; }
     }
+
+    /* ————————————————————————————————————————————————
+       Manifesto — the "blog article in a landing page"
+       ———————————————————————————————————————————————— */
+
+    /* CSS-only scroll progress (top hairline) */
+    .progress {
+      position: fixed; top: 0; left: 0; right: 0; height: 2px;
+      transform-origin: 0 50%; transform: scaleX(0);
+      background: var(--accent); z-index: var(--z-nav);
+      opacity: 0.9;
+    }
+    @supports (animation-timeline: scroll()) {
+      .progress { animation: grow linear both; animation-timeline: scroll(root block); }
+      @keyframes grow { to { transform: scaleX(1); } }
+    }
+
+    .manifesto {
+      position: relative;
+      max-width: 760px; margin: 0 auto;
+      padding: clamp(56px, 12vh, 132px) 0 clamp(40px, 7vh, 88px);
+    }
+
+    .m-kicker {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em;
+      color: var(--accent); margin: 0 0 16px;
+      display: inline-flex; align-items: center; gap: 9px;
+    }
+    .m-kicker::before { content: ""; width: 18px; height: 1px; background: var(--accent); }
+
+    .m-h {
+      font-family: var(--serif); font-weight: 400;
+      font-size: clamp(2rem, 5vw, 3.05rem); line-height: 1.05;
+      letter-spacing: -0.02em; margin: 0 0 22px; text-wrap: balance;
+      color: var(--text);
+    }
+    .m-lead { font-size: clamp(1.08rem, 1.7vw, 1.28rem); line-height: 1.62; color: var(--text); margin: 0 0 20px; max-width: 60ch; }
+    .m-block { margin-bottom: clamp(38px, 7vh, 72px); }
+    .m-block p { font-size: 1.06rem; line-height: 1.72; color: var(--muted); max-width: 64ch; margin: 0 0 18px; }
+    .m-block p:last-child { margin-bottom: 0; }
+    .m-block b { color: var(--text); font-weight: 600; }
+    .m-block em { font-style: italic; color: var(--text); }
+    .m-closing .m-lead { font-family: var(--serif); font-size: clamp(1.5rem, 3.4vw, 2.1rem); line-height: 1.2; color: var(--text); max-width: 24ch; }
+
+    .m-quote {
+      margin: clamp(44px, 9vh, 92px) auto; text-align: center; max-width: 20ch;
+      font-family: var(--serif); font-style: italic; font-weight: 400;
+      font-size: clamp(1.9rem, 5.4vw, 3.1rem); line-height: 1.12;
+      letter-spacing: -0.015em; color: var(--text);
+    }
+    .m-quote span { position: relative; display: inline-block; }
+    .m-quote span::after {
+      content: ""; position: absolute; left: -6%; right: -6%; bottom: -0.18em; height: 2px;
+      background: color-mix(in oklab, var(--accent) 70%, transparent);
+      transform: scaleX(0); transform-origin: 0 50%;
+      transition: transform 900ms var(--ease-out-quint) 250ms;
+    }
+    .in.m-quote span::after { transform: scaleX(1); }
+
+    /* figures break out wider than the reading column */
+    .m-figure {
+      margin: clamp(36px, 7vh, 76px) auto;
+      width: min(94vw, 940px);
+      position: relative; left: 50%; transform: translateX(-50%);
+    }
+    .viz {
+      border: 1px solid var(--border); border-radius: 18px;
+      background: color-mix(in oklab, var(--surface) 68%, transparent);
+      padding: clamp(18px, 3vw, 32px);
+    }
+    .viz svg, .viz canvas { width: 100%; height: auto; display: block; }
+    .m-figure figcaption {
+      font-family: var(--mono); font-size: 12.5px; color: var(--faint);
+      margin-top: 16px; text-align: center; line-height: 1.55; padding: 0 8px;
+    }
+    .m-figure figcaption b { color: var(--muted); font-weight: 500; }
+
+    /* graph 1 — line draw-on */
+    .viz-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+    .in .viz-line { animation: draw 1.7s var(--ease-out-quint) forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    .viz-area { opacity: 0; transition: opacity 1000ms ease 500ms; }
+    .in .viz-area { opacity: 1; }
+    .viz-late { opacity: 0; transition: opacity 700ms ease 900ms; }
+    .in .viz-late { opacity: 1; }
+    .viz-axis { stroke: var(--border-strong); stroke-width: 1; }
+    .viz-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 5; }
+    .viz-t { font-family: var(--mono); font-size: 12px; fill: var(--faint); }
+    .viz-t.lab { font-size: 13px; fill: var(--muted); }
+
+    /* graph 3 — the loop */
+    .loop-ring { fill: none; stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 3 6; opacity: 0.8; }
+    .loop-node { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1.5; }
+    .loop-node.fix { fill: var(--accent); stroke: var(--accent); }
+    .loop-lab { font-family: var(--sans); font-size: 14px; font-weight: 600; fill: var(--text); text-anchor: middle; }
+    .loop-lab.on-accent { fill: #fff; }
+    .loop-sub { font-family: var(--mono); font-size: 11px; fill: var(--faint); text-anchor: middle; }
+    .loop-pulse { offset-path: path('M220,60 A120,120 0 1 1 220,300 A120,120 0 1 1 220,60'); offset-rotate: 0deg; }
+    .in .loop-pulse { animation: orbit 6.5s linear infinite; }
+    @keyframes orbit { to { offset-distance: 100%; } }
+
+    /* scroll-reveal: enhances an already-visible default (only when JS is on).
+       Figures animate on their CHILDREN so the reveal transform never fights
+       the translateX(-50%) breakout-centering on .m-figure itself. */
+    .has-io .m-block, .has-io .m-quote,
+    .has-io .m-figure .viz, .has-io .m-figure figcaption {
+      opacity: 0; transform: translateY(18px); filter: blur(4px);
+      transition: opacity 720ms var(--ease-out), transform 720ms var(--ease-out), filter 720ms var(--ease-out);
+    }
+    .has-io .m-block.in, .has-io .m-quote.in,
+    .has-io .m-figure.in .viz, .has-io .m-figure.in figcaption { opacity: 1; transform: none; filter: none; }
+    .has-io .m-figure.in figcaption { transition-delay: 120ms; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .has-io .m-block, .has-io .m-quote,
+      .has-io .m-figure .viz, .has-io .m-figure figcaption { opacity: 1 !important; transform: none !important; filter: none !important; }
+      .loop-pulse { display: none; }
+      .m-quote span::after { transition: none; transform: scaleX(1); }
+    }
   </style>
 </head>
 <body>
+  <div class="progress" aria-hidden="true"></div>
   <canvas id="field" aria-hidden="true"></canvas>
 
   <div class="shell">
@@ -363,8 +470,115 @@
           </div>
         </div>
       </div>
+    </main>
 
-      <section class="waitlist">
+    <article class="manifesto" id="manifesto">
+      <!-- 1 · the shift -->
+      <div class="m-block">
+        <p class="m-kicker">01 — The shift</p>
+        <h2 class="m-h">The blue links are going dark.</h2>
+        <p class="m-lead">For twenty years, being found meant ranking. Ten blue links, a click, your site. That contract is quietly breaking — people stopped searching and started <em>asking</em>, and the answer arrives already written, drawn from a handful of sources that may or may not be you.</p>
+      </div>
+
+      <figure class="m-figure" data-viz="clicks">
+        <div class="viz">
+          <svg viewBox="0 0 720 300" role="img" aria-label="Clicks to websites declining as zero-click AI answers rise over time">
+            <line class="viz-axis" x1="40" y1="260" x2="700" y2="260" />
+            <path class="viz-area" d="M40,80.6 L134.3,89.8 L228.6,103.6 L322.9,122 L417.1,140.4 L511.4,156.5 L605.7,172.6 L700,188.7 L700,260 L40,260 Z" fill="color-mix(in oklab, var(--muted) 12%, transparent)" />
+            <path class="viz-area" d="M40,191 L134.3,181.8 L228.6,168 L322.9,151.9 L417.1,133.5 L511.4,112.8 L605.7,92.1 L700,71.4 L700,260 L40,260 Z" fill="color-mix(in oklab, var(--accent) 12%, transparent)" />
+            <path class="viz-line" pathLength="1" d="M40,80.6 L134.3,89.8 L228.6,103.6 L322.9,122 L417.1,140.4 L511.4,156.5 L605.7,172.6 L700,188.7" stroke="var(--muted)" />
+            <path class="viz-line" pathLength="1" d="M40,191 L134.3,181.8 L228.6,168 L322.9,151.9 L417.1,133.5 L511.4,112.8 L605.7,92.1 L700,71.4" stroke="var(--accent)" />
+            <g class="viz-late">
+              <line class="viz-grid" x1="371" y1="30" x2="371" y2="260" />
+              <circle cx="371" cy="137" r="4" fill="var(--accent)" />
+              <text class="viz-t" x="371" y="24" text-anchor="middle">≈ now</text>
+              <text class="viz-t lab" x="46" y="72">Clicks to your site</text>
+              <text class="viz-t lab" x="46" y="210" fill="var(--accent)">Answered without a click</text>
+              <text class="viz-t" x="40" y="280">2019</text>
+              <text class="viz-t" x="700" y="280" text-anchor="end">2026</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Search still happens. The click doesn't. Your traffic is being absorbed into answers you can't see.</figcaption>
+      </figure>
+
+      <div class="m-block">
+        <p>When a machine answers instead of linking, you are either <b>in the answer or invisible</b>. There is no page two. There is no page one. There is one paragraph and a few citations — and everything rides on whether one of them is yours.</p>
+      </div>
+
+      <blockquote class="m-quote"><span>If you're not in the answer, you don't exist.</span></blockquote>
+
+      <!-- 2 · the measurement lie -->
+      <div class="m-block">
+        <p class="m-kicker">02 — The measurement lie</p>
+        <h2 class="m-h">A single score is a comfortable lie.</h2>
+        <p class="m-lead">Ask a model the same question five times and you'll get five different answers. It cites you once, forgets you twice, misquotes you the rest. So any tool that hands you a confident “<span style="font-family:var(--mono)">73.4</span>” is inventing a precision the machine itself doesn't have.</p>
+      </div>
+
+      <figure class="m-figure" data-viz="sampling">
+        <div class="viz">
+          <canvas id="viz-sampling" aria-label="Five samples of a citation rate scattered across a range, with an honest confidence band"></canvas>
+        </div>
+        <figcaption>Five polls, five truths. Honesty is the <b>range</b> they fall in — not the average dressed up as a fact.</figcaption>
+      </figure>
+
+      <div class="m-block">
+        <p>So we don't guess once. We poll every engine, many times, and report the <b>band</b> — a number you can act on precisely because it admits what it doesn't know. That honesty is the whole point of the readout above.</p>
+      </div>
+
+      <!-- 3 · why we exist -->
+      <div class="m-block">
+        <p class="m-kicker">03 — Why we exist</p>
+        <h2 class="m-h">Measuring the wound is not healing it.</h2>
+        <p class="m-lead">The market is crowded with beautiful dashboards that tell you you're losing. Almost none of them fix anything.</p>
+        <p>Knowing your schema is broken, your pages un-citable, the AI crawlers blocked at your own front door — and then doing the repair by hand, page by page, across a whole site — is exactly where every team drowns. Diagnosis is cheap now. <b>Execution is the moat.</b></p>
+      </div>
+
+      <figure class="m-figure" data-viz="loop">
+        <div class="viz">
+          <svg viewBox="0 0 440 380" role="img" aria-label="The Engine loop: measure, diagnose, fix, verify — repeating">
+            <circle class="loop-ring" cx="220" cy="180" r="120" />
+            <circle class="loop-pulse" r="6" fill="var(--accent)" />
+            <!-- nodes -->
+            <g>
+              <circle class="loop-node" cx="220" cy="60" r="40" />
+              <text class="loop-lab" x="220" y="58">Measure</text>
+              <text class="loop-sub" x="220" y="76">honestly</text>
+            </g>
+            <g>
+              <circle class="loop-node" cx="340" cy="180" r="40" />
+              <text class="loop-lab" x="340" y="178">Diagnose</text>
+              <text class="loop-sub" x="340" y="196">what's broken</text>
+            </g>
+            <g>
+              <circle class="loop-node fix" cx="220" cy="300" r="46" />
+              <text class="loop-lab on-accent" x="220" y="296">Fix</text>
+              <text class="loop-sub" x="220" y="315" fill="rgba(255,255,255,0.85)">deploy it</text>
+            </g>
+            <g>
+              <circle class="loop-node" cx="100" cy="180" r="40" />
+              <text class="loop-lab" x="100" y="178">Verify</text>
+              <text class="loop-sub" x="100" y="196">it moved</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Most tools stop at Diagnose. Engine's wedge is <b>Fix</b> — deployed to your site, verified, and reversible.</figcaption>
+      </figure>
+
+      <!-- 4 · what we're building -->
+      <div class="m-block">
+        <p class="m-kicker">04 — What we're building</p>
+        <h2 class="m-h">See it, fix it, watch it move.</h2>
+        <p class="m-lead">Engine closes the loop. It measures your visibility honestly, diagnoses exactly what's holding you back, then <b>deploys the fix</b> — JSON-LD, meta, crawler policy — straight to your site or as a pull request, staged and reversible. Then it re-measures, to prove the number actually moved.</p>
+        <p>No more exporting a to-do list to a developer who's already underwater. The insight and the repair live in the same place, and the loop keeps turning.</p>
+      </div>
+
+      <div class="m-block m-closing">
+        <p class="m-lead">Everyone else is selling you a mirror.<br>We're building the hands.</p>
+      </div>
+    </article>
+
+    <section class="waitlist">
         <div>
           <h2>Request early&nbsp;access</h2>
           <p>We're onboarding a small group of design partners. Add your domain and we'll be in touch.</p>
@@ -373,7 +587,6 @@
           <iframe data-tally-src="https://tally.so/embed/eqlzaE?hideTitle=1&transparentBackground=1&dynamicHeight=1&formEventsForwarding=1" loading="lazy" width="100%" height="200" frameborder="0" marginheight="0" marginwidth="0" title="Waitlist"></iframe>
         </div>
       </section>
-    </main>
 
     <footer>
       <span>Engine — AI visibility, measured and fixed.</span>
@@ -392,6 +605,7 @@
         const next = dark ? "light" : "dark";
         root.setAttribute("data-theme", next);
         localStorage.setItem("engine-theme", next);
+        if (window.__onVizTheme) window.__onVizTheme();
       });
     })();
 
@@ -529,6 +743,137 @@
       addEventListener("resize", build);
       build(); requestAnimationFrame(draw);
       return { parallax(x, y) { off.x = -x * 16; off.y = -y * 16; } };
+    })();
+
+    /* ————— manifesto: theme-aware viz repaint registry ————— */
+    const vizRenders = [];
+    window.__onVizTheme = () => vizRenders.forEach((f) => f());
+    const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+    /* ————— manifesto: scroll-reveal (enhances an already-visible default) ————— */
+    (function () {
+      const els = document.querySelectorAll(".m-block, .m-figure, .m-quote");
+      if (!("IntersectionObserver" in window) || els.length === 0) return;
+      document.documentElement.classList.add("has-io");   // pre-reveal styles only apply now
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          e.target.classList.add("in");
+          const fig = e.target.getAttribute("data-viz");
+          if (fig === "sampling") startSampling();
+          io.unobserve(e.target);
+        }
+      }, { rootMargin: "0px 0px -12% 0px", threshold: 0.2 });
+      els.forEach((el) => io.observe(el));
+    })();
+
+    /* ————— manifesto graph 2: samples scatter → honest band ————— */
+    let startSampling = function () {};
+    (function () {
+      const canvas = document.getElementById("viz-sampling");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const SAMPLES = [41, 58, 63, 70, 74];      // one citation-rate poll each
+      const LO = 41, HI = 74, MEAN = 61;
+      const padL = 46, padR = 26, padT = 34, padB = 48, H = 250;
+      let dpr = 1, cw = 0, plotW = 0, started = 0, done = false;
+
+      function size() {
+        dpr = Math.min(2, window.devicePixelRatio || 1);
+        cw = canvas.clientWidth || 880;
+        canvas.width = cw * dpr; canvas.height = H * dpr;
+        canvas.style.height = H + "px";
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        plotW = cw - padL - padR;
+      }
+      const X = (v) => padL + (v / 100) * plotW;
+      const dotY = H - padB - 78;
+      const bandY = H - padB - 26;
+      const jitter = [-16, 12, -6, 18, -12];
+
+      function render(p) {   // p in [0,1] animation progress; 1 = settled
+        const accent = cssVar("--accent");
+        const muted = cssVar("--muted");
+        const faint = cssVar("--faint");
+        const strong = cssVar("--border-strong");
+        ctx.clearRect(0, 0, cw, H);
+
+        // baseline axis + ticks
+        ctx.strokeStyle = strong; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(padL, H - padB); ctx.lineTo(cw - padR, H - padB); ctx.stroke();
+        ctx.fillStyle = faint; ctx.font = '12px ui-monospace, monospace'; ctx.textAlign = "center";
+        [0, 25, 50, 75, 100].forEach((t) => {
+          ctx.beginPath(); ctx.moveTo(X(t), H - padB); ctx.lineTo(X(t), H - padB + 5); ctx.stroke();
+          ctx.fillText(String(t), X(t), H - padB + 20);
+        });
+
+        // the honest band (grows after dots land)
+        const bp = Math.max(0, (p - 0.55) / 0.45);
+        if (bp > 0) {
+          const cxv = (LO + HI) / 2;
+          const half = ((HI - LO) / 2) * easeOut(Math.min(1, bp));
+          const x1 = X(cxv - half), x2 = X(cxv + half);
+          ctx.fillStyle = "color-mix(in oklab, " + accent + " 20%, transparent)";
+          roundRect(x1, bandY - 9, x2 - x1, 18, 6); ctx.fill();
+          ctx.strokeStyle = "color-mix(in oklab, " + accent + " 55%, transparent)"; ctx.lineWidth = 1.5;
+          roundRect(x1, bandY - 9, x2 - x1, 18, 6); ctx.stroke();
+          if (bp >= 1) {
+            ctx.strokeStyle = accent; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(X(MEAN), bandY - 13); ctx.lineTo(X(MEAN), bandY + 13); ctx.stroke();
+            ctx.fillStyle = muted; ctx.textAlign = "center";
+            ctx.fillText("41 – 74", X(cxv), bandY + 34);
+          }
+        }
+
+        // the five samples dropping in
+        SAMPLES.forEach((v, i) => {
+          const start = i * 0.12, local = Math.min(1, Math.max(0, (p - start) / 0.32));
+          if (local <= 0) return;
+          const e = easeOut(local);
+          const y = padT + (dotY - padT) * e + jitter[i] * e;
+          ctx.globalAlpha = e;
+          ctx.fillStyle = muted;
+          ctx.beginPath(); ctx.arc(X(v), y, 5.5, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = 0.25 * e;
+          ctx.beginPath(); ctx.moveTo(X(v), y + 6); ctx.lineTo(X(v), bandY - 10);
+          ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.stroke();
+          ctx.globalAlpha = 1;
+        });
+
+        // the crossed-out fake precision
+        if (p > 0.7) {
+          ctx.globalAlpha = Math.min(1, (p - 0.7) / 0.3);
+          ctx.fillStyle = faint; ctx.font = '13px ui-monospace, monospace'; ctx.textAlign = "left";
+          const fx = X(MEAN) + 14, fy = padT + 6;
+          ctx.fillText("73.4", fx, fy);
+          const wdt = ctx.measureText("73.4").width;
+          ctx.strokeStyle = cssVar("--risk") || accent; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(fx - 2, fy - 5); ctx.lineTo(fx + wdt + 2, fy - 5); ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+      function easeOut(x) { return 1 - Math.pow(1 - x, 3); }
+      function roundRect(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+      }
+
+      size();
+      render(reduce ? 1 : 0);
+      vizRenders.push(() => render(done ? 1 : 0));
+      window.addEventListener("resize", () => { size(); render(done ? 1 : 0); });
+
+      startSampling = function () {
+        if (started) return; started = 1;
+        if (reduce) { done = true; render(1); return; }
+        const DUR = 2100, t0 = performance.now();
+        (function frame(now) {
+          const p = Math.min(1, (now - t0) / DUR);
+          render(p);
+          if (p < 1) requestAnimationFrame(frame); else done = true;
+        })(t0);
+      };
     })();
   </script>
 
