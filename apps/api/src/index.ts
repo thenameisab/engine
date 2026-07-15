@@ -6,6 +6,8 @@ import {
   type ChannelMix,
 } from '@engine/scoring';
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
+import { generateActions, type ActionContext } from '@engine/actions';
+import type { Finding } from '@engine/core';
 import { createDb } from './db.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 
@@ -55,6 +57,19 @@ app.post('/projects/:projectId/audit', async (c) => {
   const body = await c.req.json<{ pages: CrawledPage[] }>();
   const result = runAudit(body.pages ?? []);
   return c.json({ projectId: c.req.param('projectId'), ...result });
+});
+
+/**
+ * Generate the executable Action(s) for a diagnosis Finding — the executable
+ * half of the moat contract (C1/C2/C3.2/C4.4). The Finding comes from B1
+ * diagnosis; `context` supplies the page facts (entity, current title, robots.txt)
+ * needed to build a concrete before→after diff. Returned actions are `proposed`
+ * and enter the Fix Queue for human approval before deploy.
+ */
+app.post('/projects/:projectId/actions/generate', async (c) => {
+  const body = await c.req.json<{ finding: Finding; context: ActionContext }>();
+  const actions = generateActions(body.finding, body.context);
+  return c.json({ projectId: c.req.param('projectId'), actions });
 });
 
 export default app;
