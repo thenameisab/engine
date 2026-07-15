@@ -22,6 +22,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter @engine/crawler exec playwright install --with-deps chromium
+
       - run: pnpm turbo run typecheck
 
       - run: pnpm turbo run build
