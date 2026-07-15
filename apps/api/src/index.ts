@@ -8,13 +8,30 @@ import {
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { generateActions, transition, defaultEnv, type ActionContext } from '@engine/actions';
 import { verifyHtmlDeploy, verifyRobotsDeploy } from '@engine/deploy';
-import type { Finding } from '@engine/core';
+import { verifyStripeSignature, mapStripeSubscriptionEvent, isOverLimit, type StripeWebhookEvent } from '@engine/billing';
+import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { createDb } from './db.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, saveActionTransition } from './repositories/actions.js';
+import {
+  getOnboardingProgress,
+  markDomainConnected,
+  markGscConnected,
+  markFirstCrawl,
+  markFirstInsight,
+  markFirstFixProposed,
+  markFirstFixDeployed,
+} from './repositories/onboarding.js';
+import { getSubscription, upsertSubscription, getUsageCounters } from './repositories/billing.js';
 
 interface Env {
   DATABASE_URL: string;
+  GSC_CLIENT_ID?: string;
+  GSC_CLIENT_SECRET?: string;
+  GSC_REDIRECT_URI?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** JSON map of Stripe price id -> our PlanTier, e.g. {"price_growth_monthly":"growth"}. */
+  STRIPE_PRICE_TO_TIER?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -58,7 +75,11 @@ app.post('/projects/:projectId/pulse', async (c) => {
 app.post('/projects/:projectId/audit', async (c) => {
   const body = await c.req.json<{ pages: CrawledPage[] }>();
   const result = runAudit(body.pages ?? []);
-  return c.json({ projectId: c.req.param('projectId'), ...result });
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  await markFirstCrawl(db, projectId);
+  if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  return c.json({ projectId, ...result });
 });
 
 /**
@@ -70,10 +91,12 @@ app.post('/projects/:projectId/audit', async (c) => {
  */
 app.post('/projects/:projectId/actions/generate', async (c) => {
   const body = await c.req.json<{ finding: Finding; context: ActionContext }>();
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
   const generated = generateActions(body.finding, body.context);
   const actions = await Promise.all(generated.map((action) => createAction(db, action)));
-  return c.json({ projectId: c.req.param('projectId'), actions });
+  if (actions.length > 0) await markFirstFixProposed(db, projectId);
+  return c.json({ projectId, actions });
 });
 
 app.get('/projects/:projectId/actions/:actionId', async (c) => {
@@ -102,6 +125,7 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     try {
       const next = transition(action, to, defaultEnv(), body.actor ?? 'system', body.detail);
       const saved = await saveActionTransition(db, next);
+      if (to === 'deployed') await markFirstFixDeployed(db, c.req.param('projectId') as string);
       return c.json({ action: saved });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 409);
@@ -141,6 +165,121 @@ app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
   } catch (err) {
     return c.json({ error: (err as Error).message }, 409);
   }
+});
+
+/**
+ * E onboarding activation (M1.6). `GET /onboarding` returns the checklist plus
+ * the two roadmap KPIs: time to first insight (E2, target <10 min) and time
+ * to first proposed fix (E3, target <48h), both measured from domain-connect.
+ */
+app.get('/projects/:projectId/onboarding', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const progress = await getOnboardingProgress(db, c.req.param('projectId'));
+  return c.json({
+    progress,
+    kpis: {
+      msToFirstInsight: durationMs(progress.domainConnectedAt, progress.firstInsightAt),
+      msToFirstFixProposed: durationMs(progress.domainConnectedAt, progress.firstFixProposedAt),
+    },
+  });
+});
+
+app.post('/projects/:projectId/onboarding/domain-connected', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const progress = await markDomainConnected(db, c.req.param('projectId'));
+  return c.json({ progress });
+});
+
+/**
+ * E1 GSC connect wizard, step 1: build the Google OAuth consent URL. Pure URL
+ * construction — no live call, so it's testable without a real Google Cloud
+ * OAuth client. `GSC_CLIENT_ID`/`GSC_REDIRECT_URI` are unset until that
+ * client exists; this 500s clearly rather than emitting a broken URL.
+ */
+app.get('/projects/:projectId/onboarding/gsc/connect-url', (c) => {
+  const { GSC_CLIENT_ID, GSC_REDIRECT_URI } = c.env;
+  if (!GSC_CLIENT_ID || !GSC_REDIRECT_URI) {
+    return c.json({ error: 'GSC OAuth is not configured (GSC_CLIENT_ID/GSC_REDIRECT_URI)' }, 500);
+  }
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.searchParams.set('client_id', GSC_CLIENT_ID);
+  url.searchParams.set('redirect_uri', GSC_REDIRECT_URI);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('access_type', 'offline');
+  url.searchParams.set('prompt', 'consent');
+  url.searchParams.set('scope', 'https://www.googleapis.com/auth/webmasters.readonly');
+  url.searchParams.set('state', c.req.param('projectId'));
+  return c.json({ url: url.toString() });
+});
+
+/**
+ * E1 GSC connect wizard, step 2: the OAuth redirect target. Exchanges the
+ * authorization code for tokens via Google's token endpoint — a real network
+ * call to Google, so this path is typechecked and logically correct but not
+ * exercised against a live Google Cloud OAuth client in this environment.
+ * Token storage (where the access/refresh token actually lands) is left for
+ * when a real client exists to test against, rather than guessed at now.
+ */
+app.get('/oauth/gsc/callback', async (c) => {
+  const { GSC_CLIENT_ID, GSC_CLIENT_SECRET, GSC_REDIRECT_URI } = c.env;
+  const code = c.req.query('code');
+  const projectId = c.req.query('state');
+  if (!GSC_CLIENT_ID || !GSC_CLIENT_SECRET || !GSC_REDIRECT_URI) {
+    return c.json({ error: 'GSC OAuth is not configured' }, 500);
+  }
+  if (!code || !projectId) return c.json({ error: 'missing code or state' }, 400);
+
+  const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: GSC_CLIENT_ID,
+      client_secret: GSC_CLIENT_SECRET,
+      redirect_uri: GSC_REDIRECT_URI,
+      grant_type: 'authorization_code',
+    }),
+  });
+  if (!tokenResp.ok) return c.json({ error: 'token exchange failed' }, 502);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const progress = await markGscConnected(db, projectId);
+  return c.json({ progress });
+});
+
+/**
+ * G3 Stripe webhook. Signature-verified (@engine/billing, no Stripe SDK) so
+ * this is fully exercisable without a live Stripe account — see
+ * packages/billing's tests. `STRIPE_PRICE_TO_TIER` maps Stripe price ids to
+ * our PlanTier; subscriptions must carry `metadata.accountId` (set at
+ * checkout) so we know which account to update.
+ */
+app.post('/billing/webhook', async (c) => {
+  const { STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_TO_TIER } = c.env;
+  if (!STRIPE_WEBHOOK_SECRET) return c.json({ error: 'billing webhook is not configured' }, 500);
+
+  const payload = await c.req.text();
+  const sigHeader = c.req.header('stripe-signature') ?? '';
+  const validSignature = await verifyStripeSignature(payload, sigHeader, STRIPE_WEBHOOK_SECRET);
+  if (!validSignature) return c.json({ error: 'invalid signature' }, 400);
+
+  const event = JSON.parse(payload) as StripeWebhookEvent;
+  const priceToTier: Record<string, PlanTier> = STRIPE_PRICE_TO_TIER ? JSON.parse(STRIPE_PRICE_TO_TIER) : {};
+  const mapped = mapStripeSubscriptionEvent(event, priceToTier);
+  if (!mapped) return c.json({ received: true, applied: false });
+
+  const db = createDb(c.env.DATABASE_URL);
+  const subscription = await upsertSubscription(db, mapped.accountId, mapped.update);
+  return c.json({ received: true, applied: true, subscription });
+});
+
+/** G4/G5: current plan, live usage, and whether the account is over its plan's caps. */
+app.get('/accounts/:accountId/plan', async (c) => {
+  const accountId = c.req.param('accountId');
+  const db = createDb(c.env.DATABASE_URL);
+  const [subscription, usage] = await Promise.all([getSubscription(db, accountId), getUsageCounters(db, accountId)]);
+  const planTier = subscription?.planTier ?? 'starter';
+  return c.json({ subscription, usage, planTier, overLimit: isOverLimit(usage, planTier) });
 });
 
 export default app;

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@engine/actions": "workspace:*",
+    "@engine/billing": "workspace:*",
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",
