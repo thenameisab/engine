@@ -10,6 +10,20 @@
 # Neon Postgres connection string (pooled). Bound as a Worker secret. [secret, required]
 DATABASE_URL=postgres://user:password@ep-xxxx.ap-southeast-1.aws.neon.tech/engine?sslmode=require
 
+# ── Neon Auth (Better Auth) (identity) ──
+# User identity + the API auth gate: the dashboard signs in here, and apps/api verifies the resulting JWT against the published JWKS.
+# Account: Neon Auth (managed Better Auth) — already enabled on the Neon project; Google sign-in configured there.
+# Neon Auth's public JWKS endpoint. Public, not a secret — it publishes verification keys, not signing keys. [config, required]
+AUTH_JWKS_URL=https://<project>.neonauth.<region>.aws.neon.tech/neondb/auth/.well-known/jwks.json
+# Expected `iss` claim. Optional: leave unset to accept any issuer the JWKS key signs for. [config, optional]
+AUTH_ISSUER=https://<project>.neonauth.<region>.aws.neon.tech/neondb/auth
+# Expected `aud` claim. Optional — set once Neon Auth is configured to mint audience-scoped tokens. [config, optional]
+AUTH_AUDIENCE=engine-api
+# Shared service token for machine callers with no user session (the edge worker's C1.7 auto-rollback). Bind the same value on apps/api and apps/workers. [secret, optional]
+INTERNAL_API_TOKEN=a-long-random-string
+# Set to 'disabled' to run the API unauthenticated for local development only. Never set this on a deployed Worker — it holds live SERP/LLM keys. [config, optional]
+AUTH_MODE=disabled
+
 # ── Google Search Console (OAuth) (identity) ──
 # E1 onboarding: the user connects their GSC property so we can read verified search performance (field CWV, queries).
 # Account: Google Cloud project with an OAuth 2.0 Web client + the Search Console API enabled.

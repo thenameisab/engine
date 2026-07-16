@@ -63,6 +63,57 @@ export const INTEGRATIONS: IntegrationDef[] = [
     notes: 'Already provisioned. Connection is bound as a Worker secret via `wrangler secret put DATABASE_URL`.',
   },
   {
+    id: 'neon-auth',
+    name: 'Neon Auth (Better Auth)',
+    category: 'identity',
+    purpose:
+      'User identity + the API auth gate: the dashboard signs in here, and apps/api verifies the resulting JWT against the published JWKS.',
+    account: 'Neon Auth (managed Better Auth) — already enabled on the Neon project; Google sign-in configured there.',
+    requiredForMvp: true,
+    env: [
+      {
+        name: 'AUTH_JWKS_URL',
+        description:
+          "Neon Auth's public JWKS endpoint. Public, not a secret — it publishes verification keys, not signing keys.",
+        secret: false,
+        required: true,
+        example: 'https://<project>.neonauth.<region>.aws.neon.tech/neondb/auth/.well-known/jwks.json',
+      },
+      {
+        name: 'AUTH_ISSUER',
+        description: "Expected `iss` claim. Optional: leave unset to accept any issuer the JWKS key signs for.",
+        secret: false,
+        required: false,
+        example: 'https://<project>.neonauth.<region>.aws.neon.tech/neondb/auth',
+      },
+      {
+        name: 'AUTH_AUDIENCE',
+        description: 'Expected `aud` claim. Optional — set once Neon Auth is configured to mint audience-scoped tokens.',
+        secret: false,
+        required: false,
+        example: 'engine-api',
+      },
+      {
+        name: 'INTERNAL_API_TOKEN',
+        description:
+          'Shared service token for machine callers with no user session (the edge worker\'s C1.7 auto-rollback). Bind the same value on apps/api and apps/workers.',
+        secret: true,
+        required: false,
+        example: 'a-long-random-string',
+      },
+      {
+        name: 'AUTH_MODE',
+        description:
+          "Set to 'disabled' to run the API unauthenticated for local development only. Never set this on a deployed Worker — it holds live SERP/LLM keys.",
+        secret: false,
+        required: false,
+        example: 'disabled',
+      },
+    ],
+    notes:
+      'JWT verification is fully unit-tested against real generated Ed25519 keys (crypto only, no live account needed). Deployed dashboard origins must be added to Neon Auth trusted origins for the OAuth callback to be accepted.',
+  },
+  {
     id: 'gsc-oauth',
     name: 'Google Search Console (OAuth)',
     category: 'identity',

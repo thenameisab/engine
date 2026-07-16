@@ -20,6 +20,9 @@ importers:
       '@engine/actions':
         specifier: workspace:*
         version: link:../../packages/actions
+      '@engine/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@engine/billing':
         specifier: workspace:*
         version: link:../../packages/billing
@@ -96,6 +99,15 @@ importers:
       '@engine/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@20.19.43)
+
+  packages/auth:
     devDependencies:
       typescript:
         specifier: ^5.7.0

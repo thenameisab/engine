@@ -14,6 +14,7 @@ import { evaluateReadiness } from '@engine/config';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { createDb } from './db.js';
+import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, saveActionTransition } from './repositories/actions.js';
 import {
@@ -27,7 +28,7 @@ import {
 } from './repositories/onboarding.js';
 import { getSubscription, upsertSubscription, getUsageCounters } from './repositories/billing.js';
 
-interface Env {
+interface Env extends AuthEnv {
   DATABASE_URL: string;
   GSC_CLIENT_ID?: string;
   GSC_CLIENT_SECRET?: string;
@@ -48,7 +49,7 @@ interface Env {
   CORS_ORIGINS?: string;
 }
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
 
 /**
  * CORS so the browser dashboard (a separate Pages origin) can call this Worker.
@@ -60,9 +61,25 @@ app.use('*', (c, next) => {
   return cors({
     origin: configured && configured.length > 0 ? configured : '*',
     allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type'],
+    allowHeaders: ['Content-Type', 'Authorization'],
   })(c, next);
 });
+
+/**
+ * The auth gate (Neon Auth JWT, or the edge worker's service token). Applied
+ * to every project- and account-scoped route, plus readiness — i.e. everything
+ * that touches the database or spends live SERP/LLM credit.
+ *
+ * Deliberately left open, and why:
+ *  - `GET /health` — a liveness probe, reveals nothing.
+ *  - `POST /billing/webhook` — called by Stripe, which cannot hold a JWT. It
+ *    has its own stronger gate: HMAC signature verification (@engine/billing).
+ *  - `GET /oauth/gsc/callback` — a browser redirect target from Google; the
+ *    OAuth `code` is the credential and is useless without our client secret.
+ */
+app.use('/health/integrations', requireAuth);
+app.use('/projects/*', requireAuth);
+app.use('/accounts/*', requireAuth);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
@@ -187,8 +204,20 @@ app.get('/projects/:projectId/actions/:actionId', async (c) => {
  * `deployed` actions live and applies their diffs per-request — there is no
  * separate push step for M1.4's Cloudflare Worker path.
  */
+/**
+ * Who to record in the immutable audit log (C1.8). For a signed-in human this
+ * is their verified identity, never the caller-supplied `actor` — an audit
+ * trail you can write yourself into is not an audit trail. The edge worker's
+ * service token may still label itself, since it is a trusted machine
+ * principal reporting *which* health check fired.
+ */
+function auditActor(user: AuthUser, claimedActor?: string): string {
+  if (user.isService) return claimedActor ?? user.id;
+  return user.email ?? user.id;
+}
+
 function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
-  return async (c: Context<{ Bindings: Env }>) => {
+  return async (c: Context<{ Bindings: Env; Variables: { user: AuthUser } }>) => {
     const body = await c.req
       .json<{ actor?: string; detail?: object }>()
       .catch(() => ({}) as { actor?: string; detail?: object });
@@ -196,7 +225,7 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     const action = await getAction(db, c.req.param('actionId') as string);
     if (!action) return c.json({ error: 'action not found' }, 404);
     try {
-      const next = transition(action, to, defaultEnv(), body.actor ?? 'system', body.detail);
+      const next = transition(action, to, defaultEnv(), auditActor(c.get('user'), body.actor), body.detail);
       const saved = await saveActionTransition(db, next);
       if (to === 'deployed') await markFirstFixDeployed(db, c.req.param('projectId') as string);
       return c.json({ action: saved });
@@ -232,7 +261,7 @@ app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
   }
 
   try {
-    const next = transition(action, 'verified', defaultEnv(), body.actor ?? 'system');
+    const next = transition(action, 'verified', defaultEnv(), auditActor(c.get('user'), body.actor));
     const saved = await saveActionTransition(db, next);
     return c.json({ action: saved });
   } catch (err) {

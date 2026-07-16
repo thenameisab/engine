@@ -4,9 +4,21 @@ compatibility_date = "2024-12-01"
 # Required by the `postgres` driver (node built-ins) on the Workers runtime.
 compatibility_flags = ["nodejs_compat"]
 
+# ── Auth ───────────────────────────────────────────────────────────────────
+# Every /projects/* and /accounts/* route, plus /health/integrations, requires
+# a Neon Auth (Better Auth) JWT — verified against this JWKS. The URL is public
+# (it publishes verification keys, not signing keys), so it ships as a default
+# var: a freshly deployed Worker is gated, not open. The gate fails closed —
+# unset AUTH_JWKS_URL means 503, never "allow".
+[vars]
+AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json"
+
 # ── External integrations ──────────────────────────────────────────────────
 # Secrets (set via `wrangler secret put <NAME>`, never committed):
 #   DATABASE_URL          Neon Postgres connection string
+#   INTERNAL_API_TOKEN    Shared service token for the edge worker's C1.7
+#                         auto-rollback call (no user session behind it).
+#                         Bind the same value on apps/workers.
 #   GSC_CLIENT_SECRET     Google OAuth client secret (GSC connect)
 #   STRIPE_WEBHOOK_SECRET Stripe webhook signing secret
 #   STRIPE_SECRET_KEY     Stripe secret key (optional — outbound calls only)
