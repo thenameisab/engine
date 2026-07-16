@@ -197,6 +197,25 @@ type Action = {
 ```
 This contract is frozen in `packages/core` in Phase 1 so the C-layer is integration, not redesign.
 
+**Persistence rules (learned the hard way — see migration `0003`):**
+
+1. **A Finding must be persisted before its Actions exist.** `actions.finding_id` is a
+   uuid FK, so `POST /actions/generate` can only reference a finding that `POST /audit`
+   already wrote. Findings are not a transient by-product of a crawl; they are the
+   feedstock rows the Fix Queue hangs off.
+2. **`Finding.id` changes meaning at the persistence boundary.** Diagnosis mints a
+   *deterministic* id (FNV-1a over entity+url+issue-type) so the same unresolved issue
+   keeps one identity across crawls. That id is stored as `findings.fingerprint`, unique
+   per entity, and `/audit` upserts on it — a re-crawl refreshes scores in place instead
+   of duplicating findings and re-proposing fixes the user already rejected. The Finding
+   returned by `/audit` carries its **database uuid**, which is what an Action references.
+3. **An Action reaches its project only through `findings → entities`.** There is
+   deliberately no `actions.project_id`: the entity is the join key for everything
+   (§5), and a denormalized copy would be a second, drift-prone source of that truth.
+   The Fix Queue list is a two-hop join, and any route accepting a caller-supplied
+   `entityId` must check it belongs to the project before writing — otherwise one
+   project can hang findings off another's entity.
+
 ### 3.2 AI-visibility honesty type
 ```ts
 type CitationMeasurement = {

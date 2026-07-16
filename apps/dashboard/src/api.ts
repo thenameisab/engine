@@ -1,13 +1,17 @@
 /**
- * Typed client for apps/api. Every method tries the live endpoint and, on any
- * failure (no base URL set, network error, or a 5xx from a DB-backed route that
- * has no Postgres in this pre-alpha env), the caller falls back to sample data.
+ * Typed client for apps/api.
  *
- * Two routes genuinely work live without a database and are the real wiring
- * proof: `GET /health/integrations` (readiness) and `POST /projects/:id/pulse`
- * (the A3 score math is pure). The rest are DB-backed and degrade to sample.
+ * `GET /health/integrations` and `POST /projects/:id/pulse` need no database
+ * (the A3 score math is pure). `GET /projects/:id/actions` is DB-backed and now
+ * reads the real Fix Queue out of Postgres — it does **not** fall back to sample
+ * data, because an empty queue and an unreachable API are different facts and a
+ * board that invents cards for both is worse than one that says which happened.
+ *
+ * What still comes from sample: Pulse's trend / wins / risks context, which
+ * needs the ClickHouse rollups (M1.2) that aren't wired yet.
  */
-import type { PulseData, ReadinessReport, ActionStatus, SerpInspectResult } from './types.js';
+import type { ActionCard, ApiAction, PulseData, ReadinessReport, ActionStatus, SerpInspectResult } from './types.js';
+import { toActionCard } from './format.js';
 import { MOCK_PULSE } from './mock.js';
 import { getApiToken } from './auth/neonAuth.js';
 
@@ -114,6 +118,17 @@ export async function rankPoll(keyword: string, country: string): Promise<SerpIn
     organic: r.organic,
     polledAt: r.polledAt,
   };
+}
+
+/**
+ * The project's live Fix Queue from `GET /projects/:id/actions` (DB-backed).
+ *
+ * An empty array is a real answer — a project with no audit run yet has no
+ * actions — so this does not fall back to sample data. The board says so.
+ */
+export async function fetchActions(): Promise<ActionCard[]> {
+  const resp = await request<{ actions: ApiAction[] }>(`/projects/${getProjectId()}/actions`);
+  return resp.actions.map(toActionCard);
 }
 
 const TRANSITION_PATH: Record<Exclude<ActionStatus, 'proposed'>, string> = {

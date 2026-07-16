@@ -39,6 +39,17 @@ export interface SignalRow {
 
 export type ActionStatus = 'proposed' | 'approved' | 'deployed' | 'verified' | 'rolled_back';
 
+/** An Action exactly as `GET /projects/:id/actions` returns it (apps/api). */
+export interface ApiAction {
+  id: string;
+  findingId: string;
+  type: string;
+  target: { kind: string; plugin?: string; siteId?: string; workerName?: string; repo?: string; locationId?: string };
+  diff: { before: string; after: string; format: string; field?: string };
+  status: ActionStatus;
+  predictedImpact: number;
+}
+
 export interface ActionCard {
   id: string;
   kind: string; // Schema / Robots / Meta / Redirect …

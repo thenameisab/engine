@@ -4,7 +4,7 @@
  * meaningfully as a standalone internal demo. Every view tries the live API
  * first and only uses these if the call fails.
  */
-import type { PulseData, AuditData, ActionCard, ReadinessReport } from './types.js';
+import type { PulseData, AuditData, ReadinessReport } from './types.js';
 
 export const MOCK_PULSE: PulseData = {
   score: { point: 64, low: 57, high: 72 },
@@ -26,18 +26,6 @@ export const MOCK_PULSE: PulseData = {
     { title: 'Content decay on 3 pillar pages', meta: 'traffic −18% since April', move: -2 },
   ],
 };
-
-export const MOCK_ACTIONS: ActionCard[] = [
-  { id: 'a1', kind: 'Schema', title: 'Add Organization + sameAs across 214 pages', impact: 8, effort: '1-click', status: 'proposed' },
-  { id: 'a2', kind: 'Robots', title: 'Unblock GPTBot & PerplexityBot', impact: 6, effort: 'edge', status: 'proposed' },
-  { id: 'a3', kind: 'Content', title: 'Answer-first rewrite · 3 pillar pages', impact: 4, effort: 'review', status: 'proposed' },
-  { id: 'a4', kind: 'Meta', title: 'Regenerate titles · 88 category pages', impact: 3, effort: 'auto', status: 'approved' },
-  { id: 'a5', kind: 'Redirect', title: 'Fix 12-hop chain on /pricing', impact: 2, effort: 'PR', status: 'approved' },
-  { id: 'a6', kind: 'Schema', title: 'FAQ blocks live on 214 pages', effort: 'measuring…', status: 'deployed' },
-  { id: 'a7', kind: 'GBP', title: 'Hours + attributes · 12 locations', effort: 'measuring…', status: 'deployed' },
-  { id: 'a8', kind: 'Snippet recovered', title: '“small business loan eligibility”', impact: 3, status: 'verified' },
-  { id: 'a9', kind: 'Cited by Perplexity', title: '“best UPI payment gateway”', impact: 8, status: 'verified' },
-];
 
 export const MOCK_AUDIT: AuditData = {
   healthScore: 72,
