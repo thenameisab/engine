@@ -9,6 +9,7 @@
  */
 import type { PulseData, ReadinessReport, ActionStatus, SerpInspectResult } from './types.js';
 import { MOCK_PULSE } from './mock.js';
+import { getApiToken } from './auth/neonAuth.js';
 
 const BASE_KEY = 'engine.apiBaseUrl';
 const PROJECT_KEY = 'engine.projectId';
@@ -31,10 +32,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!base) throw new Error('no API base URL configured');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
+  // The API verifies this against Neon Auth's JWKS. Null when there's no real
+  // remote session (dev-session fallback): the request then 401s and the
+  // caller falls back to sample data, rather than the API quietly being open.
+  const token = await getApiToken();
   try {
     const res = await fetch(`${base}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);

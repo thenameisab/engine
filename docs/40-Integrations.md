@@ -1,6 +1,6 @@
 # Engine — External Integrations & Configuration
 
-**Status:** v1.0 · Last updated 2026-07-15
+**Status:** v1.1 · Last updated 2026-07-16
 **Companion to:** [Architecture](20-Architecture.md) · [Roadmap](10-Roadmap.md)
 **Source of truth in code:** [`packages/config`](../packages/config) — the `INTEGRATIONS`
 registry drives the runtime readiness check, the `.dev.vars.example` template,
@@ -42,6 +42,7 @@ cp apps/api/.dev.vars.example apps/api/.dev.vars   # then fill in real values
 | Integration | Category | Needed for | External account | Pre-alpha |
 |---|---|---|---|---|
 | Postgres (Neon) | data | Everything (operational store) | Neon | ✅ provisioned |
+| **Neon Auth (Better Auth)** | identity | Sign-in + the API auth gate | Neon Auth (on the Neon project) | ✅ provisioned |
 | Google Search Console (OAuth) | identity | E1 onboarding (connect GSC) | Google Cloud OAuth client | ⛔ blocked on account |
 | Stripe | billing | G3 billing | Stripe account | ⛔ blocked on account |
 | **Serper.dev** | serp | A1 rank tracking | Serper.dev | ⛔ needs key |
@@ -57,12 +58,66 @@ only on someone creating the account and pasting the key.
 
 Primary operational store (accounts, projects, entities, findings, actions,
 onboarding, subscriptions). Already provisioned: **Neon**, AWS
-`ap-southeast-1` (Singapore); identity via **Neon Auth** (Stack Auth, synced
+`ap-southeast-1` (Singapore); identity via **Neon Auth** (see below, synced
 into `neon_auth.users_sync`). Bound as a Worker secret — never committed.
 
 ---
 
-## 2. Google Search Console — OAuth (`GSC_CLIENT_ID`, `GSC_CLIENT_SECRET`, `GSC_REDIRECT_URI`)
+## 2. Neon Auth — Better Auth (`AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `INTERNAL_API_TOKEN`, `AUTH_MODE`)
+
+User identity **and** the API's auth gate. Neon Auth is **Better Auth**, not
+Stack Auth — a correction worth stating plainly, because the two have entirely
+different REST surfaces and the wrong assumption sends you down a dead end.
+Already enabled on the Neon project, with Google sign-in configured.
+
+### How the gate works
+
+```
+dashboard ──sign-in──▶ Neon Auth (cookie session on its own origin)
+dashboard ──GET /token──▶ Neon Auth ──▶ short-lived signed JWT (EdDSA/Ed25519)
+dashboard ──Authorization: Bearer <jwt>──▶ apps/api
+apps/api  ──verify against JWKS (cached)──▶ allow / 401 / 403
+```
+
+The API verifies **signatures against the published JWKS** rather than calling
+`/get-session` per request: no shared secret to distribute, and no network hop
+on the hot path once the key set is cached in the isolate. `AUTH_JWKS_URL` is
+public — it publishes verification keys, not signing keys — so it ships as a
+default `var` in `wrangler.toml` and a freshly deployed Worker is gated rather
+than open. The logic lives in [`packages/auth`](../packages/auth) and is fully
+unit-tested against real generated Ed25519 keys (crypto only, no live account).
+
+**What's gated:** every `/projects/*` and `/accounts/*` route, plus
+`/health/integrations` — i.e. everything that touches the database or spends
+live SERP/LLM credit. **Deliberately open:** `GET /health` (liveness),
+`POST /billing/webhook` (Stripe can't hold a JWT; it has a stronger HMAC
+signature gate), and `GET /oauth/gsc/callback` (a Google redirect target).
+
+The gate **fails closed**: an unset `AUTH_JWKS_URL` or an unreachable JWKS
+returns `503`, never "allow".
+
+### `INTERNAL_API_TOKEN` — the machine caller
+
+The edge worker (`apps/workers`) calls the API's rollback endpoint on its own
+behalf when a deployed fix fails a health check (C1.7 auto-rollback). There is
+no user session behind that call, so it presents this shared service token
+instead of a JWT. **Bind the same value on both Workers** — without it the API
+answers 401 and a bad fix will not roll itself back (the worker logs it).
+
+### `AUTH_MODE=disabled` — local development only
+
+Runs the API unauthenticated so the dashboard works without completing a real
+Google sign-in. It is set in local `.dev.vars` and **must never be set on a
+deployed Worker**, which holds live SERP/LLM keys and the database URL.
+
+### Trusted origins
+
+Any deployed dashboard origin must be added to Neon Auth's trusted-origins list
+or the OAuth callback is rejected (`403 INVALID_CALLBACKURL`).
+
+---
+
+## 3. Google Search Console — OAuth (`GSC_CLIENT_ID`, `GSC_CLIENT_SECRET`, `GSC_REDIRECT_URI`)
 
 **Used for:** E1 onboarding — the user connects their verified GSC property so
 we can read search performance (queries, field Core Web Vitals).
@@ -84,7 +139,7 @@ when unconfigured. Token storage lands when there's a real client to test agains
 
 ---
 
-## 3. Stripe — billing (`STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TO_TIER`, `STRIPE_SECRET_KEY`)
+## 4. Stripe — billing (`STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TO_TIER`, `STRIPE_SECRET_KEY`)
 
 **Used for:** G3 billing — subscription lifecycle synced from Stripe webhooks
 into our read-model; plan/usage/over-limit enforcement.
@@ -109,7 +164,7 @@ mapper are fully tested. `GET /accounts/:id/plan` returns plan + usage + over-li
 
 ---
 
-## 4. SERP data — **Serper.dev** (`SERP_PROVIDER`, `SERPER_API_KEY`)
+## 5. SERP data — **Serper.dev** (`SERP_PROVIDER`, `SERPER_API_KEY`)
 
 **Used for:** A1 rank tracking — Google SERP positions + features (AI Overview
 presence, local pack, PAA, …) per tracked keyword/geo/device.
@@ -136,7 +191,7 @@ or returns `503` when no key is set.
 
 ---
 
-## 5. LLM engines — **OpenAI (primary) + Google Gemini (readiness)**
+## 6. LLM engines — **OpenAI (primary) + Google Gemini (readiness)**
 
 **Used for:** A2 AI visibility — poll LLM engines for answers to tracked
 prompts, extract citations/sources, n-sample (3–5) into a confidence band.

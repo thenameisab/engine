@@ -27,6 +27,12 @@ interface Env {
   ORIGIN: string;
   PROJECT_ID: string;
   API_BASE_URL: string;
+  /**
+   * Service token for the API's auth gate. This worker has no user session, so
+   * it authenticates its rollback call with a shared secret bound to both
+   * Workers. Without it the API answers 401 and auto-rollback stops working.
+   */
+  INTERNAL_API_TOKEN: string;
 }
 
 export default {
@@ -97,12 +103,27 @@ async function autoRollback(env: Env, actions: Pick<Action, 'id'>[], health: Hea
     actions.map((action) =>
       fetch(`${env.API_BASE_URL}/projects/${env.PROJECT_ID}/actions/${action.id}/rollback`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${env.INTERNAL_API_TOKEN}`,
+        },
         body: JSON.stringify({
           actor: 'system:edge-worker-health-check',
           detail: { reason: health.reason },
         }),
-      }).catch(() => undefined),
+      })
+        .then((res) => {
+          // Never throws on a 4xx/5xx, so an auth or API failure here would
+          // otherwise vanish — and a rollback that silently did not happen is
+          // the worst outcome this path has. Serving is already safe (we
+          // returned the origin response); this is the record that it stuck.
+          if (!res.ok) {
+            console.error(`auto-rollback failed for action ${action.id}: ${res.status}`);
+          }
+        })
+        .catch((err: unknown) => {
+          console.error(`auto-rollback request errored for action ${action.id}:`, err);
+        }),
     ),
   );
 }

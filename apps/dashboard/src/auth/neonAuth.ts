@@ -99,4 +99,79 @@ export async function signOutRemote(): Promise<void> {
   } catch {
     /* ignore — local session is cleared regardless */
   }
+  clearCachedToken();
+}
+
+/**
+ * ── API access tokens ──────────────────────────────────────────────────────
+ *
+ * The session itself is a cookie on Neon Auth's origin, which our API (a
+ * different origin) can neither read nor trust. Better Auth's JWT plugin mints
+ * a short-lived signed token for the current session at `GET /token`; we send
+ * that as `Authorization: Bearer <token>` and the API verifies it against Neon
+ * Auth's JWKS (see packages/auth).
+ *
+ * Tokens are short-lived, so we cache one in memory (never localStorage — a
+ * bearer token for live SERP/LLM credit does not belong in persistent storage)
+ * and refetch a minute before it expires.
+ */
+let cachedToken: { token: string; expiresAtMs: number } | null = null;
+
+/**
+ * "There is no session" is cached too, briefly. Without this, every API call
+ * from a dev-session user would fire an extra round-trip to Neon Auth just to
+ * be told 401 again. Short enough that a real sign-in is picked up promptly.
+ */
+let noSessionUntilMs = 0;
+const NO_SESSION_CACHE_MS = 10_000;
+
+/** Seconds of headroom so a token can't expire mid-flight. */
+const TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+export function clearCachedToken(): void {
+  cachedToken = null;
+  noSessionUntilMs = 0;
+}
+
+/** Read a JWT's `exp` without verifying — the API does the real verification. */
+function expiryFromToken(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    const exp = (JSON.parse(json) as { exp?: number }).exp;
+    return typeof exp === 'number' ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A bearer token for the API, or null when there's no real Neon Auth session
+ * (e.g. the dev-session fallback in the sandboxed preview). Null is not an
+ * error: callers fall back to sample data, and the API stays honestly closed.
+ */
+export async function getApiToken(): Promise<string | null> {
+  if (cachedToken && Date.now() < cachedToken.expiresAtMs - TOKEN_REFRESH_MARGIN_MS) {
+    return cachedToken.token;
+  }
+  if (Date.now() < noSessionUntilMs) return null;
+  try {
+    const res = await fetch(`${authBase()}/token`, { credentials: 'include' });
+    if (!res.ok) {
+      noSessionUntilMs = Date.now() + NO_SESSION_CACHE_MS; // 401 = no session behind the cookie
+      return null;
+    }
+    const data = (await res.json()) as { token?: string };
+    if (!data.token) {
+      noSessionUntilMs = Date.now() + NO_SESSION_CACHE_MS;
+      return null;
+    }
+    // Fall back to a conservative 5-minute lifetime if exp is unreadable.
+    const expiresAtMs = expiryFromToken(data.token) ?? Date.now() + 5 * 60_000;
+    cachedToken = { token: data.token, expiresAtMs };
+    return data.token;
+  } catch {
+    return null;
+  }
 }

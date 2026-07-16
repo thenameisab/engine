@@ -3,17 +3,40 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["@cloudflare/workers-types"]
+    "types": [
+      "@cloudflare/workers-types"
+    ]
   },
   "references": [
-    { "path": "../../packages/actions" },
-    { "path": "../../packages/billing" },
-    { "path": "../../packages/config" },
-    { "path": "../../packages/connectors" },
-    { "path": "../../packages/core" },
-    { "path": "../../packages/deploy" },
-    { "path": "../../packages/diagnosis" },
-    { "path": "../../packages/scoring" }
+    {
+      "path": "../../packages/actions"
+    },
+    {
+      "path": "../../packages/auth"
+    },
+    {
+      "path": "../../packages/billing"
+    },
+    {
+      "path": "../../packages/config"
+    },
+    {
+      "path": "../../packages/connectors"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/deploy"
+    },
+    {
+      "path": "../../packages/diagnosis"
+    },
+    {
+      "path": "../../packages/scoring"
+    }
   ],
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

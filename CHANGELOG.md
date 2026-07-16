@@ -10,6 +10,96 @@ versions.
 
 ---
 
+## 2026-07-16 — The API auth gate: JWKS-verified JWTs (`packages/auth`)
+
+### Security
+- **`apps/api` was completely unauthenticated.** Every `/projects/*` and
+  `/accounts/*` route — including `/rank/poll` and `/ai/poll`, which spend real
+  Serper/OpenAI credit per call, and every DB-backed route — was open to anyone
+  who found the Worker URL. The dashboard's sign-in screen was a *client-side*
+  gate only: cosmetic, and bypassed with a single `curl`. This closes it.
+
+### Added
+- **`packages/auth`** — JWT verification against a JWKS on Web Crypto only, no
+  SDK, so it runs identically on `workerd` and in Node/vitest.
+  - `jwt.ts` — `verifyJwt` (signature + `exp`/`nbf`/`iss`/`aud`, with clock
+    skew leeway), `bearerToken`, `decodeJwtUnsafe`. Accepted algorithms are an
+    **allowlist** (EdDSA/ES256/RS256) because `alg` comes from the
+    attacker-controlled header — `alg: none` is rejected before a key is looked
+    up. A token with no `exp` is rejected rather than treated as eternal.
+  - `jwks.ts` — `createRemoteJwks` with TTL caching, **key-rotation healing**
+    (an unknown `kid` triggers a refetch) that is **rate-limited and
+    single-flighted**, so a flood of junk `kid`s can't turn every request into
+    an outbound JWKS fetch.
+  - `serviceToken.ts` — constant-time `verifyServiceToken` for machine callers.
+  - **25 unit tests** against **real generated Ed25519/RSA keypairs** — real
+    signatures, no mocks, no live account needed. Covers tampered payloads,
+    `alg:none`, tokens signed by a foreign key that lie about a trusted `kid`,
+    expiry boundaries, rotation, and the refetch rate limit.
+- **`INTERNAL_API_TOKEN`** — a shared service token for the edge worker's C1.7
+  auto-rollback call, which has no user session and so cannot present a JWT.
+  Kept deliberately separate from the JWT path so the two trust sources never
+  blur.
+- Neon Auth registered in the `@engine/config` `INTEGRATIONS` registry, so
+  readiness, `.dev.vars.example`, and the docs all derive from one definition.
+
+### Changed
+- `apps/api`: `requireAuth` on `/projects/*`, `/accounts/*`, and
+  `/health/integrations`. **Fails closed** — an unset `AUTH_JWKS_URL` or an
+  unreachable JWKS returns `503`, never "allow". `AUTH_JWKS_URL` is public (it
+  publishes verification keys, not signing keys), so it ships as a default var
+  in `wrangler.toml`: a freshly deployed Worker is gated, not open. Left open
+  by design: `/health` (liveness), `/billing/webhook` (Stripe can't hold a JWT;
+  it has a stronger HMAC gate), `/oauth/gsc/callback` (a Google redirect).
+- **Audit-log integrity (C1.8):** Fix Queue transitions now record the
+  *verified* identity as `actor` instead of the caller-supplied string. An
+  audit trail you can write yourself into is not an audit trail. The edge
+  worker's service principal may still label itself, since it reports *which*
+  health check fired.
+- `apps/dashboard`: obtains a short-lived JWT from Neon Auth's `GET /token` and
+  sends it as `Authorization: Bearer`. Cached **in memory only** — a bearer
+  token for live API credit does not belong in localStorage — and refreshed a
+  minute before expiry. "No session" is cached briefly too, so a dev-session
+  user doesn't fire a wasted round-trip to Neon Auth on every API call.
+- `apps/workers`: presents `INTERNAL_API_TOKEN` on its rollback call, and now
+  **logs** a failed auto-rollback instead of swallowing it — `fetch` doesn't
+  throw on 4xx, so an auth failure here would otherwise have vanished silently,
+  and a rollback that quietly didn't happen is the worst outcome this path has.
+- `docs/40-Integrations.md` v1.1: new Neon Auth section (gate design, what's
+  gated and what isn't, trusted origins). Also corrected a stale "Stack Auth"
+  reference — Neon Auth is Better Auth.
+
+### Verified
+- **On the real Workers runtime** (`wrangler dev`), not just vitest — the same
+  discipline that caught the connectors' "Illegal invocation" bug. Drove the
+  live Worker with genuinely signed tokens from a local JWKS server:
+  unauthenticated `/rank/poll`, `/ai/poll`, `/entities`, `/pulse`, `/plan` all
+  `401`; tampered → `403 bad-signature`; foreign-key-signed → `403
+  bad-signature`; `alg:none` → `403 unsupported-alg`; expired → `401 expired`;
+  unknown kid → `403 unknown-key`. A valid token returns **live Google results
+  through Serper**. This also proves Ed25519 `importKey`/`verify` work on
+  `workerd`, which the Node tests cannot.
+- Service token: correct value authenticated and reached the database; wrong
+  value rejected. JWKS fetched **twice across ~20 requests** (the second being
+  the designed unknown-kid rotation probe) — caching confirmed.
+- Dashboard in-browser against the gated Worker: Pulse renders a live
+  API-computed score, SERP Inspector returns live Google results
+  (zapier.com #6), zero console errors — no regression from the token fetch now
+  sitting in front of every request.
+
+### Known gaps
+- The Neon database is connected but **`infra/migrations/` has never been
+  applied to it** — DB-backed routes fail with `relation "actions" does not
+  exist`. Surfaced by this work; pre-existing and unrelated to auth.
+- The full Google sign-in → real JWT → API round-trip is unverified end-to-end:
+  completing it needs the user's own Google consent. Every piece either side of
+  it is verified (Neon Auth mints tokens for real sessions; the API verifies
+  real signatures on `workerd`).
+- `AUTH_MODE=disabled` is set in local `.dev.vars` so the dashboard demo works
+  without a Google sign-in. Local only — never on a deployed Worker.
+
+---
+
 ## 2026-07-16 — Fix Cloudflare Pages deploy: clean output directory
 
 ### Fixed
@@ -453,6 +543,13 @@ Per [`docs/10-Roadmap.md`](docs/10-Roadmap.md), Phase 1 (MVP) milestones:
 | M1.5 | Rollback proven | ✅ Automatic rollback (C1.7) built and staged-tested; same live-infra caveat as M1.4 |
 | M1.6 | Self-serve onboarding | 🟡 KPI tracking + GSC OAuth scaffolding built; blocked on a real Google Cloud OAuth client + the product SPA (onboarding wizard UI) |
 | M1.7 | Billing live | 🟡 Webhook sync + plan/usage logic built and fully unit-tested; blocked on a real Stripe account |
+
+**Next up, and now the clearest blocker:** the Neon Postgres migrations in
+`infra/migrations/` have never been applied to the live database, so every
+DB-backed route fails with `relation "actions" does not exist`. The database
+URL is wired and reachable — the schema simply isn't there. Applying it is what
+turns the Fix Queue, onboarding and billing routes from "typechecked" into
+"actually working", and needs no new external account.
 
 Also outstanding: A1/A2 connector runtimes (interfaces exist, no live
 ingestion yet — both need a paid third-party API account: a SERP data
