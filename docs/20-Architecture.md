@@ -96,6 +96,7 @@ engine/
   packages/
     core/           # entity model, shared types (Finding/Action contract)
     connectors/     # SERP, LLM adapters, GSC/GA4/GBP/CMS/GitHub
+    db/             # Postgres migration runner (`pnpm db:migrate` / `db:status`)
     ui/             # design system (tokens, Radix, charts)
     scoring/        # scoring model clients
   plugins/
@@ -127,6 +128,43 @@ Cloudflare is the **edge + web + light-compute + storage** spine. It is **not** 
 - **Kafka/Redpanda** → managed (Redpanda Cloud) as scale demands; at MVP, Cloudflare Queues can stand in for lower-volume streams.
 
 **Rule of thumb:** *Orchestration, delivery, and edge writes on Cloudflare; stateful warehouses and GPU/browser compute on managed services behind the Workers API.*
+
+### 2.3.1 Postgres schema migrations
+The Postgres schema in `infra/migrations/postgres/` is applied by `@engine/db`:
+
+```bash
+pnpm db:status              # what is applied vs pending
+pnpm db:migrate --dry-run   # plan only
+pnpm db:migrate             # apply
+```
+
+`DATABASE_URL` comes from the environment, else from `apps/api/.dev.vars` — the
+same file `wrangler dev` reads. Workers cannot run migrations themselves (no
+filesystem, and a migration is not a request), so this is a deliberate
+operator-run step, not something the API does at boot.
+
+**Rules the runner enforces:**
+- **Applied migrations are immutable.** Each is checksummed into
+  `schema_migrations`; editing one that already ran is drift and aborts the run.
+  Add a new migration instead.
+- **Filenames are `NNNN_snake_case.sql`** (`0003_add_widgets.sql`). Anything else
+  is rejected rather than skipped — a migration that never runs is worse than one
+  that fails loudly.
+- **New migrations must sort above every applied one**, or the resulting schema
+  is one no fresh `migrate` could reproduce.
+- **All pending migrations run in one transaction**, under a transaction-scoped
+  advisory lock (Neon's pooled endpoint is a transaction-mode pooler, where
+  session-scoped locks aren't reliably held by the same backend). A migration
+  needing to run outside a transaction — `CREATE INDEX CONCURRENTLY`,
+  `ALTER TYPE ... ADD VALUE` — cannot go through this runner and must be applied
+  by hand.
+
+**Writing `jsonb` columns:** bind through `toJsonb()` (`apps/api/src/db.ts`),
+never `${JSON.stringify(v)}::jsonb`. The cast makes Postgres infer the parameter
+as jsonb and the driver re-encodes the already-encoded string, silently storing a
+jsonb *string*: it reads back fine through its own repository, but `col->>'key'`
+is null and every jsonb predicate matches nothing. A guard test in
+`apps/api/src/repositories/jsonb.test.ts` keeps the idiom out.
 
 ### 2.4 MVP-lean vs scale-target mapping
 | Capability | MVP-lean (Phase 1) | Scale target (Phase 2–3) |

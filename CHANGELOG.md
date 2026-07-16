@@ -10,6 +10,49 @@ versions.
 
 ---
 
+## 2026-07-16 — Postgres migrations applied + a jsonb corruption bug (`packages/db`)
+
+### Added
+- **`packages/db` — the Postgres migration runner.** `infra/migrations/` had never
+  been applied to the Neon database: DB-backed routes failed with
+  `relation "actions" does not exist`, which had been misread as an auth problem.
+  There was no runner in the repo at all. `pnpm db:migrate` / `pnpm db:status`
+  now apply and report the schema; both migrations are applied to Neon and all 8
+  tables plus a `schema_migrations` ledger exist.
+- Migrations are **checksummed and immutable** — editing one that already ran is
+  drift and aborts, because the schema could no longer be re-derived from the
+  tree. Out-of-order and DB-ahead-of-checkout also abort rather than guess, and a
+  misnamed file is rejected rather than skipped: a migration that never runs is
+  worse than one that fails loudly.
+- All pending migrations run in **one transaction** under a **transaction-scoped**
+  advisory lock. Neon's pooled endpoint is a transaction-mode pooler, where a
+  session-scoped lock isn't reliably held by the backend that later releases it.
+  The cost — `CREATE INDEX CONCURRENTLY` can't go through this runner — is
+  documented; a half-applied schema is the worse failure to design against.
+
+### Fixed
+- **Silent jsonb data corruption in the Fix Queue** (`repositories/actions.ts`).
+  `${JSON.stringify(v)}::jsonb` double-encodes: the cast makes Postgres infer the
+  parameter as jsonb, so the driver JSON-encodes the string we already encoded and
+  the column stores a jsonb *string*. It reads back correctly through its own
+  repository — so it looked fine, and no unit test with a fake driver would catch
+  it — but `target->>'kind'` is null, `jsonb_array_length(audit_log)` errors, and
+  every jsonb predicate matches nothing. Any Fix Queue query filtering on
+  `target`/`diff`/audit history would have silently returned nothing. Now bound
+  through a documented `toJsonb()` helper; `actions` was the only site repo-wide.
+
+### Testing
+- 15 unit tests on the pure migration planner (drift, out-of-order, duplicates,
+  DB-ahead, filename rejection).
+- A **source-level** guard test keeps the `::jsonb` idiom out. Scoped honestly:
+  CI has no Postgres and the bug only misbehaves against a real one, so a
+  behavioural test isn't available. Verified it fails on the reintroduced idiom.
+- Verified on the **real Workers runtime** against migrated Neon: entity
+  round-trip, `actions/generate` persistence, and an `approve` transition
+  appending an audit entry under the verified identity.
+
+---
+
 ## 2026-07-16 — The API auth gate: JWKS-verified JWTs (`packages/auth`)
 
 ### Security
