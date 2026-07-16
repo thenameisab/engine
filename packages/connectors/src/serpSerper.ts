@@ -102,7 +102,7 @@ export class SerperConnector implements SerpConnector {
   constructor(options: SerperConnectorOptions) {
     if (!options.apiKey) throw new Error('SerperConnector requires an apiKey');
     this.apiKey = options.apiKey;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? (() => new Date());
     this.rawSink =
       options.rawSink ??
