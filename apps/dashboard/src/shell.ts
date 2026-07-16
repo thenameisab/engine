@@ -1,5 +1,6 @@
 import { el } from './dom.js';
 import { icon, ICONS } from './icons.js';
+import { getUser, signOut, initials } from './auth/session.js';
 import type { AppContext, View } from './context.js';
 import { pulseView } from './views/pulse.js';
 import { serpView } from './views/serp.js';
@@ -37,6 +38,23 @@ function isDark(): boolean {
 }
 function applyThemeIcon(btn: HTMLElement): void {
   btn.innerHTML = icon(isDark() ? ICONS.sun : ICONS.moon);
+}
+
+function railFoot(): HTMLElement {
+  const user = getUser();
+  const label = user?.name || 'Internal';
+  const sub = user?.email || 'pre-alpha build';
+  const signOutBtn = el('button', {
+    class: 'signout',
+    title: 'Sign out',
+    onclick: signOut,
+    html: icon(ICONS.signout),
+  });
+  return el('div', { class: 'rail-foot' }, [
+    el('span', { class: 'avatar' }, [user ? initials(user) : 'AG']),
+    el('div', { class: 'navlabel rail-user' }, [el('span', {}, [label]), el('small', {}, [sub])]),
+    el('span', { class: 'navlabel', style: 'margin-left:auto' }, [signOutBtn]),
+  ]);
 }
 
 export function mountShell(root: HTMLElement): void {
@@ -82,10 +100,7 @@ export function mountShell(root: HTMLElement): void {
     ]),
     ...navItems,
     el('div', { class: 'spacer' }),
-    el('div', { class: 'rail-foot' }, [
-      el('span', { class: 'avatar' }, ['AG']),
-      el('div', { class: 'navlabel' }, [el('span', {}, ['Internal']), el('small', {}, ['pre-alpha build'])]),
-    ]),
+    railFoot(),
   ]);
 
   // ---- collapsible rail ----

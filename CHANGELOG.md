@@ -10,6 +10,30 @@ versions.
 
 ---
 
+## 2026-07-16 — Cinematic auth gate (Neon Auth, SDK-free)
+
+### Added
+- **Auth screen + login gate (`apps/dashboard/src/auth`)** — the dashboard now
+  opens on a sign-in screen and only mounts the app once authenticated; a
+  sign-out control lives in the sidebar footer, showing the signed-in user.
+  Built **without the Stack SDK** (per the "skip Stack" call), so the dashboard
+  stays bundler-free: Google sign-in is a plain redirect into Neon Auth's
+  hosted OAuth (using Neon's shared Google credentials — no separate Google
+  Cloud client), gated behind two *public* runtime values
+  (`window.ENGINE_NEON_AUTH` = project id + publishable client key). Until
+  those are set, a dev sign-in establishes a local session so the gated app is
+  fully demonstrable and shareable. Email magic-link field included (delivery
+  lands when the API is wired).
+- **Wordless "data → action" background animation** — a self-contained Canvas
+  flow-field: scattered *data* particles resolve into coherent *streams* under
+  a slowly-evolving vector field, and streams periodically culminate in a warm
+  *execution* bloom (cool data → warm, deployed action). Motion trails + two
+  depth layers give it a cinematic, camera-like drift; honors
+  `prefers-reduced-motion` with a calm static frame. Pure 2D Canvas, no deps —
+  runs in the app and the shareable preview alike.
+- Verified the full cycle in-browser: sign-in → dashboard → sign-out → back to
+  a fresh animated screen; zero console errors.
+
 ## 2026-07-16 — SERP Inspector goes live: first real Serper data in the product
 
 ### Added
