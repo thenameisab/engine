@@ -1,14 +1,13 @@
 import { el } from '../dom.js';
 import { getApiBaseUrl, setApiBaseUrl, getProjectId, setProjectId } from '../api.js';
+import { integrationsSection } from './integrations.js';
 import type { AppContext } from '../context.js';
 
 export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
-  ctx.setBadge('sample');
-
   const baseInput = el('input', {
     class: 'field',
     type: 'text',
-    placeholder: 'https://engine-api.<you>.workers.dev  (blank = sample data)',
+    placeholder: 'https://engine-api.<you>.workers.dev',
     value: getApiBaseUrl(),
   }) as HTMLInputElement;
 
@@ -24,25 +23,33 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     onclick: () => {
       setApiBaseUrl(baseInput.value);
       setProjectId(projInput.value);
-      ctx.toast('Saved. Reopen a view to load live data.');
+      ctx.toast('Saved. Reopen a view to reload data.');
     },
   }, ['Save']);
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Settings']),
-      el('p', {}, ['Point the dashboard at a running apps/api. With no base URL, every view shows built-in sample data.']),
+      el('p', {}, ['Connect the dashboard to your Engine API and review which integrations are wired.']),
     ]),
     el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['API connection'])]),
       el('div', { class: 'form' }, [
         el('label', { class: 'flabel' }, ['API base URL']),
         baseInput,
-        el('div', { class: 'fhint num' }, ['Used for /health/integrations (live) and /projects/:id/pulse (live score math). DB-backed views stay on sample until Postgres is wired.']),
+        el('div', { class: 'fhint num' }, ['Where the dashboard reads live data from. Leave blank to explore with sample data.']),
         el('label', { class: 'flabel' }, ['Project ID']),
         projInput,
         el('div', { class: 'form-actions' }, [save]),
       ]),
+    ]),
+    el('div', { class: 'settings-sec' }, ['Integrations']),
+    el('section', { class: 'panel' }, [
+      el('header', {}, [
+        el('h3', {}, ['External integrations']),
+        el('span', { class: 'more' }, ['from /health/integrations']),
+      ]),
+      el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),
   ]);
 }

@@ -1,7 +1,6 @@
 import { el } from '../dom.js';
 import { fetchIntegrations } from '../api.js';
 import { MOCK_READINESS } from '../mock.js';
-import type { AppContext } from '../context.js';
 import type { ReadinessReport, IntegrationReadiness } from '../types.js';
 
 const STATUS_TEXT: Record<IntegrationReadiness['status'], string> = {
@@ -30,33 +29,29 @@ function integrationCard(i: IntegrationReadiness): HTMLElement {
   ]);
 }
 
-export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
+function summaryStat(label: string, n: number, cls: string): HTMLElement {
+  return el('div', { class: `sstat ${cls}` }, [
+    el('div', { class: 'sstat-n num' }, [String(n)]),
+    el('div', { class: 'sstat-l' }, [label]),
+  ]);
+}
+
+/** The Integrations readiness block, embedded inside Settings. */
+export async function integrationsSection(): Promise<HTMLElement> {
   let report: ReadinessReport = MOCK_READINESS;
   try {
     report = await fetchIntegrations();
-    ctx.setBadge('live');
   } catch {
-    ctx.setBadge('sample');
+    /* no API configured — show the sample readiness */
   }
 
   const s = report.summary;
   return el('div', {}, [
-    el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Integrations']),
-      el('p', { html: `${s.configured}/${s.total} wired · <b>${report.mvpReady ? 'MVP-ready' : 'not MVP-ready'}</b>. Set an API base URL in Settings to read this live from <span class="num">/health/integrations</span>.` }),
-    ]),
     el('div', { class: 'summary-row' }, [
       summaryStat('Wired', s.configured, 'configured'),
       summaryStat('Partial', s.partial, 'partial'),
       summaryStat('Not wired', s.missing, 'missing'),
     ]),
     el('div', { class: 'intg-grid' }, report.integrations.map(integrationCard)),
-  ]);
-}
-
-function summaryStat(label: string, n: number, cls: string): HTMLElement {
-  return el('div', { class: `sstat ${cls}` }, [
-    el('div', { class: 'sstat-n num' }, [String(n)]),
-    el('div', { class: 'sstat-l' }, [label]),
   ]);
 }

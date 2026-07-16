@@ -42,7 +42,6 @@ function card(a: ActionCard, ctx: AppContext, onMoved: (id: string, to: ActionSt
 }
 
 export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
-  ctx.setBadge('sample'); // action lists are DB-backed; not live in pre-alpha
   let actions = [...MOCK_ACTIONS];
   const container = el('section', { class: 'panel fq' });
 

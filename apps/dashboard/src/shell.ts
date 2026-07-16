@@ -1,12 +1,10 @@
 import { el } from './dom.js';
 import { icon, ICONS } from './icons.js';
 import type { AppContext, View } from './context.js';
-import type { DataSource } from './types.js';
 import { pulseView } from './views/pulse.js';
 import { serpView } from './views/serp.js';
 import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
-import { integrationsView } from './views/integrations.js';
 import { settingsView } from './views/settings.js';
 
 interface Route {
@@ -21,9 +19,10 @@ const ROUTES: Route[] = [
   { id: 'serp', label: 'SERP Inspector', iconMarkup: ICONS.serp, view: serpView },
   { id: 'fix-queue', label: 'Fix Queue', iconMarkup: ICONS.kanban, view: fixQueueView },
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
-  { id: 'integrations', label: 'Integrations', iconMarkup: ICONS.plug, view: integrationsView },
   { id: 'settings', label: 'Settings', iconMarkup: ICONS.gear, view: settingsView },
 ];
+
+const RAIL_KEY = 'engine.railCollapsed';
 
 function currentRouteId(): string {
   const id = location.hash.replace(/^#\/?/, '');
@@ -41,15 +40,10 @@ function applyThemeIcon(btn: HTMLElement): void {
 }
 
 export function mountShell(root: HTMLElement): void {
-  const badge = el('span', { class: 'srcbadge', title: 'Data source for this view' }, ['sample']);
   const content = el('main', { class: 'content', id: 'content' });
   const toastHost = el('div', { class: 'toast-host' });
 
   const ctx: AppContext = {
-    setBadge(source: DataSource) {
-      badge.textContent = source === 'live' ? 'live' : 'sample';
-      badge.className = `srcbadge ${source}`;
-    },
     toast(message: string) {
       const t = el('div', { class: 'toast' }, [message]);
       toastHost.append(t);
@@ -69,7 +63,8 @@ export function mountShell(root: HTMLElement): void {
       class: 'navitem',
       href: `#/${r.id}`,
       'data-route': r.id,
-      html: icon(r.iconMarkup) + r.label,
+      title: r.label,
+      html: icon(r.iconMarkup) + `<span class="navlabel">${r.label}</span>`,
     }),
   );
 
@@ -83,27 +78,51 @@ export function mountShell(root: HTMLElement): void {
   const rail = el('aside', { class: 'rail' }, [
     el('div', { class: 'brand' }, [
       el('span', { class: 'mark', html: `<svg viewBox="0 0 24 24" fill="none">${ICONS.logo}</svg>` }),
-      el('b', {}, ['Engine']),
+      el('b', { class: 'navlabel' }, ['Engine']),
     ]),
     ...navItems,
     el('div', { class: 'spacer' }),
     el('div', { class: 'rail-foot' }, [
       el('span', { class: 'avatar' }, ['AG']),
-      el('div', {}, [el('span', {}, ['Internal']), el('small', {}, ['pre-alpha build'])]),
+      el('div', { class: 'navlabel' }, [el('span', {}, ['Internal']), el('small', {}, ['pre-alpha build'])]),
     ]),
   ]);
 
+  // ---- collapsible rail ----
+  const appEl = el('div', { class: 'app' }, [rail, el('div', { class: 'main' })]);
+  function applyRail(collapsed: boolean): void {
+    appEl.classList.toggle('rail-collapsed', collapsed);
+    collapseBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  }
+  const collapseBtn = el('button', { class: 'iconbtn', title: 'Collapse sidebar', html: icon(ICONS.sidebar) });
+  collapseBtn.addEventListener('click', () => {
+    const next = !appEl.classList.contains('rail-collapsed');
+    applyRail(next);
+    try {
+      localStorage.setItem(RAIL_KEY, next ? '1' : '0');
+    } catch {
+      /* storage unavailable (e.g. sandboxed preview) — collapse still works for the session */
+    }
+  });
+
   const topbar = el('div', { class: 'topbar' }, [
+    collapseBtn,
     el('div', { class: 'crumb', id: 'crumb' }, ['Pulse']),
-    badge,
     el('div', { class: 'grow' }),
     themeBtn,
   ]);
 
-  root.append(
-    el('div', { class: 'app' }, [rail, el('div', { class: 'main' }, [topbar, content])]),
-    toastHost,
-  );
+  const main = appEl.querySelector('.main') as HTMLElement;
+  main.append(topbar, content);
+  root.append(appEl, toastHost);
+
+  let startCollapsed = false;
+  try {
+    startCollapsed = localStorage.getItem(RAIL_KEY) === '1';
+  } catch {
+    /* ignore */
+  }
+  applyRail(startCollapsed);
 
   async function renderRoute(): Promise<void> {
     const id = currentRouteId();

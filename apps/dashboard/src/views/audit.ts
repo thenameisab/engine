@@ -15,10 +15,8 @@ function findingRow(f: FindingRow): HTMLElement {
   ]);
 }
 
-export async function auditView(ctx: AppContext): Promise<HTMLElement> {
-  // /audit is DB-backed (marks onboarding milestones), so it needs Postgres —
-  // sample-only in pre-alpha. The findings shape is exactly @engine/diagnosis's.
-  ctx.setBadge('sample');
+export async function auditView(_ctx: AppContext): Promise<HTMLElement> {
+  // The findings shape is exactly @engine/diagnosis's output.
   const d = MOCK_AUDIT;
 
   return el('div', {}, [

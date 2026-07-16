@@ -60,10 +60,8 @@ function resultBlock(res: SerpInspectResult, domain: string): HTMLElement {
   ]);
 }
 
-export async function serpView(ctx: AppContext): Promise<HTMLElement> {
-  ctx.setBadge('live'); // this view is only meaningful against a live API + SERP key
-
-  const kw = el('input', { class: 'field', type: 'text', placeholder: 'keyword, e.g. best crm for small business' }) as HTMLInputElement;
+export async function serpView(_ctx: AppContext): Promise<HTMLElement> {
+  const kw =el('input', { class: 'field', type: 'text', placeholder: 'keyword, e.g. best crm for small business' }) as HTMLInputElement;
   const domain = el('input', { class: 'field', type: 'text', placeholder: 'your domain (optional), e.g. acme.com' }) as HTMLInputElement;
   const country = el('select', { class: 'field' }, COUNTRIES.map((c) => el('option', { value: c }, [c]))) as HTMLSelectElement;
   const out = el('div', { class: 'serp-out' });

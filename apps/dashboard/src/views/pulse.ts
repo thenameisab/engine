@@ -94,13 +94,12 @@ function countUp(node: HTMLElement, target: number): void {
   requestAnimationFrame(tick);
 }
 
-export async function pulseView(ctx: AppContext): Promise<HTMLElement> {
+export async function pulseView(_ctx: AppContext): Promise<HTMLElement> {
   let data: PulseData = MOCK_PULSE;
   try {
     data = await fetchPulse();
-    ctx.setBadge('live');
   } catch {
-    ctx.setBadge('sample');
+    /* fall back to sample data */
   }
 
   return el('div', {}, [
