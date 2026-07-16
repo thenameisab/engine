@@ -13,6 +13,7 @@ Thumbs.db
 # Deps / build
 node_modules/
 dist/
+apps/dashboard/site/
 .turbo/
 *.tsbuildinfo
 .env

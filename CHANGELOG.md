@@ -10,6 +10,21 @@ versions.
 
 ---
 
+## 2026-07-16 — Fix Cloudflare Pages deploy: clean output directory
+
+### Fixed
+- **`apps/dashboard` Cloudflare Pages build failed**: *"build output directory
+  contains links to files that can't be accessed."* Pointing Pages at
+  `apps/dashboard` meant it tried to upload `node_modules` too, which under a
+  pnpm workspace is full of symlinks Pages can't resolve. Added
+  `scripts/assembleSite.mjs`, run after `tsc` as part of `pnpm build`: copies
+  just `index.html` + `styles.css` + the compiled `dist/*.js` into a clean,
+  symlink-free `site/` directory (gitignored, rebuilt every deploy). **Pages'
+  output directory should now be set to `apps/dashboard/site`**, not
+  `apps/dashboard`. Verified the assembled `site/` contains zero symlinks and
+  serves/renders correctly (animation, gate, zero console errors). Updated
+  `apps/dashboard/README.md`'s deploy section accordingly.
+
 ## 2026-07-16 — Cinematic auth gate (Neon Auth = Better Auth, SDK-free)
 
 ### Added
