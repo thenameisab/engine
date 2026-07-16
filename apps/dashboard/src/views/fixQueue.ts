@@ -1,7 +1,6 @@
 import { el } from '../dom.js';
 import { LANE_ORDER, statusLabel, nextAction } from '../format.js';
-import { transitionAction } from '../api.js';
-import { MOCK_ACTIONS } from '../mock.js';
+import { fetchActions, transitionAction } from '../api.js';
 import type { AppContext } from '../context.js';
 import type { ActionCard, ActionStatus } from '../types.js';
 
@@ -27,12 +26,16 @@ function card(a: ActionCard, ctx: AppContext, onMoved: (id: string, to: ActionSt
         btn.textContent = `${next.label}…`;
         try {
           await transitionAction(a.id, next.to as Exclude<ActionStatus, 'proposed'>);
-          ctx.toast(`${a.kind} → ${statusLabel(next.to)} (live)`);
-        } catch {
-          // Pre-alpha: no DB, so the live call fails — reflect the move locally
-          // so the lifecycle is demonstrable, and say so plainly.
-          ctx.toast(`${a.kind} → ${statusLabel(next.to)} (sample — no live DB)`);
+        } catch (err) {
+          // The transition is the product. If Postgres rejected it, the card has
+          // not moved — showing it in the next lane anyway would be a lie the
+          // user only discovers on reload.
+          ctx.toast(`${a.kind} → ${statusLabel(next.to)} failed: ${(err as Error).message}`);
+          btn.removeAttribute('disabled');
+          btn.textContent = next.label;
+          return;
         }
+        ctx.toast(`${a.kind} → ${statusLabel(next.to)}`);
         onMoved(a.id, next.to);
       },
     }, [next.label]);
@@ -42,7 +45,14 @@ function card(a: ActionCard, ctx: AppContext, onMoved: (id: string, to: ActionSt
 }
 
 export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
-  let actions = [...MOCK_ACTIONS];
+  let actions: ActionCard[] = [];
+  let loadError: string | null = null;
+  try {
+    actions = await fetchActions();
+  } catch (err) {
+    loadError = (err as Error).message;
+  }
+
   const container = el('section', { class: 'panel fq' });
 
   const rerender = () => {
@@ -53,7 +63,11 @@ export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
         el('h3', {}, ['Fix Queue']),
         el('span', { class: 'fq-sub' }, ['Propose → approve → deploy → verify. Every fix is reversible.']),
       ]),
-      el('div', { class: 'lanes' }, LANE_ORDER.map((status) => lane(status, actions, ctx, onMoved))),
+      ...(loadError
+        ? [el('div', { class: 'fq-note' }, [`Could not load the queue: ${loadError}`])]
+        : actions.length === 0
+          ? [el('div', { class: 'fq-note' }, ['No actions yet. Run an audit to turn findings into proposed fixes.'])]
+          : [el('div', { class: 'lanes' }, LANE_ORDER.map((status) => lane(status, actions, ctx, onMoved)))]),
     );
   };
 
@@ -67,7 +81,7 @@ export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Fix Queue']),
-      el('p', { html: 'Approve a card to walk it through the lifecycle. Transitions call the live API when configured, and fall back to a local move otherwise.' }),
+      el('p', { html: 'Every card is a real, persisted fix. Approve one to walk it through the lifecycle — each transition is written to Postgres with an audit entry.' }),
     ]),
     container,
   ]);

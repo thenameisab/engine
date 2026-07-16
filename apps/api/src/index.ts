@@ -16,7 +16,8 @@ import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { createDb } from './db.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
-import { createAction, getAction, saveActionTransition } from './repositories/actions.js';
+import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
+import { upsertFindings } from './repositories/findings.js';
 import {
   getOnboardingProgress,
   markDomainConnected,
@@ -164,12 +165,30 @@ app.post('/projects/:projectId/pulse', async (c) => {
  */
 app.post('/projects/:projectId/audit', async (c) => {
   const body = await c.req.json<{ pages: CrawledPage[] }>();
-  const result = runAudit(body.pages ?? []);
+  const pages = body.pages ?? [];
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
+  const result = runAudit(pages);
+
+  // A page names the entity it belongs to, and that id becomes findings.entity_id.
+  // Check the entities are actually this project's before writing: an unchecked
+  // id would either trip the FK as a 500, or — worse, since the id is
+  // caller-supplied — let one project hang findings off another project's entity.
+  const cited = [...new Set(pages.map((p) => p.entityId))];
+  if (cited.length > 0) {
+    const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
+    const unknown = cited.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      return c.json({ error: 'pages cite entities that do not belong to this project', unknownEntityIds: unknown }, 400);
+    }
+  }
+
+  const findings = await upsertFindings(db, result.findings);
   await markFirstCrawl(db, projectId);
-  if (result.findings.length > 0) await markFirstInsight(db, projectId);
-  return c.json({ projectId, ...result });
+  if (findings.length > 0) await markFirstInsight(db, projectId);
+  // `findings` overrides the run's copy: same findings, but carrying their
+  // persisted uuids, which is what /actions/generate needs to reference.
+  return c.json({ projectId, ...result, findings });
 });
 
 /**
@@ -187,6 +206,17 @@ app.post('/projects/:projectId/actions/generate', async (c) => {
   const actions = await Promise.all(generated.map((action) => createAction(db, action)));
   if (actions.length > 0) await markFirstFixProposed(db, projectId);
   return c.json({ projectId, actions });
+});
+
+/**
+ * The project's Fix Queue (C1 kanban). Reads the persisted queue rather than the
+ * generate call's return value, so a reload shows real lifecycle state — this is
+ * the read side the dashboard's board renders.
+ */
+app.get('/projects/:projectId/actions', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const actions = await listActionsByProject(db, c.req.param('projectId'));
+  return c.json({ actions });
 });
 
 app.get('/projects/:projectId/actions/:actionId', async (c) => {

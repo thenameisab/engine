@@ -3,7 +3,7 @@
  * (confidence-band bar positions, sparkline paths) out of the view code means
  * the fiddly bits are verifiable in isolation.
  */
-import type { ScoreBand, ActionStatus, SerpOrganic } from './types.js';
+import type { ActionCard, ApiAction, ScoreBand, ActionStatus, SerpOrganic } from './types.js';
 
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -103,6 +103,89 @@ export function domainRank(organic: SerpOrganic[], domain: string): number | nul
 /** Human label for a SERP feature key. */
 export function serpFeatureLabel(feature: string): string {
   return feature.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+/** Map a persisted Action from the API onto the card the Fix Queue renders. */
+export function toActionCard(a: ApiAction): ActionCard {
+  return {
+    id: a.id,
+    kind: actionKindLabel(a.type),
+    title: actionTitle(a),
+    impact: impactPoints(a.predictedImpact),
+    effort: effortLabel(a.target.kind),
+    status: a.status,
+  };
+}
+
+/**
+ * Diagnosis scores predicted impact on 0–1 (severity weight x page value); the
+ * card reads "+N impact" on a 0–10 scale. Rescale here rather than changing the
+ * Finding contract — 0–1 is the right shape for the scoring math, and "+0.855
+ * impact" is the wrong shape for a human deciding what to approve first.
+ */
+export function impactPoints(predictedImpact: number): number {
+  return Math.round(clamp(predictedImpact, 0, 1) * 10);
+}
+
+/**
+ * A card needs a human sentence, but an Action carries only a typed diff. Derive
+ * the sentence from the diff rather than storing prose: the diff is what actually
+ * deploys, so a title built from it cannot drift from what the fix does.
+ */
+export function actionTitle(a: ApiAction): string {
+  const where = targetLabel(a.target);
+  switch (a.type) {
+    case 'meta':
+      return `Regenerate ${a.diff.field ?? 'meta'} · ${where}`;
+    case 'schema':
+      return `Inject JSON-LD · ${where}`;
+    case 'robots':
+      return `Update robots.txt · ${where}`;
+    case 'redirect':
+      return `Fix redirect · ${where}`;
+    case 'content':
+      return `Content rewrite · ${where}`;
+    case 'gbp':
+      return `Update business profile · ${where}`;
+    default:
+      return `${actionKindLabel(a.type)} · ${where}`;
+  }
+}
+
+/** Where a fix lands, in the user's terms. */
+export function targetLabel(t: ApiAction['target']): string {
+  switch (t.kind) {
+    case 'cms-plugin':
+      return [t.plugin, t.siteId].filter(Boolean).join(' · ') || 'cms plugin';
+    case 'edge-worker':
+      return t.workerName ?? 'edge worker';
+    case 'github-pr':
+      return t.repo ?? 'repo';
+    case 'gbp-api':
+      return t.locationId ?? 'location';
+    default:
+      return t.kind;
+  }
+}
+
+export function actionKindLabel(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+/** How much work a fix costs the user, read off where it deploys. */
+export function effortLabel(targetKind: string): string {
+  switch (targetKind) {
+    case 'cms-plugin':
+      return '1-click';
+    case 'edge-worker':
+      return 'edge';
+    case 'github-pr':
+      return 'PR';
+    case 'gbp-api':
+      return 'auto';
+    default:
+      return targetKind;
+  }
 }
 
 const STATUS_LABELS: Record<ActionStatus, string> = {

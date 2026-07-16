@@ -45,6 +45,43 @@ export async function createAction(db: Db, action: Action): Promise<Action> {
   return toAction(row);
 }
 
+/**
+ * An Action as the Fix Queue needs to render it: the action itself plus the
+ * predicted impact of the finding that caused it. Impact lives on the Finding
+ * (it is a property of the problem, not of the fix), but a queue card is
+ * unrankable without it, so the list projection carries it along.
+ */
+export interface QueuedAction extends Action {
+  predictedImpact: number;
+}
+
+interface QueuedActionRow extends ActionRow {
+  predicted_impact: string;
+}
+
+/**
+ * Every Action in a project's Fix Queue, newest first.
+ *
+ * `actions` has no project_id: an action belongs to a project only *through*
+ * findings -> entities. That indirection is the entity-first data model
+ * (Architecture §3 / Roadmap sequencing rule 1) and is deliberately not
+ * denormalized away — the entity is the join key for everything, and a
+ * project_id column here would be a second, drift-prone source of that truth.
+ */
+export async function listActionsByProject(db: Db, projectId: string): Promise<QueuedAction[]> {
+  const rows = await db<QueuedActionRow[]>`
+    select
+      a.id, a.finding_id, a.type, a.target, a.diff, a.status, a.audit_log,
+      f.predicted_impact
+    from actions a
+    join findings f on f.id = a.finding_id
+    join entities e on e.id = f.entity_id
+    where e.project_id = ${projectId}
+    order by a.created_at desc
+  `;
+  return rows.map((row) => ({ ...toAction(row), predictedImpact: Number(row.predicted_impact) }));
+}
+
 export async function getAction(db: Db, id: string): Promise<Action | null> {
   const rows = await db<ActionRow[]>`
     select id, finding_id, type, target, diff, status, audit_log from actions where id = ${id}
