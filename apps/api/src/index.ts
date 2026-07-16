@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { cors } from 'hono/cors';
 import {
   unifiedVisibilityScore,
   DEFAULT_CHANNEL_MIX,
@@ -43,9 +44,25 @@ interface Env {
   OPENAI_MODEL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
+  /** Comma-separated allowed dashboard origins for CORS. '*' (default) is fine for the pre-alpha internal build. */
+  CORS_ORIGINS?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+/**
+ * CORS so the browser dashboard (a separate Pages origin) can call this Worker.
+ * Defaults to `*` for the pre-alpha internal build; set `CORS_ORIGINS` to a
+ * comma-separated allowlist to lock it down.
+ */
+app.use('*', (c, next) => {
+  const configured = c.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
+  return cors({
+    origin: configured && configured.length > 0 ? configured : '*',
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowHeaders: ['Content-Type'],
+  })(c, next);
+});
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 

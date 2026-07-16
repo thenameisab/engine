@@ -10,6 +10,39 @@ versions.
 
 ---
 
+## 2026-07-16 — SERP Inspector goes live: first real Serper data in the product
+
+### Added
+- **SERP Inspector view (`apps/dashboard`)** — the first genuinely *live*
+  product feature, wired to the user's real Serper.dev key. Enter a keyword
+  (+ optional your-domain, + country) → one live Google query surfaces: **AI
+  Overview presence** (the GEO signal — "is Google answering with AI?"), the
+  **SERP features** present (People Also Ask, etc.), **your organic rank**
+  (computed from the real results, e.g. "zapier.com ranks #6") with your row
+  highlighted, and the **competitor hosts** ranking above you. Pure helpers
+  (`hostname`/`normalizeDomain`/`domainRank`/`serpFeatureLabel`) are unit-tested
+  (14 dashboard tests now).
+- **CORS on `apps/api`** (`hono/cors`, `CORS_ORIGINS` env, `*` by default for
+  pre-alpha) so the browser dashboard can call the Worker cross-origin.
+- **`nodejs_compat`** compatibility flag on `apps/api`'s `wrangler.toml`,
+  required by the `postgres` driver on the Workers runtime.
+
+### Fixed
+- **Connector `fetch` "Illegal invocation" on the Workers runtime** — the
+  Serper/OpenAI/Gemini connectors stored `globalThis.fetch` as an instance
+  property and called it as a method, detaching its `this` and crashing every
+  live call inside a Worker (500s). Now default to a module-scope wrapper.
+  Caught by running `apps/api` live under `wrangler dev` — not by the
+  fixture-mocked unit tests.
+
+### Verified live (end to end)
+Ran `apps/api` under `wrangler dev` with the real `.dev.vars` Serper key and
+drove the dashboard against it in the browser: `/health/integrations` reports
+`serp: configured`; a real `/rank/poll` returns live Google results
+(HTTP 200); and the SERP Inspector renders them with a `LIVE` badge, the
+computed domain rank, and feature chips — **zero console errors**. First proof
+of the full stack: browser → CORS → Worker → Serper → Google → back.
+
 ## 2026-07-15 — Product dashboard (K): the real Pulse + Fix Queue SPA
 
 ### Added

@@ -38,7 +38,7 @@ export class OpenAIConnector implements LlmEngineConnector {
     if (!options.apiKey) throw new Error('OpenAIConnector requires an apiKey');
     this.apiKey = options.apiKey;
     this.model = options.model ?? DEFAULT_MODEL;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? (() => new Date());
     this.rawSink = options.rawSink ?? ((_q, _raw) => `openai:pending:${this.now().toISOString()}`);
   }

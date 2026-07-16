@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp } from './format.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel } from './format.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -79,5 +79,32 @@ describe('clamp', () => {
     expect(clamp(5, 0, 10)).toBe(5);
     expect(clamp(-1, 0, 10)).toBe(0);
     expect(clamp(11, 0, 10)).toBe(10);
+  });
+});
+
+describe('SERP helpers', () => {
+  it('hostname strips www and lowercases', () => {
+    expect(hostname('https://WWW.Acme.com/x?y=1')).toBe('acme.com');
+    expect(hostname('not a url')).toBe('');
+  });
+
+  it('normalizeDomain strips protocol/www/path', () => {
+    expect(normalizeDomain('https://www.Acme.com/blog')).toBe('acme.com');
+  });
+
+  it('domainRank finds the first matching organic position, incl. subdomains', () => {
+    const organic = [
+      { position: 1, url: 'https://competitor.com/a', title: '' },
+      { position: 2, url: 'https://blog.acme.com/b', title: '' },
+      { position: 3, url: 'https://acme.com/c', title: '' },
+    ];
+    expect(domainRank(organic, 'acme.com')).toBe(2);
+    expect(domainRank(organic, 'nowhere.com')).toBeNull();
+    expect(domainRank(organic, '')).toBeNull();
+  });
+
+  it('serpFeatureLabel humanizes a feature key', () => {
+    expect(serpFeatureLabel('people_also_ask')).toBe('People Also Ask');
+    expect(serpFeatureLabel('ai_overview')).toBe('Ai Overview');
   });
 });

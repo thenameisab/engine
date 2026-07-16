@@ -1,6 +1,8 @@
 name = "engine-api"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+# Required by the `postgres` driver (node built-ins) on the Workers runtime.
+compatibility_flags = ["nodejs_compat"]
 
 # ── External integrations ──────────────────────────────────────────────────
 # Secrets (set via `wrangler secret put <NAME>`, never committed):

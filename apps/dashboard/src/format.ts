@@ -3,7 +3,7 @@
  * (confidence-band bar positions, sparkline paths) out of the view code means
  * the fiddly bits are verifiable in isolation.
  */
-import type { ScoreBand, ActionStatus } from './types.js';
+import type { ScoreBand, ActionStatus, SerpOrganic } from './types.js';
 
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -68,6 +68,41 @@ export function fmtInt(n: number): string {
 export function fmtDelta(n: number): string {
   const s = n.toFixed(1);
   return n >= 0 ? `+${s}` : s.replace('-', '−');
+}
+
+/** Hostname of a URL, lowercased, without a leading www. Empty if unparseable. */
+export function hostname(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/** Normalize a user-entered domain to a bare host for matching. */
+export function normalizeDomain(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/.*$/, '');
+}
+
+/** The position of the first organic result whose host matches `domain`, or null if not found. */
+export function domainRank(organic: SerpOrganic[], domain: string): number | null {
+  const target = normalizeDomain(domain);
+  if (!target) return null;
+  for (const o of organic) {
+    const host = hostname(o.url);
+    if (host === target || host.endsWith(`.${target}`)) return o.position;
+  }
+  return null;
+}
+
+/** Human label for a SERP feature key. */
+export function serpFeatureLabel(feature: string): string {
+  return feature.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 const STATUS_LABELS: Record<ActionStatus, string> = {

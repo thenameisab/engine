@@ -3,6 +3,7 @@ import { icon, ICONS } from './icons.js';
 import type { AppContext, View } from './context.js';
 import type { DataSource } from './types.js';
 import { pulseView } from './views/pulse.js';
+import { serpView } from './views/serp.js';
 import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
 import { integrationsView } from './views/integrations.js';
@@ -17,6 +18,7 @@ interface Route {
 
 const ROUTES: Route[] = [
   { id: 'pulse', label: 'Pulse', iconMarkup: ICONS.pulse, view: pulseView },
+  { id: 'serp', label: 'SERP Inspector', iconMarkup: ICONS.serp, view: serpView },
   { id: 'fix-queue', label: 'Fix Queue', iconMarkup: ICONS.kanban, view: fixQueueView },
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
   { id: 'integrations', label: 'Integrations', iconMarkup: ICONS.plug, view: integrationsView },

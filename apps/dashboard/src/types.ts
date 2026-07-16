@@ -81,6 +81,23 @@ export interface ReadinessReport {
   summary: { configured: number; partial: number; missing: number; total: number };
 }
 
+/** One organic SERP result (A1). */
+export interface SerpOrganic {
+  position: number;
+  url: string;
+  title: string;
+}
+
+/** A live SERP lookup for one keyword (SERP Inspector). */
+export interface SerpInspectResult {
+  keyword: string;
+  country: string;
+  vendor: string;
+  features: string[];
+  organic: SerpOrganic[];
+  polledAt: string;
+}
+
 /** Whether a view is showing live API data or the built-in sample. */
 export type DataSource = 'live' | 'sample';
 

@@ -7,7 +7,7 @@
  * proof: `GET /health/integrations` (readiness) and `POST /projects/:id/pulse`
  * (the A3 score math is pure). The rest are DB-backed and degrade to sample.
  */
-import type { PulseData, ReadinessReport, ActionStatus } from './types.js';
+import type { PulseData, ReadinessReport, ActionStatus, SerpInspectResult } from './types.js';
 import { MOCK_PULSE } from './mock.js';
 
 const BASE_KEY = 'engine.apiBaseUrl';
@@ -72,6 +72,38 @@ export async function fetchPulse(): Promise<PulseData> {
   return {
     ...MOCK_PULSE,
     score: { point: Math.round(band.point), low: Math.round(band.low), high: Math.round(band.high) },
+  };
+}
+
+interface RankPollResponse {
+  vendor: string;
+  results: {
+    query: { keyword: string; geo: { country: string } };
+    organic: { position: number; url: string; title: string }[];
+    features: string[];
+    polledAt: string;
+  }[];
+}
+
+/**
+ * Live SERP lookup for one keyword via `POST /projects/:id/rank/poll` (Serper).
+ * This is genuinely live and needs no database — just a wired SERP key.
+ */
+export async function rankPoll(keyword: string, country: string): Promise<SerpInspectResult> {
+  const query = { keyword, geo: { country }, device: 'desktop', language: 'en', engine: 'google' };
+  const resp = await request<RankPollResponse>(`/projects/${getProjectId()}/rank/poll`, {
+    method: 'POST',
+    body: JSON.stringify({ queries: [query] }),
+  });
+  const r = resp.results[0];
+  if (!r) throw new Error('no SERP result returned');
+  return {
+    keyword: r.query.keyword,
+    country: r.query.geo.country,
+    vendor: resp.vendor,
+    features: r.features,
+    organic: r.organic,
+    polledAt: r.polledAt,
   };
 }
 

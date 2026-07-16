@@ -59,7 +59,7 @@ export class GeminiConnector implements LlmEngineConnector {
     this.apiKey = options.apiKey;
     this.model = options.model ?? DEFAULT_MODEL;
     this.grounding = options.grounding ?? true;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? (() => new Date());
     this.rawSink = options.rawSink ?? ((_q, _raw) => `gemini:pending:${this.now().toISOString()}`);
   }
