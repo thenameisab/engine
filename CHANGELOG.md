@@ -10,6 +10,34 @@ versions.
 
 ---
 
+## 2026-07-16 — Cinematic auth gate (Neon Auth = Better Auth, SDK-free)
+
+### Added
+- **Auth screen + login gate (`apps/dashboard/src/auth`)** — the dashboard now
+  opens on a sign-in screen and only mounts the app once authenticated; a
+  sign-out control lives in the sidebar footer, showing the signed-in user.
+  Wired to **Neon Auth, which is Better Auth** (not Stack), **without the SDK**
+  so the dashboard stays bundler-free: `POST /sign-in/social` → redirect into
+  Better Auth's Google OAuth (Neon's shared Google creds — no separate Google
+  Cloud client) → cookie session; `GET /get-session` (with credentials) adopts
+  it on return; `POST /sign-out` clears it. The Better Auth base URL is
+  overridable via `window.ENGINE_AUTH_BASE`; the deployed origin must be added
+  to Neon Auth's trusted origins for the OAuth callback. Verified against the
+  live endpoint from the browser: `get-session` → 200 `null`, `sign-in/social`
+  → 200 with a real Google OAuth URL, CORS reflects the origin with credentials.
+  A dev-session fallback keeps the app usable where a session can't be
+  established (e.g. the sandboxed preview). Email magic-link attempts Better
+  Auth's plugin, with the same fallback.
+- **Wordless "data → action" background animation** — a self-contained Canvas
+  flow-field: scattered *data* particles resolve into coherent *streams* under
+  a slowly-evolving vector field, and streams periodically culminate in a warm
+  *execution* bloom (cool data → warm, deployed action). Motion trails + two
+  depth layers give it a cinematic, camera-like drift; honors
+  `prefers-reduced-motion` with a calm static frame. Pure 2D Canvas, no deps —
+  runs in the app and the shareable preview alike.
+- Verified the full cycle in-browser: sign-in → dashboard → sign-out → back to
+  a fresh animated screen; zero console errors.
+
 ## 2026-07-16 — SERP Inspector goes live: first real Serper data in the product
 
 ### Added
