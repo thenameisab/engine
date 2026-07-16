@@ -1,4 +1,5 @@
 import type { Action, ActionStatus, ActionType, AuditEntry, DeployTarget, Diff } from '@engine/core';
+import { toJsonb } from '../db.js';
 import type { Db } from '../db.js';
 
 interface ActionRow {
@@ -23,13 +24,21 @@ function toAction(row: ActionRow): Action {
   };
 }
 
-/** Persist a freshly built (`proposed`) Action, letting Postgres assign the real id. */
+/**
+ * Persist a freshly built (`proposed`) Action, letting Postgres assign the real id.
+ *
+ * jsonb columns go through `toJsonb(...)`, never `JSON.stringify(...)::jsonb`.
+ * The cast makes Postgres infer the parameter as jsonb, so the driver then
+ * JSON-encodes the string we already encoded — storing a jsonb *string* rather
+ * than an object. It round-trips through this file well enough to look right,
+ * but `target->>'kind'` is null and every jsonb query silently matches nothing.
+ */
 export async function createAction(db: Db, action: Action): Promise<Action> {
   const [row] = await db<ActionRow[]>`
     insert into actions (finding_id, type, target, diff, status, audit_log)
     values (
-      ${action.findingId}, ${action.type}, ${JSON.stringify(action.target)}::jsonb,
-      ${JSON.stringify(action.diff)}::jsonb, ${action.status}, ${JSON.stringify(action.auditLog)}::jsonb
+      ${action.findingId}, ${action.type}, ${toJsonb(db, action.target)},
+      ${toJsonb(db, action.diff)}, ${action.status}, ${toJsonb(db, action.auditLog)}
     )
     returning id, finding_id, type, target, diff, status, audit_log
   `;
@@ -47,7 +56,7 @@ export async function getAction(db: Db, id: string): Promise<Action | null> {
 export async function saveActionTransition(db: Db, action: Action): Promise<Action> {
   const [row] = await db<ActionRow[]>`
     update actions
-    set status = ${action.status}, audit_log = ${JSON.stringify(action.auditLog)}::jsonb, updated_at = now()
+    set status = ${action.status}, audit_log = ${toJsonb(db, action.auditLog)}, updated_at = now()
     where id = ${action.id}
     returning id, finding_id, type, target, diff, status, audit_log
   `;

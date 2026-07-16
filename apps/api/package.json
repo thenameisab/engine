@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
   },
   "dependencies": {
     "@engine/actions": "workspace:*",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241224.0",
     "typescript": "^5.7.0",
+    "vitest": "^2.1.0",
     "wrangler": "^3.99.0"
   }
 }
