@@ -1,6 +1,7 @@
 import { el } from './dom.js';
 import { icon, ICONS } from './icons.js';
 import { getUser, signOut, initials } from './auth/session.js';
+import { signOutRemote } from './auth/neonAuth.js';
 import type { AppContext, View } from './context.js';
 import { pulseView } from './views/pulse.js';
 import { serpView } from './views/serp.js';
@@ -47,7 +48,10 @@ function railFoot(): HTMLElement {
   const signOutBtn = el('button', {
     class: 'signout',
     title: 'Sign out',
-    onclick: signOut,
+    onclick: () => {
+      void signOutRemote();
+      signOut();
+    },
     html: icon(ICONS.signout),
   });
   return el('div', { class: 'rail-foot' }, [

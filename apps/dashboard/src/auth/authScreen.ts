@@ -1,7 +1,7 @@
 import { el } from '../dom.js';
 import { ICONS } from '../icons.js';
 import { startAuthBackdrop } from './background.js';
-import { signInWithGoogle, signInWithEmail } from './neonAuth.js';
+import { signInWithGoogle, sendEmailLink } from './neonAuth.js';
 import { AUTH_EVENT } from './session.js';
 
 const GOOGLE_G = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -25,9 +25,11 @@ export function mountAuthScreen(root: HTMLElement): void {
     placeholder: 'you@company.com',
   }) as HTMLInputElement;
 
+  const note = el('p', { class: 'auth-note' });
+
   const emailBtn = el('button', {
     class: 'auth-btn primary',
-    onclick: () => {
+    onclick: async () => {
       const v = emailInput.value.trim();
       if (!v || !v.includes('@')) {
         emailInput.focus();
@@ -35,7 +37,15 @@ export function mountAuthScreen(root: HTMLElement): void {
         setTimeout(() => emailInput.classList.remove('shake'), 400);
         return;
       }
-      signInWithEmail(v);
+      emailBtn.setAttribute('disabled', 'true');
+      emailBtn.textContent = 'Sending…';
+      const sent = await sendEmailLink(v);
+      if (sent) {
+        emailBtn.textContent = 'Link sent';
+        note.textContent = `Check ${v} for a sign-in link.`;
+        note.classList.add('show');
+      }
+      // On the dev fallback, a session is set and the screen tears down on its own.
     },
   }, ['Send sign-in link']);
 
@@ -64,6 +74,7 @@ export function mountAuthScreen(root: HTMLElement): void {
       emailInput,
     ]),
     emailBtn,
+    note,
 
     el('p', { class: 'auth-foot' }, ['Invite-only · pre-alpha access']),
   ]);

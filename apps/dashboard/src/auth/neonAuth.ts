@@ -1,69 +1,102 @@
 /**
- * Neon Auth (Stack Auth) Google sign-in — SDK-free.
+ * Neon Auth — which is **Better Auth**, not Stack. SDK-free: we call Better
+ * Auth's REST endpoints directly so the dashboard stays bundler-free.
  *
- * We deliberately skip `@stackframe/js` to keep the dashboard bundler-free.
- * Neon Auth's project is identified by two *public* values (project id +
- * publishable client key); with those present we start Stack's hosted OAuth
- * flow (using Neon's shared Google credentials, so no separate Google Cloud
- * client is needed). Provide them at runtime via `window.ENGINE_NEON_AUTH` —
- * e.g. a small `config.js` on the deployed Pages site, or the browser console
- * for a quick test. Until they're set, sign-in falls back to a dev session so
- * the gated app is demonstrable and shareable.
+ * Flow (Google): POST /sign-in/social → `{ url }` → redirect the browser there
+ * → Better Auth runs Google's OAuth → sets a session cookie → returns to our
+ * `callbackURL`. On load we call GET /get-session (with credentials) to adopt
+ * that cookie session. Sign-out hits POST /sign-out.
+ *
+ * The base URL is this Neon project's Better Auth endpoint (a public endpoint —
+ * it serves JWKS/`/ok` to anyone). Override per-environment with
+ * `window.ENGINE_AUTH_BASE`. The deployed dashboard's origin must be added to
+ * Neon Auth's trusted origins for the OAuth callback to be accepted.
  */
 import { setSession, type SessionUser } from './session.js';
 
-export interface NeonAuthConfig {
-  projectId: string;
-  publishableClientKey: string;
-}
+const DEFAULT_AUTH_BASE =
+  'https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth';
 
 declare global {
   interface Window {
-    ENGINE_NEON_AUTH?: NeonAuthConfig;
+    ENGINE_AUTH_BASE?: string;
   }
 }
 
-export function neonAuthConfig(): NeonAuthConfig | null {
-  const c = window.ENGINE_NEON_AUTH;
-  if (c && c.projectId && c.publishableClientKey) return c;
-  return null;
+function authBase(): string {
+  return (window.ENGINE_AUTH_BASE || DEFAULT_AUTH_BASE).replace(/\/$/, '');
 }
 
-export function isNeonAuthConfigured(): boolean {
-  return neonAuthConfig() !== null;
+interface BetterAuthUser {
+  name?: string;
+  email?: string;
+  image?: string;
+}
+
+function toUser(u: BetterAuthUser | undefined, provider: SessionUser['provider']): SessionUser | null {
+  if (!u?.email) return null;
+  return { name: u.name || u.email.split('@')[0] || 'Member', email: u.email, provider };
+}
+
+/** The current Better Auth session (cookie-based), or null. Adopts a session set by an OAuth return. */
+export async function fetchRemoteSession(): Promise<SessionUser | null> {
+  try {
+    const res = await fetch(`${authBase()}/get-session`, { credentials: 'include' });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { user?: BetterAuthUser } | null;
+    return toUser(data?.user ?? undefined, 'google');
+  } catch {
+    return null;
+  }
+}
+
+/** Begin Google sign-in. Redirects into Better Auth's social flow; dev fallback on any hiccup. */
+export async function signInWithGoogle(): Promise<void> {
+  try {
+    const res = await fetch(`${authBase()}/sign-in/social`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'google', callbackURL: location.href }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { url?: string };
+      if (data.url) {
+        location.href = data.url;
+        return;
+      }
+    }
+  } catch {
+    /* fall through to dev session */
+  }
+  setSession({ name: 'Team member', email: 'you@engine.dev', provider: 'dev' });
 }
 
 /**
- * Begin Google sign-in. With Neon Auth configured, redirect into Stack's
- * hosted OAuth (shared Google creds); the return leg exchanges the code and
- * establishes the real session — finished when the two public keys are set and
- * a redirect URL is registered in the Neon Auth console. Without config, sign
- * a dev session in immediately.
+ * Email magic-link, if the Better Auth instance has the plugin enabled.
+ * Returns true when a link was sent; on any failure, signs in a dev session so
+ * the app stays usable. (Magic-link delivery + the plugin land server-side.)
  */
-export function signInWithGoogle(): void {
-  const cfg = neonAuthConfig();
-  if (!cfg) {
-    devSignIn('google');
-    return;
+export async function sendEmailLink(email: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authBase()}/sign-in/magic-link`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, callbackURL: location.href }),
+    });
+    if (res.ok) return true;
+  } catch {
+    /* fall through to dev session */
   }
-  const redirectUri = location.origin + location.pathname;
-  const url = new URL('https://api.stack-auth.com/api/v1/auth/oauth/authorize/google');
-  url.searchParams.set('client_id', cfg.projectId);
-  url.searchParams.set('publishable_client_key', cfg.publishableClientKey);
-  url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('response_type', 'code');
-  location.href = url.toString();
+  setSession({ name: email.split('@')[0] || 'Member', email, provider: 'dev' });
+  return false;
 }
 
-/** Email magic-link — real delivery needs the API; dev signs in with the address. */
-export function signInWithEmail(email: string): void {
-  devSignIn('email', email);
-}
-
-function devSignIn(provider: 'google' | 'email', email?: string): void {
-  const user: SessionUser =
-    provider === 'email' && email
-      ? { name: email.split('@')[0] ?? 'Member', email, provider: 'dev' }
-      : { name: 'Team member', email: 'you@engine.dev', provider: 'dev' };
-  setSession(user);
+export async function signOutRemote(): Promise<void> {
+  try {
+    await fetch(`${authBase()}/sign-out`, { method: 'POST', credentials: 'include' });
+  } catch {
+    /* ignore — local session is cleared regardless */
+  }
 }
