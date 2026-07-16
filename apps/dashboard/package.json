@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Engine product dashboard (Pulse + Fix Queue) — Cloudflare Pages SPA, wired to apps/api",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/assembleSite.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "dev": "tsc -p tsconfig.json -w"
