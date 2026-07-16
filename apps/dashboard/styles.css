@@ -301,6 +301,8 @@ select.field { cursor: pointer; }
 .auth-field:focus { border-color: #2f6feb; box-shadow: 0 0 0 3px rgba(47,111,235,0.14); }
 .auth-field.shake { animation: authShake 0.36s; border-color: #cf3049; }
 @keyframes authShake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-5px)} 40%,80%{transform:translateX(5px)} }
+.auth-note { text-align: center; font-size: 12.5px; color: #1a7f52; margin-top: 12px; max-height: 0; opacity: 0; overflow: hidden; transition: max-height .3s var(--ease), opacity .3s var(--ease); }
+.auth-note.show { max-height: 40px; opacity: 1; }
 .auth-foot { text-align: center; font-size: 11.5px; color: #9aa2ad; margin-top: 20px; }
 
 /* sign-out in the rail footer */
