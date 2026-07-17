@@ -3,7 +3,18 @@
  * (confidence-band bar positions, sparkline paths) out of the view code means
  * the fiddly bits are verifiable in isolation.
  */
-import type { ActionCard, ApiAction, ApiFinding, FindingRow, ScoreBand, ActionStatus, SerpOrganic } from './types.js';
+import type {
+  ActionCard,
+  ApiAction,
+  ApiFinding,
+  ApiPulseResponse,
+  ChannelContribution,
+  FindingRow,
+  PulseData,
+  ScoreBand,
+  ActionStatus,
+  SerpOrganic,
+} from './types.js';
 
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -103,6 +114,58 @@ export function domainRank(organic: SerpOrganic[], domain: string): number | nul
 /** Human label for a SERP feature key. */
 export function serpFeatureLabel(feature: string): string {
   return feature.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+const CONTRIBUTION_META: Record<
+  'organic' | 'ai' | 'local',
+  { label: string; sub: (r: ApiPulseResponse) => string }
+> = {
+  organic: {
+    label: 'Organic SoV',
+    sub: (r) => `rank presence · ${r.keywordsTracked} kw tracked`,
+  },
+  ai: {
+    label: 'AI Share of Model',
+    sub: (r) => `citation sampling · ${r.citationSamples} sample${r.citationSamples === 1 ? '' : 's'}`,
+  },
+  local: {
+    label: 'Local SoV',
+    sub: () => 'not measured yet (B5, Phase 2)',
+  },
+};
+
+/**
+ * Map `GET /projects/:id/pulse` onto the view model Pulse renders. `score`
+ * stays null when the project has nothing polled — the hero panel renders
+ * that as "no data" rather than the 0 a naive default would produce, which
+ * would read as "this domain has zero visibility" instead of "unmeasured".
+ *
+ * Local's contribution cell is included even at weight 0 (rather than
+ * omitted) so the UI always shows all three surfaces and can say *why* one
+ * is flat: B5 (local audit) isn't built yet, which is a different fact than
+ * "this business has no local presence".
+ */
+export function toPulseData(resp: ApiPulseResponse): PulseData {
+  const contributions: ChannelContribution[] = (['organic', 'ai', 'local'] as const).map((key) => {
+    const meta = CONTRIBUTION_META[key];
+    const d = resp.score?.decomposition[key];
+    const band = key === 'ai' ? resp.aiBand : null;
+    return {
+      key,
+      label: meta.label,
+      value: d?.score ?? 0,
+      low: band?.low,
+      high: band?.high,
+      sub: meta.sub(resp),
+    };
+  });
+
+  return {
+    score: resp.score ? { point: Math.round(resp.score.band.point), low: Math.round(resp.score.band.low), high: Math.round(resp.score.band.high) } : null,
+    contributions,
+    keywordsTracked: resp.keywordsTracked,
+    citationSamples: resp.citationSamples,
+  };
 }
 
 /** Map a persisted Action from the API onto the card the Fix Queue renders. */

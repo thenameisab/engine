@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand } from './format.js';
-import type { ApiAction, ApiFinding } from './types.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData } from './format.js';
+import type { ApiAction, ApiFinding, ApiPulseResponse } from './types.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -235,5 +235,42 @@ describe('severityBand', () => {
     expect(severityBand(0.55)).toBe('medium');
     expect(severityBand(0.4)).toBe('low');
     expect(severityBand(0.35)).toBe('low');
+  });
+});
+
+describe('toPulseData', () => {
+  it('reports null score, not a fabricated 0, when nothing has been polled', () => {
+    const resp: ApiPulseResponse = { score: null, aiBand: null, keywordsTracked: 0, citationSamples: 0 };
+    const data = toPulseData(resp);
+    expect(data.score).toBeNull();
+    // All three surfaces still render, so the view can say *why* each is flat.
+    expect(data.contributions.map((c) => c.key)).toEqual(['organic', 'ai', 'local']);
+  });
+
+  it('rounds the band and carries the AI surface\'s own confidence band, never a bare point', () => {
+    const resp: ApiPulseResponse = {
+      score: {
+        band: { low: 60.4, point: 66.6, high: 72.9 },
+        decomposition: {
+          organic: { score: 100, weight: 0.667 },
+          ai: { score: 50, weight: 0.333 },
+          local: { score: 0, weight: 0 },
+        },
+      },
+      aiBand: { low: 30, point: 50, high: 70 },
+      keywordsTracked: 3,
+      citationSamples: 4,
+    };
+    const data = toPulseData(resp);
+    expect(data.score).toEqual({ point: 67, low: 60, high: 73 });
+    const ai = data.contributions.find((c) => c.key === 'ai')!;
+    expect(ai.low).toBe(30);
+    expect(ai.high).toBe(70);
+    expect(ai.value).toBe(50);
+    const organic = data.contributions.find((c) => c.key === 'organic')!;
+    expect(organic.low).toBeUndefined();
+    expect(organic.sub).toContain('3 kw tracked');
+    const local = data.contributions.find((c) => c.key === 'local')!;
+    expect(local.sub).toContain('Phase 2');
   });
 });

@@ -1,28 +1,25 @@
 /**
  * Typed client for apps/api.
  *
- * `GET /health/integrations` and `POST /projects/:id/pulse` need no database
- * (the A3 score math is pure). `GET /projects/:id/actions` and
- * `GET /projects/:id/audit` are DB-backed and read the real Fix Queue and
- * finding inventory out of Postgres — neither falls back to sample data,
- * because "empty" and "unreachable" are different facts and a view that invents
- * rows for both is worse than one that says which happened.
- *
- * What still comes from sample: Pulse's trend / wins / risks context, which
- * needs the ClickHouse rollups (M1.2) that aren't wired yet.
+ * `GET /health/integrations` needs no database (pure readiness check).
+ * `GET /projects/:id/actions`, `GET /projects/:id/audit`, and
+ * `GET /projects/:id/pulse` are all DB-backed and read real Postgres —
+ * none falls back to sample data, because "empty" and "unreachable" are
+ * different facts and a view that invents rows for both is worse than one
+ * that says which happened.
  */
 import type {
   ActionCard,
   ApiAction,
   ApiFinding,
+  ApiPulseResponse,
   AuditData,
   PulseData,
   ReadinessReport,
   ActionStatus,
   SerpInspectResult,
 } from './types.js';
-import { toActionCard, toFindingRow } from './format.js';
-import { MOCK_PULSE } from './mock.js';
+import { toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
 
 const BASE_KEY = 'engine.apiBaseUrl';
@@ -73,29 +70,14 @@ export function fetchIntegrations(): Promise<ReadinessReport> {
 }
 
 /**
- * Live Unified Visibility Score. Sends representative surface inputs; the API
- * computes the real A3 band + decomposition (pure, no DB). Trend / wins / risks
- * come from the sample context (those need ClickHouse, not wired yet).
+ * The project's Unified Visibility Score (A3), assembled server-side from
+ * persisted A1 rank positions and A2 citation events (migration 0005). `score`
+ * is null for a project with nothing polled yet — the view renders that as
+ * "no data", not a 0 that would read as "zero visibility".
  */
 export async function fetchPulse(): Promise<PulseData> {
-  const surfaces = {
-    organic: MOCK_PULSE.contributions[0]!.value,
-    ai: {
-      low: MOCK_PULSE.contributions[1]!.low ?? 44,
-      point: MOCK_PULSE.contributions[1]!.value,
-      high: MOCK_PULSE.contributions[1]!.high ?? 52,
-    },
-    local: MOCK_PULSE.contributions[2]!.value,
-  };
-  const resp = await request<{ score: { band: { low: number; point: number; high: number } } }>(
-    `/projects/${getProjectId()}/pulse`,
-    { method: 'POST', body: JSON.stringify({ surfaces }) },
-  );
-  const band = resp.score.band;
-  return {
-    ...MOCK_PULSE,
-    score: { point: Math.round(band.point), low: Math.round(band.low), high: Math.round(band.high) },
-  };
+  const resp = await request<ApiPulseResponse>(`/projects/${getProjectId()}/pulse`);
+  return toPulseData(resp);
 }
 
 interface RankPollResponse {

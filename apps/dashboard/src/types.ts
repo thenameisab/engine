@@ -21,20 +21,33 @@ export interface ChannelContribution {
   sub: string;
 }
 
-export interface PulseData {
-  score: ScoreBand;
-  deltaVsPrior: number;
-  /** Trend series (older → newest), each a point value, for the sparkline. */
-  trend: number[];
-  contributions: ChannelContribution[];
-  wins: SignalRow[];
-  risks: SignalRow[];
+/** The `GET /projects/:id/pulse` response shape (apps/api). */
+export interface ApiPulseResponse {
+  score: {
+    band: { low: number; point: number; high: number };
+    decomposition: {
+      organic: { score: number; weight: number };
+      ai: { score: number; weight: number };
+      local: { score: number; weight: number };
+    };
+  } | null;
+  /** The AI surface's own confidence band (Architecture §3.2: never a bare point). */
+  aiBand: { low: number; point: number; high: number } | null;
+  keywordsTracked: number;
+  citationSamples: number;
 }
 
-export interface SignalRow {
-  title: string;
-  meta: string;
-  move: number;
+export interface PulseData {
+  /**
+   * Null when the project has no polled A1/A2 data yet (no keyword poll, no
+   * AI-visibility poll) — the API reports `score: null` rather than a 0,
+   * which would read as "zero visibility" instead of "nothing measured".
+   */
+  score: ScoreBand | null;
+  contributions: ChannelContribution[];
+  /** How much data went into `score`, so the view can say why it's null. */
+  keywordsTracked: number;
+  citationSamples: number;
 }
 
 export type ActionStatus = 'proposed' | 'approved' | 'deployed' | 'verified' | 'rolled_back';
