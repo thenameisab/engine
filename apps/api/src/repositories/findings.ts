@@ -46,6 +46,28 @@ function toFinding(row: FindingRow): Finding {
  * yields tens of rows, not thousands, and each upsert is individually idempotent,
  * so a partial failure is fixed by re-running rather than by cleanup.
  */
+/**
+ * Whether a finding exists *and* belongs to this project — the same
+ * findings -> entities -> project_id hop `listActionsByProject` reads through,
+ * since `findings` has no project_id either.
+ *
+ * `id` is caller-supplied, so it is compared as text rather than interpolated as
+ * a uuid: Postgres rejects a malformed uuid *literal* with `invalid input syntax
+ * for type uuid` (a 500) before it ever gets as far as not matching a row. Under
+ * the cast we want the ordinary "no such finding" answer for both a well-formed
+ * uuid that doesn't exist and a string that was never a uuid.
+ */
+export async function findingBelongsToProject(db: Db, findingId: string, projectId: string): Promise<boolean> {
+  const rows = await db<{ ok: number }[]>`
+    select 1 as ok
+    from findings f
+    join entities e on e.id = f.entity_id
+    where f.id::text = ${findingId} and e.project_id::text = ${projectId}
+    limit 1
+  `;
+  return rows.length > 0;
+}
+
 export async function upsertFindings(db: Db, findings: readonly Finding[]): Promise<Finding[]> {
   const persisted: Finding[] = [];
   for (const finding of findings) {

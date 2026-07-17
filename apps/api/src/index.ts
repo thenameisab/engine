@@ -14,10 +14,11 @@ import { evaluateReadiness } from '@engine/config';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { createDb } from './db.js';
+import { checkAuditBody, checkGenerateBody } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
-import { upsertFindings } from './repositories/findings.js';
+import { findingBelongsToProject, upsertFindings } from './repositories/findings.js';
 import {
   getOnboardingProgress,
   markDomainConnected,
@@ -83,6 +84,21 @@ app.use('/projects/*', requireAuth);
 app.use('/accounts/*', requireAuth);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
+
+/**
+ * Read a JSON body without trusting it.
+ *
+ * `c.req.json<T>()` does two things worth separating: it parses (which throws on
+ * a body that isn't JSON at all — an uncaught 500) and it *asserts* a type that
+ * nothing checked. This returns `unknown` on purpose, so the only way to reach a
+ * typed body is through a validator in ./validate.ts. The sentinel keeps
+ * "unparseable" distinct from a body that legitimately parsed to `null`.
+ */
+const UNPARSEABLE = Symbol('unparseable');
+
+async function readJson(c: Context): Promise<unknown> {
+  return c.req.json<unknown>().catch(() => UNPARSEABLE);
+}
 
 /**
  * Integration readiness (pre-alpha wiring check). Reports, per external
@@ -164,7 +180,17 @@ app.post('/projects/:projectId/pulse', async (c) => {
  * stays swappable.
  */
 app.post('/projects/:projectId/audit', async (c) => {
-  const body = await c.req.json<{ pages: CrawledPage[] }>();
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  // The pages come off the wire, and the rule engine trusts its input completely
+  // (`page.metaDescription.trim()`). Without this, a crawler that drifts from the
+  // CrawledPage contract gets a 500 from deep inside @engine/diagnosis naming
+  // neither the page nor the field — same reasoning as the entity check below.
+  const invalid = checkAuditBody(raw);
+  if (invalid) {
+    return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  }
+  const body = raw as { pages?: CrawledPage[] };
   const pages = body.pages ?? [];
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
@@ -199,9 +225,28 @@ app.post('/projects/:projectId/audit', async (c) => {
  * it enters the Fix Queue with a real id for the lifecycle endpoints below.
  */
 app.post('/projects/:projectId/actions/generate', async (c) => {
-  const body = await c.req.json<{ finding: Finding; context: ActionContext }>();
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  // An Action built from a malformed context carries the hole all the way to the
+  // insert: a missing `target` becomes postgres.js' UNDEFINED_VALUE, which is a
+  // 500 blaming us for the caller's body. Reject it here, naming the field.
+  const invalid = checkGenerateBody(raw);
+  if (invalid) {
+    return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  }
+  const body = raw as { finding: Finding; context: ActionContext };
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
+
+  // `finding.id` becomes actions.finding_id, a uuid FK, and is caller-supplied —
+  // exactly the situation the /audit entity check above exists for. Unchecked, a
+  // finding that isn't this project's either trips the FK as a 500 (or, if it is
+  // not a uuid at all, a `invalid input syntax` 500), or — worse — lets one
+  // project hang an Action off another project's finding.
+  if (!(await findingBelongsToProject(db, body.finding.id, projectId))) {
+    return c.json({ error: 'finding does not belong to this project', findingId: body.finding.id }, 400);
+  }
+
   const generated = generateActions(body.finding, body.context);
   const actions = await Promise.all(generated.map((action) => createAction(db, action)));
   if (actions.length > 0) await markFirstFixProposed(db, projectId);
