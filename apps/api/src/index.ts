@@ -18,7 +18,8 @@ import { checkAuditBody, checkGenerateBody } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
-import { findingBelongsToProject, upsertFindings } from './repositories/findings.js';
+import { findingBelongsToProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
+import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
 import {
   getOnboardingProgress,
   markDomainConnected,
@@ -210,11 +211,46 @@ app.post('/projects/:projectId/audit', async (c) => {
   }
 
   const findings = await upsertFindings(db, result.findings);
+  // Record the run itself. The health score is normalized by pages audited, so
+  // it belongs to this run and cannot be recomputed from the findings later —
+  // without this row, GET /audit would have to invent one.
+  const run = await recordAuditRun(db, {
+    projectId,
+    pagesAudited: result.pagesAudited,
+    findingsCount: findings.length,
+    healthScore: result.healthScore,
+  });
   await markFirstCrawl(db, projectId);
   if (findings.length > 0) await markFirstInsight(db, projectId);
   // `findings` overrides the run's copy: same findings, but carrying their
   // persisted uuids, which is what /actions/generate needs to reference.
-  return c.json({ projectId, ...result, findings });
+  return c.json({ projectId, ...result, findings, run });
+});
+
+/**
+ * The project's finding inventory — the read side of the audit (B1 → the
+ * dashboard's Audit view). `/audit` persisted findings that nothing could ever
+ * read back, which is why that view rendered mocks.
+ *
+ * `healthScore` comes from the newest recorded run, not from these findings: it
+ * is normalized by pages audited, so recomputing it here would silently change
+ * its meaning. It is null for a project that has never been audited — that is a
+ * real answer, and better than telling a new user their unscanned site scores
+ * 100.
+ */
+app.get('/projects/:projectId/audit', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const projectId = c.req.param('projectId');
+  const [findings, run] = await Promise.all([
+    listFindingsByProject(db, projectId),
+    latestAuditRun(db, projectId),
+  ]);
+  return c.json({
+    findings,
+    healthScore: run?.healthScore ?? null,
+    lastRunAt: run?.createdAt ?? null,
+    pagesAudited: run?.pagesAudited ?? null,
+  });
 });
 
 /**

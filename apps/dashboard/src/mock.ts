@@ -1,10 +1,14 @@
 /**
- * Representative sample data. The pre-alpha environment has no live Postgres,
- * so DB-backed views fall back to this; it also lets the dashboard render
- * meaningfully as a standalone internal demo. Every view tries the live API
- * first and only uses these if the call fails.
+ * Representative sample data for the surfaces whose live source isn't wired
+ * yet — Pulse's trend/wins/risks context needs the ClickHouse rollups (M1.2),
+ * and readiness renders these before the first live call returns.
+ *
+ * The DB-backed views deliberately do **not** fall back here. The Fix Queue and
+ * the Audit view read real Postgres and report an empty result or a failed call
+ * as what it is: sample data that appears when the API is unreachable is a
+ * fiction the user only discovers on reload.
  */
-import type { PulseData, AuditData, ReadinessReport } from './types.js';
+import type { PulseData, ReadinessReport } from './types.js';
 
 export const MOCK_PULSE: PulseData = {
   score: { point: 64, low: 57, high: 72 },
@@ -24,18 +28,6 @@ export const MOCK_PULSE: PulseData = {
     { title: 'GPTBot blocked in robots.txt', meta: 'ChatGPT can’t read 1,900 pages', move: -6 },
     { title: 'AI citations dropped in Germany', meta: 'Gemini · −31% over 14 days', move: -4 },
     { title: 'Content decay on 3 pillar pages', meta: 'traffic −18% since April', move: -2 },
-  ],
-};
-
-export const MOCK_AUDIT: AuditData = {
-  healthScore: 72,
-  autoFixableCount: 3,
-  findings: [
-    { id: 'f1', type: 'ai-crawler-blocked', title: 'GPTBot & PerplexityBot blocked by robots.txt', severity: 'high', predictedImpact: 8, autoFixable: true, url: '/robots.txt' },
-    { id: 'f2', type: 'schema-missing', title: 'No structured data on 214 product pages', severity: 'high', predictedImpact: 7, autoFixable: true, url: '/product/*' },
-    { id: 'f3', type: 'meta-title-missing', title: 'Missing <title> on 88 category pages', severity: 'medium', predictedImpact: 4, autoFixable: true, url: '/category/*' },
-    { id: 'f4', type: 'redirect-chain', title: '12-hop redirect chain on /pricing', severity: 'medium', predictedImpact: 3, autoFixable: false, url: '/pricing' },
-    { id: 'f5', type: 'cwv-poor', title: 'Poor LCP on the mobile homepage', severity: 'low', predictedImpact: 2, autoFixable: false, url: '/' },
   ],
 };
 

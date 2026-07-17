@@ -3,7 +3,7 @@
  * (confidence-band bar positions, sparkline paths) out of the view code means
  * the fiddly bits are verifiable in isolation.
  */
-import type { ActionCard, ApiAction, ScoreBand, ActionStatus, SerpOrganic } from './types.js';
+import type { ActionCard, ApiAction, ApiFinding, FindingRow, ScoreBand, ActionStatus, SerpOrganic } from './types.js';
 
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -114,6 +114,70 @@ export function toActionCard(a: ApiAction): ActionCard {
     impact: impactPoints(a.predictedImpact),
     effort: effortLabel(a.target.kind),
     status: a.status,
+  };
+}
+
+/**
+ * Human copy for each B1 issue type. Presentation only — the vocabulary itself
+ * is @engine/diagnosis' `IssueType`, which is deliberately terse and stable
+ * because it is hashed into the finding's fingerprint. Prose belongs here,
+ * where changing it cannot alter a finding's identity.
+ *
+ * An unmapped type falls through to the raw string rather than something like
+ * "Unknown issue": the type is the truth we have, and showing it beats hiding
+ * it. `unknown` itself is real — findings stored before the issue type was
+ * carried through (migration 0004) genuinely cannot say what they were, and
+ * they heal on the next crawl.
+ */
+const ISSUE_LABELS: Record<string, string> = {
+  'schema-missing': 'No structured data',
+  'schema-invalid': 'Structured data has validation errors',
+  'meta-title-missing': 'Missing <title>',
+  'meta-description-missing': 'Missing meta description',
+  'ai-crawler-blocked': 'AI crawlers blocked by robots.txt',
+  'redirect-chain': 'Redirect chain',
+  'canonical-conflict': 'Canonical points away from an indexable page',
+  'hreflang-missing': 'Missing hreflang alternates',
+  'cwv-poor': 'Poor Core Web Vitals',
+  'noindex-unexpected': 'Unexpected noindex',
+  'not-in-sitemap': 'Not in the sitemap',
+  unknown: 'Issue type not recorded (pre-0004 finding)',
+};
+
+export function issueLabel(issueType: string): string {
+  return ISSUE_LABELS[issueType] ?? issueType;
+}
+
+/**
+ * Severity band for the row's colour chip. Diagnosis scores severity 0–1 as an
+ * intrinsic per-issue-type weight spanning 0.35 (`not-in-sitemap`) to 0.95
+ * (`ai-crawler-blocked`); these cuts split that range so the GEO-native issues
+ * the product exists to fix read as high, and the housekeeping ones do not.
+ */
+export function severityBand(severity: number): 'high' | 'medium' | 'low' {
+  if (severity >= 0.8) return 'high';
+  if (severity >= 0.55) return 'medium';
+  return 'low';
+}
+
+/**
+ * Map a persisted Finding onto the row the Audit view renders.
+ *
+ * `autoFixable` is `actionTemplates.length > 0` — the §7 contract guarantees a
+ * finding carries a template or a documented reason it can't, so an empty list
+ * means "no one-click fix exists", which is exactly what the pill claims.
+ */
+export function toFindingRow(f: ApiFinding): FindingRow {
+  return {
+    id: f.id,
+    type: f.issueType,
+    title: issueLabel(f.issueType),
+    severity: severityBand(f.severity),
+    predictedImpact: impactPoints(f.predictedImpact),
+    autoFixable: f.actionTemplates.length > 0,
+    // Findings are per-page, and the page URL lives in evidence. A finding
+    // without one is a bug, but an empty cell beats "undefined" in the UI.
+    url: typeof f.evidence?.url === 'string' ? f.evidence.url : '',
   };
 }
 

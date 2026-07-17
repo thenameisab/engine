@@ -10,6 +10,81 @@ versions.
 
 ---
 
+## 2026-07-17 — The Audit view stops making things up (`GET /audit`, migration 0004)
+
+### Fixed
+- **A persisted finding could not say what was wrong with it.** `packages/diagnosis`
+  used the issue type to pick the severity weight, the action templates and the
+  fingerprint — then dropped it. It was absent from the `Finding` contract and
+  from the `findings` table, so a stored finding carried a severity and an
+  evidence blob and no statement of the problem. It could not be recovered
+  afterwards: the fingerprint hashes it one-way, and inferring it back from
+  `actionTemplates` is lossy — `schema-missing`/`schema-invalid` share one
+  template, as do the two `meta-*` types, so inference would report distinct
+  problems as the same one.
+- **Findings were write-only.** `/audit` persisted them and no endpoint could read
+  them back — the same gap PR #23 closed for actions, one layer down. The
+  dashboard's Audit view had no live source to read, which is why it still
+  rendered `MOCK_AUDIT`: a health score of 72 and five invented findings
+  ("12-hop redirect chain on /pricing") for a site nobody had crawled. It was
+  the last mock-only view in the product, and the only one that never even
+  attempted a live call.
+
+### Added
+- **`Finding.issueType`** (`packages/core`), set by `runAudit`, persisted by
+  migration `0004`, returned by the API. Deliberately a `string`, not a union:
+  each Pillar B source owns its own vocabulary and core cannot import from the
+  packages that depend on it. Required, not optional — optional would let the
+  gap return silently.
+- **`GET /projects/:id/audit`** — the read side of the audit: the finding
+  inventory ordered by predicted impact, plus the newest run's health score.
+  Reaches the project through `findings → entities`, the same two-hop join
+  `listActionsByProject` uses and for the same reason.
+- **`audit_runs`** (migration `0004`) — the health score is normalized by pages
+  audited, so it is a property of a *run*, and crawled pages are not persisted.
+  It could not be recomputed from findings later, so `/audit` now records it.
+  `GET /audit` returns **null** for a never-crawled project rather than a number
+  that would read as a clean bill of health.
+- The Audit view reads real Postgres and distinguishes its three states: an
+  empty inventory, a project that has never been crawled, and an unreachable
+  API. `MOCK_AUDIT` is deleted.
+
+### Changed
+- Migration `0004` backfills existing findings as `issue_type = 'unknown'` — they
+  genuinely predate the column and cannot be recovered. This **self-heals**: the
+  upsert now writes `issue_type`, so the next crawl that still finds the issue
+  replaces `unknown` with the real type in place. Rows that never reappear were
+  already stale, and the view says "Issue type not recorded (pre-0004 finding)"
+  rather than inventing one.
+- No `check` constraint on `issue_type`: pinning B1's list into the schema would
+  mean a migration every time the rule engine learns a new check. The vocabulary
+  is enforced in code, where it is defined.
+
+### Verified
+- Migration applied to live Neon (user-approved): 4 applied, 0 pending.
+- **Self-healing proven, not asserted:** reset this session's crawled findings to
+  `unknown` to reproduce the post-backfill state, re-crawled, and confirmed they
+  returned to their real types **in place** — 16 rows before, 16 after, no
+  duplicates.
+- Drove `engine-crawl` → gated `wrangler dev` → migrated Neon: a real 2-page
+  crawl recorded an `audit_runs` row (health 35 across 2 pages, 3 findings) and
+  persisted real issue types. `GET /audit` before any run returned
+  `healthScore: null`, not 100. An unknown project returns an empty inventory
+  with nulls, HTTP 200, not a 500.
+- Browser-verified all three states against real Postgres, both themes, zero
+  console errors: populated (health 35, `ai-crawler-blocked` rows carrying the
+  crawl's real URLs, impact rescaled to the card's 0–10), never-crawled ("No
+  audit has run for this project yet"), and unreachable (the 401 reported as
+  itself instead of a fabricated 72).
+
+### Noted
+- Test files are excluded from `typecheck` in every package (`"exclude":
+  ["src/**/*.test.ts"]`), so making `issueType` required did **not** fail the
+  build the way it should have — fixtures silently constructed Findings without
+  it. They were fixed by hand; the exclusion is a standing gap.
+
+---
+
 ## 2026-07-17 — The crawl runner could not reach its own API (`packages/crawler`)
 
 ### Fixed

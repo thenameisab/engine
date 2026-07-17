@@ -185,6 +185,7 @@ Every Pillar B diagnosis emits:
 ```ts
 type Finding = {
   id: string; entityId: string; source: 'technical'|'content'|'entity'|'local';
+  issueType: string;                   // what is wrong, e.g. 'ai-crawler-blocked'
   severity: number; predictedImpact: number; evidence: object;
   actionTemplates: ActionTemplate[];   // zero-or-more executable fixes
 }
@@ -215,6 +216,21 @@ This contract is frozen in `packages/core` in Phase 1 so the C-layer is integrat
    The Fix Queue list is a two-hop join, and any route accepting a caller-supplied
    `entityId` must check it belongs to the project before writing — otherwise one
    project can hang findings off another's entity.
+4. **A Finding must carry its `issueType` (migration `0004`).** The type *is* the
+   problem's identity: it selects the severity weight and the action templates, and it
+   is hashed into the fingerprint. It was originally consumed by the rule engine and
+   then dropped, which left every stored finding unable to say what it was — and
+   unrecoverable, since FNV-1a is one-way and inferring the type back from
+   `actionTemplates` is lossy (`schema-missing`/`schema-invalid` and the two `meta-*`
+   types each share a single template). The vocabulary belongs to each Pillar B source,
+   not to `packages/core` and not to a schema `check` constraint, so `issueType` is a
+   `string` and `source` says which vocabulary reads it.
+5. **The health score belongs to a run, not to the inventory.** §8 normalizes it by
+   pages audited, and crawled pages are never persisted — so it cannot be recomputed
+   from findings later. `/audit` records an `audit_runs` row per crawl and
+   `GET /audit` reports the newest one's score, returning **null** for a project that
+   has never been crawled rather than a default that would read as a clean bill of
+   health.
 
 ### 3.2 AI-visibility honesty type
 ```ts

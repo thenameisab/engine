@@ -2,16 +2,26 @@
  * Typed client for apps/api.
  *
  * `GET /health/integrations` and `POST /projects/:id/pulse` need no database
- * (the A3 score math is pure). `GET /projects/:id/actions` is DB-backed and now
- * reads the real Fix Queue out of Postgres — it does **not** fall back to sample
- * data, because an empty queue and an unreachable API are different facts and a
- * board that invents cards for both is worse than one that says which happened.
+ * (the A3 score math is pure). `GET /projects/:id/actions` and
+ * `GET /projects/:id/audit` are DB-backed and read the real Fix Queue and
+ * finding inventory out of Postgres — neither falls back to sample data,
+ * because "empty" and "unreachable" are different facts and a view that invents
+ * rows for both is worse than one that says which happened.
  *
  * What still comes from sample: Pulse's trend / wins / risks context, which
  * needs the ClickHouse rollups (M1.2) that aren't wired yet.
  */
-import type { ActionCard, ApiAction, PulseData, ReadinessReport, ActionStatus, SerpInspectResult } from './types.js';
-import { toActionCard } from './format.js';
+import type {
+  ActionCard,
+  ApiAction,
+  ApiFinding,
+  AuditData,
+  PulseData,
+  ReadinessReport,
+  ActionStatus,
+  SerpInspectResult,
+} from './types.js';
+import { toActionCard, toFindingRow } from './format.js';
 import { MOCK_PULSE } from './mock.js';
 import { getApiToken } from './auth/neonAuth.js';
 
@@ -129,6 +139,33 @@ export async function rankPoll(keyword: string, country: string): Promise<SerpIn
 export async function fetchActions(): Promise<ActionCard[]> {
   const resp = await request<{ actions: ApiAction[] }>(`/projects/${getProjectId()}/actions`);
   return resp.actions.map(toActionCard);
+}
+
+/**
+ * The project's finding inventory (B1 technical audit).
+ *
+ * No sample fallback, for the same reason `fetchActions` has none: an empty
+ * inventory and an unreachable API are different facts, and inventing findings
+ * for either is how this view spent its life showing a health score of 72 for a
+ * site nobody had crawled.
+ */
+export async function fetchAudit(): Promise<AuditData> {
+  const resp = await request<{
+    findings: ApiFinding[];
+    healthScore: number | null;
+    lastRunAt: string | null;
+    pagesAudited: number | null;
+  }>(`/projects/${getProjectId()}/audit`);
+  const findings = resp.findings.map(toFindingRow);
+  return {
+    healthScore: resp.healthScore,
+    // Derived, not reported: it is a count of what the view is already holding,
+    // so computing it here cannot disagree with the rows on screen.
+    autoFixableCount: findings.filter((f) => f.autoFixable).length,
+    findings,
+    lastRunAt: resp.lastRunAt,
+    pagesAudited: resp.pagesAudited,
+  };
 }
 
 const TRANSITION_PATH: Record<Exclude<ActionStatus, 'proposed'>, string> = {
