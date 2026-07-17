@@ -9,13 +9,21 @@ import {
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { generateActions, transition, defaultEnv, type ActionContext } from '@engine/actions';
 import { verifyHtmlDeploy, verifyRobotsDeploy } from '@engine/deploy';
-import { verifyStripeSignature, mapStripeSubscriptionEvent, isOverLimit, type StripeWebhookEvent } from '@engine/billing';
+import {
+  verifyStripeSignature,
+  mapStripeSubscriptionEvent,
+  isOverLimit,
+  resolvePriceId,
+  buildCheckoutSessionBody,
+  createCheckoutSession,
+  type StripeWebhookEvent,
+} from '@engine/billing';
 import { evaluateReadiness } from '@engine/config';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb } from './db.js';
-import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody } from './validate.js';
+import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
@@ -660,6 +668,48 @@ app.post('/billing/webhook', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const subscription = await upsertSubscription(db, mapped.accountId, mapped.update);
   return c.json({ received: true, applied: true, subscription });
+});
+
+/**
+ * M1.7 "Starter/Growth purchasable via Stripe". Creates a real Stripe Checkout
+ * Session and returns its URL for the dashboard to redirect the browser to —
+ * the missing other half of `/billing/webhook`, which could already receive a
+ * subscription update but had no route that could create the subscription a
+ * customer would actually pay for.
+ *
+ * `STRIPE_PRICE_TO_TIER` (already required for the webhook) is reused here,
+ * inverted, rather than adding a second price/tier map that could drift out
+ * of sync with the one the webhook trusts.
+ */
+app.post('/accounts/:accountId/billing/checkout', async (c) => {
+  const { STRIPE_SECRET_KEY, STRIPE_PRICE_TO_TIER } = c.env;
+  if (!STRIPE_SECRET_KEY) {
+    return c.json({ error: 'Stripe checkout is not configured (set STRIPE_SECRET_KEY)' }, 503);
+  }
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkCreateCheckoutBody(raw);
+  if (invalid) {
+    return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  }
+  const body = raw as { tier: PlanTier; successUrl: string; cancelUrl: string; customerEmail?: string };
+
+  const priceToTier: Record<string, PlanTier> = STRIPE_PRICE_TO_TIER ? JSON.parse(STRIPE_PRICE_TO_TIER) : {};
+  const priceId = resolvePriceId(body.tier, priceToTier);
+  if (!priceId) {
+    return c.json({ error: `no Stripe price configured for tier '${body.tier}'`, field: 'tier' }, 400);
+  }
+
+  const sessionBody = buildCheckoutSessionBody({
+    priceId,
+    accountId: c.req.param('accountId'),
+    successUrl: body.successUrl,
+    cancelUrl: body.cancelUrl,
+    customerEmail: body.customerEmail,
+  });
+  const session = await createCheckoutSession(STRIPE_SECRET_KEY, sessionBody);
+  return c.json({ checkoutUrl: session.url, sessionId: session.id });
 });
 
 /** G4/G5: current plan, live usage, and whether the account is over its plan's caps. */

@@ -170,6 +170,61 @@ describe('GET /projects/:projectId/cms-plugin/actions', () => {
   });
 });
 
+describe('POST /accounts/:accountId/billing/checkout', () => {
+  // Set so the route gets past its "is Stripe configured at all" 503 and
+  // into validation, without ever reaching the real Stripe API — no test
+  // here exercises the success path, which would require a live network call.
+  const checkoutEnv = { ...env, STRIPE_SECRET_KEY: 'sk_test_fake' };
+
+  function postCheckout(body: unknown): Promise<Response> {
+    return app.request(
+      '/accounts/acct_1/billing/checkout',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+      checkoutEnv,
+    );
+  }
+
+  it('returns 503 before validating anything when Stripe is not configured', async () => {
+    const res = await app.request(
+      '/accounts/acct_1/billing/checkout',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' },
+      env,
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it('rejects an unrecognized tier before any database or Stripe call', async () => {
+    const res = await postCheckout({
+      tier: 'ultra',
+      successUrl: 'https://app.example.com/ok',
+      cancelUrl: 'https://app.example.com/no',
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('tier');
+  });
+
+  it('rejects a non-http(s) redirect URL', async () => {
+    const res = await postCheckout({
+      tier: 'growth',
+      successUrl: 'javascript:alert(1)',
+      cancelUrl: 'https://app.example.com/no',
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('successUrl');
+  });
+
+  it('rejects a tier with no configured Stripe price, naming the field', async () => {
+    // checkoutEnv carries no STRIPE_PRICE_TO_TIER, so every tier is unresolvable.
+    const res = await postCheckout({
+      tier: 'growth',
+      successUrl: 'https://app.example.com/ok',
+      cancelUrl: 'https://app.example.com/no',
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "no Stripe price configured for tier 'growth'", field: 'tier' });
+  });
+});
+
 /**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone

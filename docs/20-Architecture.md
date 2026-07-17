@@ -321,6 +321,29 @@ reverted — the write stays until the next audit re-detects the issue and a
 new fix is approved. Both plugin READMEs document this and recommend the
 edge-worker path when instant rollback matters.
 
+### 3.7 Stripe Checkout (M1.7)
+`POST /accounts/:id/billing/checkout` (`apps/api`) is the other half of
+`POST /billing/webhook`: the webhook could already turn a subscription
+event into our read model, but nothing could create the subscription a
+customer would actually pay for. Calls Stripe's REST API directly via
+`fetch` (`packages/billing/src/checkout.ts`), not the Stripe SDK — same
+reasoning as `signature.ts`: this runs in Cloudflare Workers, and Checkout
+Sessions are a plain form-encoded POST with nothing SDK-specific worth the
+dependency.
+
+`STRIPE_PRICE_TO_TIER` (already required for the webhook, price id → tier)
+is inverted at request time to resolve a tier → price id, rather than adding
+a second map that could drift out of sync with the one the webhook trusts.
+A tier with no configured price (e.g. `enterprise`, contact-sales rather
+than self-serve) is a 400, not a 500.
+
+The checkout session's `subscription_data[metadata][accountId]` — not
+top-level session metadata — is what closes the loop: `mapStripeSubscriptionEvent`
+reads `accountId` off the *subscription* object the webhook receives, and
+only `subscription_data.metadata` propagates there. Getting this wrong would
+have silently broken every post-checkout webhook while looking correct in a
+manual Stripe dashboard test.
+
 ---
 
 ## 4. Security, compliance & data residency
