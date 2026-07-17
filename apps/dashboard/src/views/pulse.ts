@@ -1,14 +1,12 @@
-import { el, svg } from '../dom.js';
-import { icon, ICONS } from '../icons.js';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, fmtInt } from '../format.js';
+import { el } from '../dom.js';
+import { bandPositions } from '../format.js';
 import { fetchPulse } from '../api.js';
-import { MOCK_PULSE } from '../mock.js';
 import type { AppContext } from '../context.js';
-import type { PulseData, ChannelContribution, SignalRow } from '../types.js';
+import type { PulseData, ChannelContribution } from '../types.js';
 
 function contributionCell(c: ChannelContribution): HTMLElement {
   const isBand = c.low !== undefined && c.high !== undefined;
-  const meterPct = isBand ? ((c.low! + c.high!) / 2) : c.value;
+  const meterPct = isBand ? (c.low! + c.high!) / 2 : c.value;
   return el('div', { class: 'cell' }, [
     el('div', { class: 'top' }, [
       el('h4', {}, [c.label]),
@@ -16,109 +14,88 @@ function contributionCell(c: ChannelContribution): HTMLElement {
     ]),
     el('div', { class: 'v num' }, [
       String(Math.round(c.value)),
-      isBand
-        ? el('span', { class: 'v-range' }, [`–${Math.round(c.high!)}`])
-        : null,
+      isBand ? el('span', { class: 'v-range' }, [`–${Math.round(c.high!)}`]) : null,
     ]),
     el('div', { class: 'sub' }, [c.sub]),
     el('div', { class: 'meter' }, [el('i', { style: `width:${meterPct}%` })]),
   ]);
 }
 
-function signalRow(s: SignalRow, kind: 'g' | 'r'): HTMLElement {
-  return el('div', { class: 'row' }, [
-    el('span', { class: `dot ${kind}` }),
-    el('div', {}, [
-      el('div', { class: 't' }, [s.title]),
-      el('div', { class: 'm' }, [s.meta]),
-    ]),
-    el('span', { class: `mv ${kind}` }, [`${s.move >= 0 ? '+' : '−'}${Math.abs(s.move)}`]),
-  ]);
-}
-
 function heroPanel(d: PulseData): HTMLElement {
-  const b = bandPositions(d.score);
-  const track = el('div', { class: 'band-track', title: 'We report AI-influenced metrics as a range, never a false point.' }, [
-    el('i', { style: `left:${b.leftPct}%;right:${b.rightPct}%` }),
-    el('b', { style: `left:${b.tickPct}%` }),
-  ]);
-
-  const spark = svg(
-    `<svg class="spark" viewBox="0 0 560 72" preserveAspectRatio="none" fill="none">
-      <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="var(--accent)" stop-opacity="0.14"/>
-        <stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
-      </linearGradient></defs>
-      <path d="${sparklineArea(d.trend, 560, 72, 8)}" fill="url(#fill)"/>
-      <path d="${sparklinePath(d.trend, 560, 72, 8)}" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>`,
+  const score = d.score!; // caller only renders this when d.score is non-null
+  const b = bandPositions(score);
+  const track = el(
+    'div',
+    { class: 'band-track', title: 'We report AI-influenced metrics as a range, never a false point.' },
+    [el('i', { style: `left:${b.leftPct}%;right:${b.rightPct}%` }), el('b', { style: `left:${b.tickPct}%` })],
   );
-
-  const scoreEl = el('div', { class: 'score num', id: 'scoreNum' }, ['0']);
-  countUp(scoreEl, d.score.point);
 
   return el('section', { class: 'panel hero' }, [
     el('div', { class: 'label' }, ['Unified Visibility Score']),
     el('div', { class: 'scorewrap' }, [
-      scoreEl,
+      el('div', { class: 'score num' }, [String(score.point)]),
       el('div', { class: 'band' }, [
         track,
         el('div', { class: 'band-nums' }, [
-          el('span', {}, [String(d.score.low)]),
-          el('span', {}, [String(d.score.high)]),
+          el('span', {}, [String(score.low)]),
+          el('span', {}, [String(score.high)]),
         ]),
       ]),
     ]),
     el('div', { class: 'hero-meta' }, [
-      el('span', { class: `delta ${d.deltaVsPrior >= 0 ? '' : 'down'}`, html: icon(ICONS.arrowUp) + fmtDelta(d.deltaVsPrior) }),
-      el('span', { class: 'num' }, ['vs. 30 days ago · organic + AI + local, weighted by your traffic mix']),
+      el('span', { class: 'num' }, ['organic + AI + local, weighted by your traffic mix']),
     ]),
-    spark,
     el('div', { class: 'contrib' }, d.contributions.map(contributionCell)),
   ]);
 }
 
-function countUp(node: HTMLElement, target: number): void {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    node.textContent = fmtInt(target);
-    return;
-  }
-  const dur = 650;
-  const t0 = performance.now();
-  const ease = (x: number) => 1 - Math.pow(1 - x, 3);
-  const tick = (now: number) => {
-    const p = Math.min(1, (now - t0) / dur);
-    node.textContent = fmtInt(ease(p) * target);
-    if (p < 1) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
+/**
+ * The panel shown when the project has never been polled — the honest state
+ * this view lacked entirely before: it always rendered `MOCK_PULSE`'s score
+ * of 64, band 57–72, and three invented wins/risks for a site nothing had
+ * measured. A project this genuinely new has neither, and 0 would read as
+ * "zero visibility" rather than "nothing measured yet".
+ */
+function emptyPanel(): HTMLElement {
+  return el('section', { class: 'panel hero' }, [
+    el('div', { class: 'label' }, ['Unified Visibility Score']),
+    el('div', { class: 'fq-note' }, [
+      'No visibility data yet. Poll rank tracking (A1) and AI-visibility coverage (A2) for this ' +
+        'project’s entities to populate Pulse — the score appears once at least one keyword or ' +
+        'prompt has been sampled.',
+    ]),
+  ]);
 }
 
 export async function pulseView(_ctx: AppContext): Promise<HTMLElement> {
-  let data: PulseData = MOCK_PULSE;
+  let data: PulseData | null = null;
+  let loadError: string | null = null;
   try {
     data = await fetchPulse();
-  } catch {
-    /* fall back to sample data */
+  } catch (err) {
+    // Same rule as the Fix Queue and Audit views: an unreachable API is not
+    // an empty Pulse, and this view will not invent a score to paper over
+    // the difference.
+    loadError = (err as Error).message;
   }
 
+  if (!data) {
+    return el('div', {}, [
+      el('div', { class: 'pagehead' }, [el('h1', {}, ['Pulse'])]),
+      el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load Pulse: ${loadError}`])]),
+    ]);
+  }
+
+  const d = data;
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Pulse']),
-      el('p', { html: `Unified visibility is <b>${fmtDelta(data.deltaVsPrior)} points</b> this month — and <b>${MOCK_PULSE.risks.length} risks</b> need attention.` }),
-    ]),
-    el('div', { class: 'grid' }, [
-      heroPanel(data),
-      el('div', { class: 'stack' }, [
-        el('section', { class: 'panel' }, [
-          el('header', {}, [el('h3', {}, ['Top wins']), el('span', { class: 'more' }, ['This week'])]),
-          el('div', { class: 'list' }, data.wins.map((w) => signalRow(w, 'g'))),
-        ]),
-        el('section', { class: 'panel' }, [
-          el('header', {}, [el('h3', {}, ['Top risks']), el('span', { class: 'more' }, ['Needs attention'])]),
-          el('div', { class: 'list' }, data.risks.map((r) => signalRow(r, 'r'))),
-        ]),
+      el('p', {}, [
+        d.score
+          ? `Unified visibility is ${d.score.point} (${d.score.low}–${d.score.high}) across ${d.keywordsTracked} tracked keyword${d.keywordsTracked === 1 ? '' : 's'} and ${d.citationSamples} AI citation sample${d.citationSamples === 1 ? '' : 's'}.`
+          : 'This project has no polled data yet.',
       ]),
     ]),
+    d.score ? heroPanel(d) : emptyPanel(),
   ]);
 }

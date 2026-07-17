@@ -245,6 +245,32 @@ Point estimates are never surfaced for AI visibility.
 ### 3.3 Connector interface
 Every SERP vendor, LLM engine, and first-party source implements a common adapter interface so vendors are swappable (multi-vendor abstraction, X9).
 
+### 3.4 The A1/A2 data spine (Postgres standing in for ClickHouse)
+`serp_positions` and `citation_events` (migration 0005) hold the M1.1 warehouse
+data — one row per polled SERP query and per sampled LLM answer, respectively.
+They live in the same Neon Postgres as the operational tables, not the
+ClickHouse this doc specifies for time-series storage: no managed ClickHouse
+instance is provisioned yet, and a poll result with nowhere to land is worse
+than one sitting in the "wrong" database for now. Both tables mirror the
+ClickHouse column shapes in `infra/migrations/clickhouse/0001_init.sql`
+exactly, so migrating later is a data copy, not a redesign.
+
+`GET /projects/:id/pulse` (`apps/api/src/repositories/pulseRollup.ts`)
+assembles the A3 `SurfaceScores` from these tables server-side: each entity's
+most recent position per tracked keyword feeds `organicSov`, and its citation
+events — grouped by (engine, prompt) — feed `citationBandFromSamples` and
+`aiSov`. Local (B5) has no data source yet, so it is excluded from the channel
+mix at **weight 0** rather than scored as a 0, which would assert "no local
+visibility" instead of "not measured"; `unifiedVisibilityScore`'s `normalize()`
+renormalizes the remaining weights correctly. `score` is `null` for a project
+with nothing polled — never a 0, which reads as "zero visibility".
+
+`POST /rank/poll` persists only when the caller supplies an `entityId`; the
+dashboard's SERP Inspector omits it deliberately for ad-hoc, untracked lookups.
+`POST /ai/poll` always persists (`PromptQuery.entityId` is already required).
+Both check the entity belongs to the project before spending SERP/LLM credit —
+same tenancy rule as `/audit`'s and `/actions/generate`'s entity checks.
+
 ---
 
 ## 4. Security, compliance & data residency

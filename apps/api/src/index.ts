@@ -20,6 +20,9 @@ import { createEntity, listEntitiesByProject } from './repositories/entities.js'
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
 import { findingBelongsToProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
+import { insertSerpPositions } from './repositories/rankPositions.js';
+import { insertCitationEvents } from './repositories/citationEvents.js';
+import { assembleSurfaceScores } from './repositories/pulseRollup.js';
 import {
   getOnboardingProgress,
   markDomainConnected,
@@ -117,33 +120,72 @@ app.get('/health/integrations', (c) => {
  * A1 rank poll. Fetches live SERP results for the supplied queries via the
  * configured SERP connector (Serper.dev by default). Returns 503 when no SERP
  * key is wired, so a missing account degrades cleanly instead of 500-ing.
- * Persisting results to ClickHouse is out-of-band (same pattern as /audit).
+ *
+ * `entityId` is optional and applies to the whole batch: the SERP Inspector
+ * (dashboard) uses this route for one-off ad-hoc lookups that aren't tracked
+ * against any entity, and omitting it preserves that "check anything, persist
+ * nothing" behavior. When a caller supplies it (the eventual A1 scheduled
+ * poller), every result in the batch is persisted to `serp_positions`
+ * (migration 0005) so M1.1's warehouse actually accumulates history instead
+ * of discarding each poll after responding.
  */
 app.post('/projects/:projectId/rank/poll', async (c) => {
   const connector = createSerpConnector(c.env as unknown as Record<string, string | undefined>);
   if (!connector) {
     return c.json({ error: 'SERP provider not configured (set SERPER_API_KEY)' }, 503);
   }
-  const body = await c.req.json<{ queries: SerpQuery[] }>();
+  const projectId = c.req.param('projectId');
+  const body = await c.req.json<{ queries: SerpQuery[]; entityId?: string }>();
+  const db = createDb(c.env.DATABASE_URL);
+
+  // Check tenancy before spending SERP credit: an entityId from another
+  // project would otherwise either trip the insert's FK as a 500, or — worse,
+  // since it's caller-supplied — let one project's poll write rows onto
+  // another project's entity.
+  if (body.entityId) {
+    const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
+    if (!known.has(body.entityId)) {
+      return c.json({ error: 'entity does not belong to this project', entityId: body.entityId }, 400);
+    }
+  }
+
   const results = await Promise.all((body.queries ?? []).map((q) => connector.fetch(q)));
-  return c.json({ projectId: c.req.param('projectId'), vendor: connector.vendor, results });
+  if (body.entityId) {
+    await insertSerpPositions(db, body.entityId, results);
+  }
+  return c.json({ projectId, vendor: connector.vendor, results });
 });
 
 /**
  * A2 AI-visibility poll. Polls every configured LLM engine (OpenAI and/or
  * Gemini) n times for the prompt and returns per-engine samples with citation
- * events. Returns 503 when no LLM key is wired. Aggregating samples into a
- * confidence-band `CitationMeasurement` (A2.6) happens upstream in @engine/scoring.
+ * events. Returns 503 when no LLM key is wired.
+ *
+ * Every sample is persisted to `citation_events` (migration 0005) —
+ * `PromptQuery.entityId` is already required, so unlike rank/poll there is no
+ * ad-hoc/untracked mode to preserve. Aggregating samples into a
+ * confidence-band `CitationMeasurement` (A2.6) happens downstream, from the
+ * stored rows, in @engine/scoring via the pulse rollup.
  */
 app.post('/projects/:projectId/ai/poll', async (c) => {
   const connectors = createLlmConnectors(c.env as unknown as Record<string, string | undefined>);
   if (connectors.length === 0) {
     return c.json({ error: 'No LLM engine configured (set OPENAI_API_KEY and/or GEMINI_API_KEY)' }, 503);
   }
+  const projectId = c.req.param('projectId');
   const body = await c.req.json<{ query: PromptQuery; nSamples?: number }>();
+  const db = createDb(c.env.DATABASE_URL);
+
+  // Same tenancy reasoning as rank/poll above, before spending LLM credit.
+  const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
+  if (!known.has(body.query?.entityId)) {
+    return c.json({ error: 'entity does not belong to this project', entityId: body.query?.entityId }, 400);
+  }
+
   const nSamples = Math.min(Math.max(body.nSamples ?? 3, 1), 5); // A2 n=3–5
   const results = await Promise.all(connectors.map((engine) => engine.poll(body.query, nSamples)));
-  return c.json({ projectId: c.req.param('projectId'), engines: connectors.map((e) => e.engine), results });
+  await insertCitationEvents(db, results);
+  return c.json({ projectId, engines: connectors.map((e) => e.engine), results });
 });
 
 app.get('/projects/:projectId/entities', async (c) => {
@@ -160,16 +202,44 @@ app.post('/projects/:projectId/entities', async (c) => {
 });
 
 /**
- * Compute the A3 Unified Visibility Score for a project from already-assembled
- * per-surface SoV inputs. This keeps the scoring math (pure, in @engine/scoring)
- * separate from surface assembly: once the A1/A2/B5 ClickHouse rollups are wired
- * (M1.2), a repository will populate `surfaces` server-side. For now the caller
- * supplies them, which also makes the endpoint directly integration-testable.
+ * Compute the A3 Unified Visibility Score for a project from caller-supplied
+ * per-surface inputs. Kept alongside the GET below (not replaced by it)
+ * because it needs no database and is directly integration-testable — useful
+ * for exercising the pure scoring math (@engine/scoring) in isolation, or for
+ * a caller that has already assembled surfaces itself (e.g. a one-off report
+ * against surfaces that were never polled through this API).
  */
 app.post('/projects/:projectId/pulse', async (c) => {
   const body = await c.req.json<{ surfaces: SurfaceScores; mix?: ChannelMix }>();
   const score = unifiedVisibilityScore(body.surfaces, body.mix ?? DEFAULT_CHANNEL_MIX);
   return c.json({ projectId: c.req.param('projectId'), score });
+});
+
+/**
+ * The A3 Unified Visibility Score assembled server-side from persisted A1/A2
+ * data (migration 0005) — the M1.2 rollup the POST route above was always
+ * meant to be fed by. Reads each entity's most recent SERP positions and the
+ * last 30 days of citation samples, blends them via the same pure
+ * `unifiedVisibilityScore`, and reports how much data went in
+ * (`keywordsTracked`/`citationSamples`) so a project with nothing polled yet
+ * renders as "no data" rather than a confident, meaningless 0.
+ */
+app.get('/projects/:projectId/pulse', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const projectId = c.req.param('projectId');
+  const { surfaces, mix, keywordsTracked, citationSamples } = await assembleSurfaceScores(
+    db,
+    projectId,
+    DEFAULT_CHANNEL_MIX,
+  );
+  const hasData = keywordsTracked > 0 || citationSamples > 0;
+  const score = hasData ? unifiedVisibilityScore(surfaces, mix) : null;
+  // The AI surface's own band, alongside the blended score: Architecture §3.2
+  // says a point is never surfaced for AI visibility, and the unified score's
+  // decomposition only carries a point (the band midpoint, used for weighting)
+  // — so the dashboard's AI contribution tile needs this to render its own
+  // low/high rather than falling back to a bare number.
+  return c.json({ projectId, score, aiBand: hasData ? surfaces.ai : null, keywordsTracked, citationSamples });
 });
 
 /**
