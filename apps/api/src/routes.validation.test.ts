@@ -137,6 +137,25 @@ describe('POST /projects/:projectId/actions/generate', () => {
   });
 });
 
+describe('POST /projects/:projectId/entities/:entityId/keywords', () => {
+  const valid = { keyword: 'home loans', geoCountry: 'IN', device: 'desktop', language: 'en', engine: 'google' };
+
+  it('rejects an out-of-range device before any database call', async () => {
+    const res = await post('/projects/proj_1/entities/ent_1/keywords', { ...valid, device: 'watch' });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'invalid device: expected one of "desktop", "mobile", "tablet", got a string',
+      field: 'device',
+    });
+  });
+
+  it('rejects a body that is not JSON at all', async () => {
+    const res = await post('/projects/proj_1/entities/ent_1/keywords', 'not json{');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'body is not valid JSON' });
+  });
+});
+
 /**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone

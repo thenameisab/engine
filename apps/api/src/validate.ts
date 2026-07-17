@@ -309,3 +309,32 @@ export function checkGenerateBody(body: unknown): Invalid | null {
   const b = body as Record<string, unknown>;
   return first(checkFinding(b.finding, 'finding'), checkActionContext(b.context, 'context'));
 }
+
+// ── Keyword config (POST /projects/:projectId/entities/:entityId/keywords) ─
+
+const DEVICES = ['desktop', 'mobile', 'tablet'] as const;
+const RANK_ENGINES = ['google', 'bing'] as const;
+const CADENCES = ['weekly', 'daily', 'on_demand'] as const;
+
+/**
+ * `device`/`engine`/`cadence` are all `check` constraints in the
+ * `keyword_configs` table (migration 0001) — an unvalidated bad value would
+ * reach Postgres and 500 as a constraint violation naming neither the field
+ * nor the allowed values, same class of bug the audit/generate validators
+ * above already fixed.
+ */
+export function checkCreateKeywordConfigBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(
+    checkString(b.keyword, 'keyword'),
+    checkString(b.geoCountry, 'geoCountry'),
+    optional(b.geoCity, () => checkString(b.geoCity, 'geoCity')),
+    optional(b.geoPostcode, () => checkString(b.geoPostcode, 'geoPostcode')),
+    checkOneOf(b.device, 'device', DEVICES),
+    checkString(b.language, 'language'),
+    checkOneOf(b.engine, 'engine', RANK_ENGINES),
+    optional(b.cadence, () => checkOneOf(b.cadence, 'cadence', CADENCES)),
+  );
+}

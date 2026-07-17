@@ -13,8 +13,9 @@ import { verifyStripeSignature, mapStripeSubscriptionEvent, isOverLimit, type St
 import { evaluateReadiness } from '@engine/config';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier } from '@engine/core';
+import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb } from './db.js';
-import { checkAuditBody, checkGenerateBody } from './validate.js';
+import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
@@ -23,6 +24,7 @@ import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
 import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
+import { createKeywordConfig, listKeywordConfigsByEntity } from './repositories/keywordConfigs.js';
 import {
   getOnboardingProgress,
   markDomainConnected,
@@ -199,6 +201,78 @@ app.post('/projects/:projectId/entities', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const entity = await createEntity(db, c.req.param('projectId'), body.canonicalName);
   return c.json({ entity }, 201);
+});
+
+/**
+ * A4 keyword & prompt research (MVP slice). Pure and DB-free: intent
+ * classification, Hindi/Hinglish transliteration (A4.7 — English + Hindi is
+ * the spec's MVP quality bar), and template-generated prompt seeds (A4.8) for
+ * each seed keyword. No embeddings/clustering (A4.4) or managed keyword-volume
+ * API (A4.1/A4.2) — both need infrastructure/vendor accounts this pre-alpha
+ * build doesn't have; this is deterministic, testable research a user can
+ * still act on today. Results are not persisted — this is a research/preview
+ * call, not tracking; `POST .../keywords` below is the "push into tracking" step.
+ */
+app.post('/projects/:projectId/keywords/research', async (c) => {
+  const body = await c.req.json<{ seeds: string[] }>();
+  const results = (body.seeds ?? []).map((seed) => ({
+    seed,
+    intent: classifyIntent(seed),
+    hindiTransliteration: transliterateToDevanagari(seed),
+    promptSeeds: generatePromptSeeds(seed),
+  }));
+  return c.json({ projectId: c.req.param('projectId'), results });
+});
+
+/**
+ * Push a researched keyword into A1 tracking (A4 spec §4.8's "one-click push").
+ * Before this route existed, nothing ever created a `keyword_configs` row —
+ * `apps/api/src/repositories/billing.ts` already counts them for the plan's
+ * tracked-keyword limit, so that count was permanently zero.
+ */
+app.post('/projects/:projectId/entities/:entityId/keywords', async (c) => {
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkCreateKeywordConfigBody(raw);
+  if (invalid) {
+    return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  }
+  const projectId = c.req.param('projectId');
+  const entityId = c.req.param('entityId');
+  const db = createDb(c.env.DATABASE_URL);
+
+  // Same tenancy reasoning as /audit and /actions/generate: entityId is a
+  // path param, so an id from another project must not be allowed to attach
+  // a tracked keyword to an entity this caller doesn't own.
+  const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
+  if (!known.has(entityId)) {
+    return c.json({ error: 'entity does not belong to this project', entityId }, 400);
+  }
+
+  const body = raw as {
+    keyword: string;
+    geoCountry: string;
+    geoCity?: string;
+    geoPostcode?: string;
+    device: 'desktop' | 'mobile' | 'tablet';
+    language: string;
+    engine: 'google' | 'bing';
+    cadence?: 'weekly' | 'daily' | 'on_demand';
+  };
+  const config = await createKeywordConfig(db, entityId, body);
+  return c.json({ config }, 201);
+});
+
+app.get('/projects/:projectId/entities/:entityId/keywords', async (c) => {
+  const projectId = c.req.param('projectId');
+  const entityId = c.req.param('entityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
+  if (!known.has(entityId)) {
+    return c.json({ error: 'entity does not belong to this project', entityId }, 400);
+  }
+  const configs = await listKeywordConfigsByEntity(db, entityId);
+  return c.json({ configs });
 });
 
 /**
