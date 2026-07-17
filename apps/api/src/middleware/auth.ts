@@ -97,10 +97,17 @@ export async function requireAuth(
     return c.json({ error: 'missing bearer token' }, 401);
   }
 
-  // Machine callers (the edge worker's auto-rollback) present a service token
-  // instead of a JWT. Checked before the JWT path since it is not one.
+  // Machine callers present the shared service token instead of a JWT. Checked
+  // before the JWT path since it is not one.
+  //
+  // The principal is `service:internal`, not the name of any one caller: more
+  // than one machine holds this token (the edge worker's auto-rollback, the
+  // off-edge crawl runner), and a shared secret cannot tell us which one is
+  // calling. Naming a specific service here would put a claim in the audit log
+  // that we never verified — the same lie C1.8 removed from the human path.
+  // A service that wants to be named can label itself via `actor`.
   if (verifyServiceToken(token, c.env.INTERNAL_API_TOKEN)) {
-    c.set('user', { id: 'service:edge-worker', isService: true });
+    c.set('user', { id: 'service:internal', isService: true });
     return next();
   }
 

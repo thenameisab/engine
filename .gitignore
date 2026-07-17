@@ -23,3 +23,7 @@ apps/dashboard/site/
 # committed `.dev.vars.example` documents the shape.
 .dev.vars
 !.dev.vars.example
+
+# Wrangler's local state/cache, created by `wrangler dev`. Build output, and it
+# holds a local copy of the dev bindings — never commit it.
+.wrangler/

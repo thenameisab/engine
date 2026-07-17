@@ -10,6 +10,59 @@ versions.
 
 ---
 
+## 2026-07-17 — The crawl runner could not reach its own API (`packages/crawler`)
+
+### Fixed
+- **The B1.1 crawl runner had been unable to report a crawl since PR #21.**
+  Gating `/projects/*` behind `requireAuth` closed the API's open door, but
+  `reportCrawlToApi` sends the crawl to `POST /projects/:id/audit` and had no
+  credential to send — every run ended in `401 missing bearer token`. The
+  crawler is the *only* path that puts real findings into a project, so the
+  effect was that a deployed Engine could not acquire a finding at all: the
+  chain was crawl → **(401)** → audit → findings → Fix Queue.
+- The regression was invisible to CI because `report.test.ts` injects a mocked
+  `fetchImpl` — it proved the reporter's shape and could not have observed a
+  gate. This is the second time a mocked-`fetch` test hid a bug that only the
+  real runtime shows (the connectors' "Illegal invocation" was the first).
+- The crawler now authenticates as a machine caller with the shared
+  `INTERNAL_API_TOKEN`, read from **`ENGINE_API_TOKEN` in the environment, not a
+  flag** — argv is readable via `ps` and lands in shell history. The runner warns
+  before it starts spending browser time when the token is absent, and a 401/403
+  with no token sent now names the cause instead of surfacing a bare status.
+
+### Changed
+- **The service principal is now `service:internal`, not `service:edge-worker`.**
+  A second machine caller (the crawl runner) now holds the same shared token, and
+  a shared secret cannot say *which* machine is calling — so naming a specific
+  service in the audit log asserted something never verified, the same flaw C1.8
+  removed from the human path. A service that wants to be named still self-labels
+  via `actor`; that is a self-report from inside the trust boundary, and the code
+  now says so rather than implying it was authenticated.
+
+### Added
+- `packages/crawler/README.md` — the runner had no docs, which is part of how it
+  drifted out of sync with the auth gate it depends on. Documents the loop, the
+  flags, the token, the mandatory politeness delay, and warns that
+  `report.test.ts`'s mocked fetch is not evidence about the live gate.
+- 4 reporter tests: the bearer header is sent; no header is fabricated when no
+  token is given; a tokenless 401 explains itself; a rejected *real* token is not
+  blamed on a missing one. Verified they **fail** on the reintroduced bug.
+- `.wrangler/` is gitignored — `wrangler dev` writes local state and a copy of the
+  dev bindings there, and it was neither tracked nor ignored.
+
+### Verified
+- On the real gated runtime, not vitest: the actual `engine-crawl` binary against
+  `wrangler dev` (`AUTH_MODE` enabled) and migrated Neon. Tokenless → `401`;
+  wrong token → `403 malformed`; valid token → a real 2-page Playwright crawl
+  persisted 3 findings with real uuids (correctly catching the site's `GPTBot`
+  block). Re-runs returned **identical uuids** with `created_at` preserved — the
+  fingerprint upsert holding. Closed the loop end to end: a crawl-produced
+  finding generated a real robots diff (`GPTBot: Disallow: /` → `Allow: /`), and
+  the audit trail recorded `service:internal` when unlabelled and
+  `service:crawl-runner` when self-labelled.
+
+---
+
 ## 2026-07-16 — Postgres migrations applied + a jsonb corruption bug (`packages/db`)
 
 ### Added

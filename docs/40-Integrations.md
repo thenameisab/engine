@@ -96,13 +96,25 @@ signature gate), and `GET /oauth/gsc/callback` (a Google redirect target).
 The gate **fails closed**: an unset `AUTH_JWKS_URL` or an unreachable JWKS
 returns `503`, never "allow".
 
-### `INTERNAL_API_TOKEN` — the machine caller
+### `INTERNAL_API_TOKEN` — the machine callers
 
-The edge worker (`apps/workers`) calls the API's rollback endpoint on its own
-behalf when a deployed fix fails a health check (C1.7 auto-rollback). There is
-no user session behind that call, so it presents this shared service token
-instead of a JWT. **Bind the same value on both Workers** — without it the API
-answers 401 and a bad fix will not roll itself back (the worker logs it).
+Some callers act on their own behalf, with no user session behind them, so they
+present this shared service token instead of a JWT:
+
+| Caller | Call | Without the token |
+| --- | --- | --- |
+| `apps/workers` (edge worker) | rollback, when a deployed fix fails a health check (C1.7) | API answers 401; a bad fix never rolls itself back (the worker logs it) |
+| `packages/crawler` (`engine-crawl`) | `POST /projects/:id/audit`, reporting a finished B1.1 crawl | API answers 401; **every crawl is discarded** and the project gets no findings |
+
+**Bind the same value everywhere.** The edge worker takes it as a Worker secret;
+the crawl runner reads it from `ENGINE_API_TOKEN` in its environment (see
+`packages/crawler/README.md`).
+
+Because the token is shared, it authenticates *a* trusted machine, not a
+specific one — the API records such callers as `service:internal` rather than
+guessing which. A caller that wants to be named in the audit log supplies its
+own `actor` (e.g. `service:crawl-runner`); that is a self-report from inside the
+trust boundary, not a verified identity, and the code says so.
 
 ### `AUTH_MODE=disabled` — local development only
 
