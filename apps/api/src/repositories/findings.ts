@@ -6,6 +6,7 @@ interface FindingRow {
   id: string;
   entity_id: string;
   source: FindingSource;
+  issue_type: string;
   // `numeric` columns arrive as strings from postgres.js — the driver refuses to
   // silently narrow arbitrary-precision numerics into a lossy JS float. Both are
   // small bounded scores, so converting is safe here; doing it in one place
@@ -22,6 +23,7 @@ function toFinding(row: FindingRow): Finding {
     id: row.id,
     entityId: row.entity_id,
     source: row.source,
+    issueType: row.issue_type,
     severity: Number(row.severity),
     predictedImpact: Number(row.predicted_impact),
     evidence: row.evidence,
@@ -72,19 +74,45 @@ export async function upsertFindings(db: Db, findings: readonly Finding[]): Prom
   const persisted: Finding[] = [];
   for (const finding of findings) {
     const [row] = await db<FindingRow[]>`
-      insert into findings (entity_id, fingerprint, source, severity, predicted_impact, evidence, action_templates)
+      insert into findings (entity_id, fingerprint, source, issue_type, severity, predicted_impact, evidence, action_templates)
       values (
-        ${finding.entityId}, ${finding.id}, ${finding.source}, ${finding.severity},
+        ${finding.entityId}, ${finding.id}, ${finding.source}, ${finding.issueType}, ${finding.severity},
         ${finding.predictedImpact}, ${toJsonb(db, finding.evidence)}, ${toJsonb(db, finding.actionTemplates)}
       )
       on conflict (entity_id, fingerprint) do update set
+        issue_type = excluded.issue_type,
         severity = excluded.severity,
         predicted_impact = excluded.predicted_impact,
         evidence = excluded.evidence,
         action_templates = excluded.action_templates
-      returning id, entity_id, source, severity, predicted_impact, evidence, action_templates, created_at
+      returning id, entity_id, source, issue_type, severity, predicted_impact, evidence, action_templates, created_at
     `;
     persisted.push(toFinding(row));
   }
   return persisted;
+}
+
+/**
+ * The project's finding inventory — the read side of /audit. Until now findings
+ * were write-only: `upsertFindings` persisted them and nothing could read them
+ * back, so the dashboard's Audit view had no choice but to render mocks.
+ *
+ * Reaches the project through `findings -> entities` for the same reason
+ * `listActionsByProject` does: findings carry no project_id, and adding one
+ * would let a finding disagree with its own entity about which project it is
+ * in. The entity is the join, exactly as the entity-first model intends.
+ *
+ * Ordered by predicted impact, matching how runAudit leads its inventory (§8):
+ * the worst thing first is the whole point of the view.
+ */
+export async function listFindingsByProject(db: Db, projectId: string): Promise<Finding[]> {
+  const rows = await db<FindingRow[]>`
+    select f.id, f.entity_id, f.source, f.issue_type, f.severity,
+           f.predicted_impact, f.evidence, f.action_templates, f.created_at
+    from findings f
+    join entities e on e.id = f.entity_id
+    where e.project_id::text = ${projectId}
+    order by f.predicted_impact desc, f.created_at desc
+  `;
+  return rows.map(toFinding);
 }

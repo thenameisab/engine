@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints } from './format.js';
-import type { ApiAction } from './types.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand } from './format.js';
+import type { ApiAction, ApiFinding } from './types.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -169,5 +169,71 @@ describe('toActionCard', () => {
   it('labels a target that carries no identifying detail', () => {
     expect(targetLabel({ kind: 'cms-plugin' })).toBe('cms plugin');
     expect(targetLabel({ kind: 'edge-worker' })).toBe('edge worker');
+  });
+});
+
+describe('toFindingRow', () => {
+  const finding = (o: Partial<ApiFinding> = {}): ApiFinding => ({
+    id: 'uuid-1',
+    entityId: 'ent_1',
+    source: 'technical',
+    issueType: 'ai-crawler-blocked',
+    severity: 0.95,
+    predictedImpact: 0.475,
+    evidence: { url: 'https://acme.com/', blocked: ['GPTBot'] },
+    actionTemplates: [{ type: 'robots', label: 'Allow AI crawlers', description: '…' }],
+    createdAt: '2026-07-17T00:00:00.000Z',
+    ...o,
+  });
+
+  it('maps a persisted finding onto a renderable row', () => {
+    const row = toFindingRow(finding());
+    expect(row).toEqual({
+      id: 'uuid-1',
+      type: 'ai-crawler-blocked',
+      title: 'AI crawlers blocked by robots.txt',
+      severity: 'high',
+      // 0.475 on the contract's 0-1 scale, not "+0.475" on the card's 0-10 one.
+      predictedImpact: 5,
+      autoFixable: true,
+      url: 'https://acme.com/',
+    });
+  });
+
+  it('calls a finding with no action template manual, not auto-fixable', () => {
+    // The §7 contract lets a finding carry no template only with a documented
+    // reason — that is exactly the "manual" case the pill must not overstate.
+    const row = toFindingRow(finding({ actionTemplates: [], evidence: { url: '/x', nonExecutableReason: 'needs a human' } }));
+    expect(row.autoFixable).toBe(false);
+  });
+
+  it('renders an empty url rather than "undefined" when evidence carries none', () => {
+    const row = toFindingRow(finding({ evidence: {} }));
+    expect(row.url).toBe('');
+  });
+});
+
+describe('issueLabel', () => {
+  it('gives each issue type human copy', () => {
+    expect(issueLabel('schema-missing')).toBe('No structured data');
+    expect(issueLabel('meta-title-missing')).toBe('Missing <title>');
+  });
+
+  it('falls through to the raw type rather than hiding an unmapped one', () => {
+    // A new rule in @engine/diagnosis should surface as itself, not vanish.
+    expect(issueLabel('some-future-check')).toBe('some-future-check');
+  });
+});
+
+describe('severityBand', () => {
+  it('bands the real severity weights the way the product ranks them', () => {
+    // ai-crawler-blocked (0.95) is the GEO-native issue the product exists for.
+    expect(severityBand(0.95)).toBe('high');
+    expect(severityBand(0.8)).toBe('high');
+    // schema-missing (0.7) matters; not-in-sitemap (0.35) is housekeeping.
+    expect(severityBand(0.7)).toBe('medium');
+    expect(severityBand(0.55)).toBe('medium');
+    expect(severityBand(0.4)).toBe('low');
+    expect(severityBand(0.35)).toBe('low');
   });
 });

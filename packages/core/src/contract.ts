@@ -16,6 +16,23 @@ export interface Finding {
   id: string;
   entityId: string;
   source: FindingSource;
+  /**
+   * What is actually wrong, e.g. `ai-crawler-blocked`. The identity of the
+   * problem: it selects the severity weight and the action templates, and it is
+   * part of the finding's fingerprint.
+   *
+   * Deliberately a `string`, not a union. Each Pillar B source owns its own
+   * vocabulary (B1 technical issues are `IssueType` in @engine/diagnosis; B2
+   * content findings will differ), and core cannot import from the packages
+   * that depend on it. `source` says which vocabulary applies.
+   *
+   * Required, not optional: without it a persisted finding cannot say what it
+   * is. It cannot be recovered afterwards — the fingerprint hashes it one-way,
+   * and inferring it from `actionTemplates` collapses distinct problems
+   * (`schema-missing` and `schema-invalid` share one template). An optional
+   * field would let that gap return silently.
+   */
+  issueType: string;
   severity: number;
   predictedImpact: number;
   evidence: object;

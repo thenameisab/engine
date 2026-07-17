@@ -59,6 +59,19 @@ export interface ActionCard {
   status: ActionStatus;
 }
 
+/** A `Finding` as `GET /projects/:id/audit` returns it (@engine/core's contract). */
+export interface ApiFinding {
+  id: string;
+  entityId: string;
+  source: string;
+  issueType: string;
+  severity: number;
+  predictedImpact: number;
+  evidence: { url?: string; nonExecutableReason?: string; [k: string]: unknown };
+  actionTemplates: { type: string; label: string; description: string }[];
+  createdAt: string;
+}
+
 export interface FindingRow {
   id: string;
   type: string;
@@ -70,9 +83,16 @@ export interface FindingRow {
 }
 
 export interface AuditData {
-  healthScore: number;
+  /**
+   * Null when the project has never been audited. The API reports the score of
+   * the newest recorded run, and there isn't one — a project with no crawl has
+   * no health score, and 100 would read as "your site is perfect".
+   */
+  healthScore: number | null;
   autoFixableCount: number;
   findings: FindingRow[];
+  lastRunAt: string | null;
+  pagesAudited: number | null;
 }
 
 /** Mirrors @engine/config's ReadinessReport shape (structural, not imported). */

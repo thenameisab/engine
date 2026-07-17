@@ -36,6 +36,7 @@ const validFinding: Finding = {
   id: '11111111-1111-4111-8111-111111111111',
   entityId: 'ent_1',
   source: 'technical',
+  issueType: 'meta-description-missing',
   severity: 0.4,
   predictedImpact: 0.32,
   evidence: { url: 'https://example.com/product' },

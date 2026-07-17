@@ -169,6 +169,28 @@ describe('runAudit', () => {
     }
   });
 
+  // The issue type is what the finding *is*. It used to be consumed here (for
+  // severity, templates and the id hash) and then dropped, leaving a stored
+  // finding unable to say what was wrong — and unrecoverable, since the id
+  // hashes it one-way.
+  it('carries the issue type onto every finding it emits', () => {
+    const { findings } = runAudit([cleanPage({ structuredData: [], title: '' })]);
+    expect(findings.map((f) => f.issueType).sort()).toEqual(['meta-title-missing', 'schema-missing']);
+  });
+
+  // Distinct problems that share one action template: inferring the type from
+  // actionTemplates[0].type would report both of these as 'schema'.
+  it('distinguishes issue types that share an action template', () => {
+    const missing = runAudit([cleanPage({ structuredData: [] })]).findings[0];
+    const invalid = runAudit([
+      cleanPage({ structuredData: [{ type: 'Product', json: {}, errors: ['missing name'] }] }),
+    ]).findings[0];
+
+    expect(missing!.issueType).toBe('schema-missing');
+    expect(invalid!.issueType).toBe('schema-invalid');
+    expect(missing!.actionTemplates[0]!.type).toBe(invalid!.actionTemplates[0]!.type);
+  });
+
   it('sorts findings by predicted impact, high first', () => {
     const { findings } = runAudit([
       cleanPage({ structuredData: [], metaDescription: '', pageValue: 0.9 }),

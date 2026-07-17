@@ -47,6 +47,7 @@ function toFinding(page: CrawledPage, issue: RawIssue, opts: Required<AuditOptio
     id: opts.makeId(page, issue),
     entityId: page.entityId,
     source: 'technical',
+    issueType: type,
     severity: severityFor(type),
     predictedImpact: predictedImpact(type, page.pageValue),
     evidence: reason ? { ...issue.evidence, nonExecutableReason: reason } : issue.evidence,

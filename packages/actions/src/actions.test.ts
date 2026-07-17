@@ -24,6 +24,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     id: 'fnd_1',
     entityId: 'ent_widget',
     source: 'technical',
+    issueType: 'schema-missing',
     severity: 0.7,
     predictedImpact: 0.6,
     evidence: { url: 'https://acme.com/widget' },
