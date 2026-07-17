@@ -5,7 +5,12 @@
  * result to an already-running `apps/api` instance's `/projects/:id/audit`.
  *
  * Usage:
- *   engine-crawl --url https://example.com --project proj_1 --entity ent_1 --api http://localhost:8787
+ *   ENGINE_API_TOKEN=<token> \
+ *     engine-crawl --url https://example.com --project proj_1 --entity ent_1 --api http://localhost:8787
+ *
+ * The token is read from the environment, never a flag: argv is world-readable
+ * through `ps` and lands in shell history, and this one is the API's shared
+ * service credential.
  */
 import { launchCrawlerBrowser } from './browser.js';
 import { crawlSite } from './crawlSite.js';
@@ -26,7 +31,16 @@ async function main(): Promise<void> {
   const { url, project, entity, api } = args;
   if (!url || !project || !entity || !api) {
     console.error('Usage: engine-crawl --url <rootUrl> --project <projectId> --entity <entityId> --api <apiBaseUrl>');
+    console.error('Env:   ENGINE_API_TOKEN  the API\'s INTERNAL_API_TOKEN (omit only for a local AUTH_MODE=disabled API)');
     process.exit(1);
+  }
+
+  const token = process.env.ENGINE_API_TOKEN;
+  if (!token) {
+    // Warn but continue: a local API with AUTH_MODE=disabled is a legitimate
+    // target. Warning up front beats discovering it after the crawl spends
+    // minutes of browser time.
+    console.warn('ENGINE_API_TOKEN is not set — the report will be rejected unless the API runs with AUTH_MODE=disabled.');
   }
 
   const browser = await launchCrawlerBrowser();
@@ -35,7 +49,7 @@ async function main(): Promise<void> {
     console.log(`Crawling ${url} (entity ${entity})...`);
     const pages = await crawlSite(browser, url, { entityId: entity, maxPages });
     console.log(`Crawled ${pages.length} page(s). Reporting to ${api}...`);
-    const result = await reportCrawlToApi(pages, { apiBaseUrl: api, projectId: project });
+    const result = await reportCrawlToApi(pages, { apiBaseUrl: api, projectId: project, token });
     console.log(JSON.stringify(result, null, 2));
   } finally {
     await browser.close();

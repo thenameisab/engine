@@ -237,9 +237,11 @@ app.get('/projects/:projectId/actions/:actionId', async (c) => {
 /**
  * Who to record in the immutable audit log (C1.8). For a signed-in human this
  * is their verified identity, never the caller-supplied `actor` — an audit
- * trail you can write yourself into is not an audit trail. The edge worker's
- * service token may still label itself, since it is a trusted machine
- * principal reporting *which* health check fired.
+ * trail you can write yourself into is not an audit trail. A trusted machine
+ * principal may still label itself: the shared service token proves only that
+ * *some* internal caller holds it, so its self-report (which health check
+ * fired, which runner reported) is strictly more information than
+ * `service:internal` alone, and it is already inside the trust boundary.
  */
 function auditActor(user: AuthUser, claimedActor?: string): string {
   if (user.isService) return claimedActor ?? user.id;
