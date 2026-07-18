@@ -28,6 +28,10 @@ function post(path: string, body: unknown): Promise<Response> {
   );
 }
 
+function get(path: string): Promise<Response> {
+  return app.request(path, { method: 'GET' }, env);
+}
+
 const validPage: CrawledPage = {
   url: 'https://example.com/product',
   entityId: 'ent_1',
@@ -222,6 +226,14 @@ describe('POST /accounts/:accountId/billing/checkout', () => {
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "no Stripe price configured for tier 'growth'", field: 'tier' });
+  });
+});
+
+describe('GET /accounts/:accountId/plan', () => {
+  it('rejects a non-uuid accountId before any database call', async () => {
+    const res = await get('/accounts/acct_1/plan');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'must be a uuid', field: 'accountId' });
   });
 });
 

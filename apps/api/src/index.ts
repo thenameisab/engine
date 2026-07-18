@@ -23,7 +23,7 @@ import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQu
 import { durationMs, type Finding, type PlanTier } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb } from './db.js';
-import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody } from './validate.js';
+import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody, checkUuidParam } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject } from './repositories/entities.js';
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
@@ -715,6 +715,8 @@ app.post('/accounts/:accountId/billing/checkout', async (c) => {
 /** G4/G5: current plan, live usage, and whether the account is over its plan's caps. */
 app.get('/accounts/:accountId/plan', async (c) => {
   const accountId = c.req.param('accountId');
+  const invalid = checkUuidParam(accountId, 'accountId');
+  if (invalid) return c.json({ error: invalid.message, field: invalid.field }, 400);
   const db = createDb(c.env.DATABASE_URL);
   const [subscription, usage] = await Promise.all([getSubscription(db, accountId), getUsageCounters(db, accountId)]);
   const planTier = subscription?.planTier ?? 'starter';
