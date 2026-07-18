@@ -9,6 +9,7 @@ Unified SEO + GEO + local visibility with an agentic **Fix Queue** that deploys,
 3. **[Architecture Foundations](20-Architecture.md)** — four-layer system + the near-term **GitHub + Cloudflare Pages/Workers** deployment spine.
 4. **[Design System & Motion Language](30-Design-System.md)** — the visual identity: Liquid Glass material, the confidence-band signature, instrument-mono type, Apple/Emil motion rules. Live reference: **[Pulse hero mockup](mockups/pulse.html)**.
 5. **[External Integrations & Configuration](40-Integrations.md)** — every external account (Google OAuth/GSC, Stripe, Serper.dev SERP, OpenAI, Gemini): what/why, provisioning, env vars, cost, and the provider decisions. Backed by `packages/config` + `GET /health/integrations`.
+6. **[X0 — Profound Agents Teardown](50-X0-Profound-Teardown.md)** — competitive read on Profound's Agents/Aim execution wedge and the resulting design-freeze recommendation for Engine's Phase 2 C-layer (C2 technical fixes stay the priority lane; C3 content generation must flow through the existing Fix Queue contract, not a parallel drafting tool).
 
 ## Per-feature reference specs (`feature-specs/`)
 Each feature is a complicated play with its own deep-dive:
