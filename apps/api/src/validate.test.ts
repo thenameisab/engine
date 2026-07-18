@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CrawledPage } from '@engine/diagnosis';
 import type { ActionContext } from '@engine/actions';
 import type { Finding } from '@engine/core';
-import { checkAuditBody, checkCrawledPage, checkGenerateBody, checkCreateKeywordConfigBody } from './validate.js';
+import { checkAuditBody, checkCrawledPage, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody } from './validate.js';
 
 /**
  * A `CrawledPage` exactly as `@engine/crawler`'s `crawlPage` emits one — the
@@ -324,5 +324,41 @@ describe('checkCreateKeywordConfigBody', () => {
     expect(checkCreateKeywordConfigBody(withoutKeyword)?.field).toBe('keyword');
     const { geoCountry: _geoCountry, ...withoutCountry } = valid;
     expect(checkCreateKeywordConfigBody(withoutCountry)?.field).toBe('geoCountry');
+  });
+});
+
+describe('checkCreateCheckoutBody', () => {
+  const valid = {
+    tier: 'growth',
+    successUrl: 'https://app.example.com/billing/success',
+    cancelUrl: 'https://app.example.com/billing/cancel',
+  };
+
+  it('accepts a well-formed body', () => {
+    expect(checkCreateCheckoutBody(valid)).toBeNull();
+  });
+
+  it('accepts an optional customerEmail', () => {
+    expect(checkCreateCheckoutBody({ ...valid, customerEmail: 'buyer@example.com' })).toBeNull();
+  });
+
+  it('rejects an unrecognized tier', () => {
+    expect(checkCreateCheckoutBody({ ...valid, tier: 'ultra' })?.field).toBe('tier');
+  });
+
+  it('rejects a non-URL successUrl/cancelUrl', () => {
+    expect(checkCreateCheckoutBody({ ...valid, successUrl: 'not a url' })?.field).toBe('successUrl');
+  });
+
+  /** The WHATWG parser accepts any scheme as syntactically valid; restrict to http(s). */
+  it('rejects a non-http(s) scheme, e.g. javascript:', () => {
+    expect(checkCreateCheckoutBody({ ...valid, cancelUrl: 'javascript:alert(1)' })?.field).toBe('cancelUrl');
+  });
+
+  it('rejects a missing tier/successUrl/cancelUrl', () => {
+    const { tier: _tier, ...withoutTier } = valid;
+    expect(checkCreateCheckoutBody(withoutTier)?.field).toBe('tier');
+    const { successUrl: _successUrl, ...withoutSuccess } = valid;
+    expect(checkCreateCheckoutBody(withoutSuccess)?.field).toBe('successUrl');
   });
 });

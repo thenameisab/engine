@@ -170,7 +170,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
       },
       {
         name: 'STRIPE_SECRET_KEY',
-        description: 'Stripe secret API key — only needed for outbound calls (creating checkout sessions / portal links). Webhook verification does not use it.',
+        description: 'Stripe secret API key. Required for `POST /accounts/:id/billing/checkout` (M1.7); webhook verification does not use it.',
         secret: true,
         required: false,
         example: 'sk_test_xxxxxxxxxxxxxxxxxxxxxxxx',

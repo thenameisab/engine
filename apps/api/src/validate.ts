@@ -338,3 +338,43 @@ export function checkCreateKeywordConfigBody(body: unknown): Invalid | null {
     optional(b.cadence, () => checkOneOf(b.cadence, 'cadence', CADENCES)),
   );
 }
+
+// ── Checkout (POST /accounts/:accountId/billing/checkout) ──────────────────
+
+const PLAN_TIERS = ['starter', 'growth', 'agency', 'enterprise'] as const;
+
+function checkUrl(value: unknown, field: string): Invalid | null {
+  const invalid = checkString(value, field);
+  if (invalid) return invalid;
+  let parsed: URL;
+  try {
+    parsed = new URL(value as string);
+  } catch {
+    return { field, message: `expected a valid URL, got ${JSON.stringify(value)}` };
+  }
+  // The WHATWG URL parser accepts any scheme ('javascript:', 'data:', ...) as
+  // syntactically valid. Restricting to http(s) here, not just "parses",
+  // closes an open-redirect-adjacent hole on a customer-facing checkout flow.
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { field, message: `expected an http(s) URL, got scheme "${parsed.protocol}"` };
+  }
+  return null;
+}
+
+/**
+ * `successUrl`/`cancelUrl` are checked as real URLs (not just non-empty
+ * strings) because Stripe's own 400 for a malformed one is opaque, and a
+ * caller-supplied redirect target reaching Stripe unchecked is also an open
+ * redirect risk this validator closes off at the boundary.
+ */
+export function checkCreateCheckoutBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(
+    checkOneOf(b.tier, 'tier', PLAN_TIERS),
+    checkUrl(b.successUrl, 'successUrl'),
+    checkUrl(b.cancelUrl, 'cancelUrl'),
+    optional(b.customerEmail, () => checkString(b.customerEmail, 'customerEmail')),
+  );
+}
