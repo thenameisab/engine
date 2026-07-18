@@ -367,6 +367,16 @@ function checkUrl(value: unknown, field: string): Invalid | null {
  * caller-supplied redirect target reaching Stripe unchecked is also an open
  * redirect risk this validator closes off at the boundary.
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Path params flow straight into `uuid`-typed columns; a malformed one throws
+ *  postgres.js' `invalid input syntax for type uuid` as an opaque 500 before
+ *  any query logic runs. Check it at the boundary instead. */
+export function checkUuidParam(value: string, field: string): Invalid | null {
+  if (!UUID_RE.test(value)) return { field, message: 'must be a uuid' };
+  return null;
+}
+
 export function checkCreateCheckoutBody(body: unknown): Invalid | null {
   const invalid = checkObject(body, 'body');
   if (invalid) return invalid;

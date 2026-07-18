@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { CrawledPage } from '@engine/diagnosis';
 import type { ActionContext } from '@engine/actions';
 import type { Finding } from '@engine/core';
-import { checkAuditBody, checkCrawledPage, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody } from './validate.js';
+import {
+  checkAuditBody,
+  checkCrawledPage,
+  checkGenerateBody,
+  checkCreateKeywordConfigBody,
+  checkCreateCheckoutBody,
+  checkUuidParam,
+} from './validate.js';
 
 /**
  * A `CrawledPage` exactly as `@engine/crawler`'s `crawlPage` emits one — the
@@ -360,5 +367,19 @@ describe('checkCreateCheckoutBody', () => {
     expect(checkCreateCheckoutBody(withoutTier)?.field).toBe('tier');
     const { successUrl: _successUrl, ...withoutSuccess } = valid;
     expect(checkCreateCheckoutBody(withoutSuccess)?.field).toBe('successUrl');
+  });
+});
+
+describe('checkUuidParam', () => {
+  it('accepts a well-formed uuid', () => {
+    expect(checkUuidParam('550e8400-e29b-41d4-a716-446655440000', 'accountId')).toBeNull();
+  });
+
+  it('rejects a non-uuid path param', () => {
+    expect(checkUuidParam('not-a-uuid', 'accountId')?.field).toBe('accountId');
+  });
+
+  it('rejects an empty string', () => {
+    expect(checkUuidParam('', 'accountId')?.field).toBe('accountId');
   });
 });
