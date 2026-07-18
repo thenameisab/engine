@@ -48,3 +48,15 @@ export function checkRobotsDeployHealth(originStatus: number, robotsTxt: string)
   if (!/user-agent:/i.test(robotsTxt)) return { ok: false, reason: 'robots-malformed' };
   return ok;
 }
+
+/**
+ * A redirect has no origin fetch to health-check the *transform* against — it
+ * short-circuits before origin is ever reached — but it can still be an
+ * unsafe rule: a self-loop (redirecting a URL to itself) would serve every
+ * visitor a redirect loop forever, with no browser round-trip to notice it.
+ */
+export function checkRedirectDeployHealth(from: string, to: string): HealthCheck {
+  if (to.trim() === '') return { ok: false, reason: 'redirect-empty-destination' };
+  if (to === from) return { ok: false, reason: 'redirect-self-loop' };
+  return ok;
+}

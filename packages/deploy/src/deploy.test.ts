@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Action, Diff } from '@engine/core';
 import { applyHtmlDiff, applyHtmlActions, applySchemaDiff, applyMetaDiff } from './html.js';
 import { applyRobotsActions } from './robots.js';
-import { verifyHtmlDeploy, verifyRobotsDeploy } from './verify.js';
+import { verifyHtmlDeploy, verifyRobotsDeploy, verifyRedirectDeploy } from './verify.js';
+import { checkRedirectDeployHealth } from './health.js';
 
 const BASE_HTML = '<html><head><title>Old</title></head><body>hi</body></html>';
 
@@ -101,5 +102,46 @@ describe('verifyRobotsDeploy', () => {
     const action = robotsAction('User-agent: GPTBot\nAllow: /\n');
     expect(verifyRobotsDeploy('User-agent: GPTBot\nAllow: /\n\n', action)).toBe(true);
     expect(verifyRobotsDeploy('User-agent: GPTBot\nDisallow: /\n', action)).toBe(false);
+  });
+});
+
+function redirectAction(before: string, after: string): Pick<Action, 'type' | 'diff'> {
+  return { type: 'redirect', diff: { before, after, format: 'text' } };
+}
+
+describe('verifyRedirectDeploy', () => {
+  const action = redirectAction('https://acme.com/old', 'https://acme.com/new');
+
+  it('confirms a matching 301 to the expected destination', () => {
+    expect(verifyRedirectDeploy({ status: 301, location: 'https://acme.com/new' }, action)).toBe(true);
+  });
+
+  it('rejects a redirect to the wrong destination or a non-301 status', () => {
+    expect(verifyRedirectDeploy({ status: 301, location: 'https://acme.com/elsewhere' }, action)).toBe(false);
+    expect(verifyRedirectDeploy({ status: 302, location: 'https://acme.com/new' }, action)).toBe(false);
+  });
+
+  it('rejects a non-redirect action type', () => {
+    expect(verifyRedirectDeploy({ status: 301, location: 'https://acme.com/new' }, schemaAction('{}'))).toBe(false);
+  });
+});
+
+describe('checkRedirectDeployHealth', () => {
+  it('is healthy for a real destination different from the source', () => {
+    expect(checkRedirectDeployHealth('https://acme.com/old', 'https://acme.com/new')).toEqual({ ok: true });
+  });
+
+  it('rejects a self-loop', () => {
+    expect(checkRedirectDeployHealth('https://acme.com/x', 'https://acme.com/x')).toEqual({
+      ok: false,
+      reason: 'redirect-self-loop',
+    });
+  });
+
+  it('rejects an empty destination', () => {
+    expect(checkRedirectDeployHealth('https://acme.com/x', '')).toEqual({
+      ok: false,
+      reason: 'redirect-empty-destination',
+    });
   });
 });

@@ -27,3 +27,12 @@ export function verifyRobotsDeploy(robotsTxt: string, action: Pick<Action, 'type
   if (action.type !== 'robots') return false;
   return robotsTxt.trim() === action.diff.after.trim();
 }
+
+/** True if the observed response is the redirect this action's diff describes. */
+export function verifyRedirectDeploy(
+  observed: { status: number; location: string },
+  action: Pick<Action, 'type' | 'diff'>,
+): boolean {
+  if (action.type !== 'redirect') return false;
+  return observed.status === 301 && observed.location === action.diff.after;
+}
