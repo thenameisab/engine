@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CrawledPage } from '@engine/diagnosis';
 import type { ActionContext } from '@engine/actions';
 import type { Finding } from '@engine/core';
-import { checkAuditBody, checkCrawledPage, checkGenerateBody } from './validate.js';
+import { checkAuditBody, checkCrawledPage, checkGenerateBody, checkCreateKeywordConfigBody } from './validate.js';
 
 /**
  * A `CrawledPage` exactly as `@engine/crawler`'s `crawlPage` emits one — the
@@ -289,5 +289,40 @@ describe('checkGenerateBody', () => {
   it('rejects a missing finding or context outright', () => {
     expect(checkGenerateBody({ context: validContext })?.field).toBe('finding');
     expect(checkGenerateBody({ finding: validFinding })?.field).toBe('context');
+  });
+});
+
+describe('checkCreateKeywordConfigBody', () => {
+  const valid = {
+    keyword: 'home loans',
+    geoCountry: 'IN',
+    device: 'desktop',
+    language: 'en',
+    engine: 'google',
+  };
+
+  it('accepts a well-formed body', () => {
+    expect(checkCreateKeywordConfigBody(valid)).toBeNull();
+  });
+
+  it('accepts the optional fields when present', () => {
+    expect(
+      checkCreateKeywordConfigBody({ ...valid, geoCity: 'Mumbai', geoPostcode: '400001', cadence: 'daily' }),
+    ).toBeNull();
+  });
+
+  /** device/engine/cadence are `check` constraints in migration 0001 — an
+   * unvalidated bad value would 500 as a Postgres constraint violation. */
+  it('rejects an out-of-range device, engine, or cadence, naming the field', () => {
+    expect(checkCreateKeywordConfigBody({ ...valid, device: 'watch' })?.field).toBe('device');
+    expect(checkCreateKeywordConfigBody({ ...valid, engine: 'duckduckgo' })?.field).toBe('engine');
+    expect(checkCreateKeywordConfigBody({ ...valid, cadence: 'hourly' })?.field).toBe('cadence');
+  });
+
+  it('rejects a missing keyword or geoCountry', () => {
+    const { keyword: _keyword, ...withoutKeyword } = valid;
+    expect(checkCreateKeywordConfigBody(withoutKeyword)?.field).toBe('keyword');
+    const { geoCountry: _geoCountry, ...withoutCountry } = valid;
+    expect(checkCreateKeywordConfigBody(withoutCountry)?.field).toBe('geoCountry');
   });
 });

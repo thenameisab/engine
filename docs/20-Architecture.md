@@ -271,6 +271,30 @@ dashboard's SERP Inspector omits it deliberately for ad-hoc, untracked lookups.
 Both check the entity belongs to the project before spending SERP/LLM credit —
 same tenancy rule as `/audit`'s and `/actions/generate`'s entity checks.
 
+### 3.5 A4 keyword & prompt research (MVP slice)
+`packages/keywords` implements the parts of A4 buildable without new
+infrastructure: `classifyIntent` (A4.3, rule-based), `transliterateToDevanagari`
+(A4.7, a deterministic ITRANS-style Hinglish→Devanagari scheme — the spec's own
+risk register names transliteration accuracy as an open problem, so this is
+scoped as a normalizer for common spellings, not dictionary-perfect Hindi),
+`generatePromptSeeds` (A4.8, template-based), and `hasAiOverlap` (A4.9, reads a
+SERP's feature set for an AI Overview/AI Mode presence). All four are pure,
+dependency-free functions with no LLM call and no managed keyword-data API key.
+
+**Explicitly out of this slice**, because each needs infrastructure or a
+vendor account this build doesn't have: A4.1/A4.2 volume + difficulty (needs a
+managed keyword-data API — DataForSEO or similar), and A4.4 semantic
+clustering (needs self-hosted embeddings + HDBSCAN). `POST .../keywords/research`
+is a stateless preview call; `POST .../entities/:id/keywords` is the "push
+into A1 tracking" step, writing a real `keyword_configs` row (migration
+0001) — previously nothing did, despite `apps/api/src/repositories/billing.ts`
+already counting them toward a plan's tracked-keyword limit.
+
+Full A4.9 wiring against live SERP feature history was the one piece blocked
+on §3.4's `serp_positions` table landing in a separate PR (to avoid a stacked
+branch) — that PR has since merged, so `hasAiOverlap` applying to
+`serp_positions.features` is now a small follow-up, not a blocked one.
+
 ---
 
 ## 4. Security, compliance & data residency
