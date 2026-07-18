@@ -361,6 +361,38 @@ join. Surfaced in `apps/dashboard` as a ⌘K modal (D1.3 "persistent copilot,
 available on every screen"); this ships the query, not the natural-language
 layer, which is the fuller D1 build.
 
+### 3.9 Redirect fixes (C4.1/C4.2)
+Closes a gap `generate.ts` documented in its own comment ("`'redirect' |
+'content' | 'gbp'` are not generated in the MVP"): B1.5 already emitted
+`redirect-chain` and `canonical-conflict` findings with a `redirect`
+`ActionTemplate`, but nothing executed it. `packages/actions/src/redirect.ts`
+(`resolveRedirectPair`/`generateRedirectAction`) turns both finding shapes
+into the same `{ before: fromUrl, after: toUrl }` diff — a redirect-chain
+collapses to a single hop from the *original* entry point to the crawled
+page's final URL; a canonical conflict consolidates the page into the
+canonical it already declares.
+
+Unlike schema/meta/robots, a redirect has no origin content to health-check
+the transform against — it short-circuits the request before origin is ever
+fetched (`apps/workers/src/index.ts`). `checkRedirectDeployHealth`
+(`packages/deploy/src/health.ts`) instead guards against a self-loop
+(`to === from`) or an empty destination, since neither would show up in a
+normal origin-error check and a self-loop would silently redirect-loop every
+visitor forever.
+
+Verified live end-to-end for the first time this project has actually run
+`apps/workers` under `wrangler dev` rather than a scratch script: audit → a
+real `redirect-chain` finding → generated action → approved → deployed → the
+worker served a genuine `301` with the correct `Location` for the matched
+path, and left an unrelated path to fall through to origin untouched. This
+surfaced a real, previously-undiscovered bug: `apps/workers/wrangler.toml`
+was missing `compatibility_flags = ["nodejs_compat"]` (present on `apps/api`
+since PR #17), so the worker could not boot at all — `postgres`'s Workers
+build needs Node's `node:events`/`node:buffer`/`node:stream` shims. Every
+prior M1.4/M1.5 session had smoke-tested `apps/workers`' logic via scratch
+scripts against pure functions, never the actual Workers runtime, so this had
+never been caught.
+
 ---
 
 ## 4. Security, compliance & data residency

@@ -3,6 +3,7 @@ import {
   applyRobotsActions,
   checkHtmlDeployHealth,
   checkRobotsDeployHealth,
+  checkRedirectDeployHealth,
   type HealthCheck,
 } from '@engine/deploy';
 import type { Action } from '@engine/core';
@@ -39,10 +40,24 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const originUrl = new URL(url.pathname + url.search, env.ORIGIN);
-    const originResp = await fetch(originUrl.toString(), request);
 
     const db = createDb(env.DATABASE_URL);
     const actions = await listLiveEdgeActions(db, env.PROJECT_ID);
+
+    // A redirect short-circuits before origin is ever fetched (C4.1/C4.2) —
+    // unlike a schema/meta/robots fix, there's no origin content to health-
+    // check the transform against, so this is a straight 301 or a rollback.
+    const redirectAction = actions.find((a) => a.type === 'redirect' && a.diff.before === originUrl.toString());
+    if (redirectAction) {
+      const health = checkRedirectDeployHealth(redirectAction.diff.before, redirectAction.diff.after);
+      if (!health.ok) {
+        ctx.waitUntil(autoRollback(env, [redirectAction], health));
+      } else {
+        return new Response(null, { status: 301, headers: { location: redirectAction.diff.after } });
+      }
+    }
+
+    const originResp = await fetch(originUrl.toString(), request);
 
     if (url.pathname === '/robots.txt') {
       return handleRobots(originResp, actions, env, ctx);

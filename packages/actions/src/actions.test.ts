@@ -5,6 +5,7 @@ import { BuildEnv, buildAction, canTransition, transition } from './build.js';
 import { buildJsonLd, generateSchemaAction } from './schema.js';
 import { proposeTitle, proposeDescription, TITLE_MAX } from './meta.js';
 import { unblockCrawlers } from './robots.js';
+import { resolveRedirectPair, generateRedirectAction } from './redirect.js';
 import { generateActions } from './generate.js';
 
 const ENV: BuildEnv = { now: () => '2026-07-15T00:00:00.000Z', makeId: () => 'act_fixed' };
@@ -95,6 +96,52 @@ describe('unblockCrawlers', () => {
   });
 });
 
+describe('resolveRedirectPair', () => {
+  it('collapses a redirect chain to a single hop from the original entry point to the final url', () => {
+    const pair = resolveRedirectPair({
+      issueType: 'redirect-chain',
+      evidence: { url: 'https://acme.com/final', chain: ['https://acme.com/old', 'https://acme.com/mid'] },
+    });
+    expect(pair).toEqual({ from: 'https://acme.com/old', to: 'https://acme.com/final' });
+  });
+
+  it('consolidates a canonical conflict into the declared canonical', () => {
+    const pair = resolveRedirectPair({
+      issueType: 'canonical-conflict',
+      evidence: { url: 'https://acme.com/dup', canonical: 'https://acme.com/original' },
+    });
+    expect(pair).toEqual({ from: 'https://acme.com/dup', to: 'https://acme.com/original' });
+  });
+
+  it('returns null for an unrelated issue type', () => {
+    expect(resolveRedirectPair({ issueType: 'schema-missing', evidence: {} })).toBeNull();
+  });
+
+  it('returns null when the chain is empty or the pair is a no-op', () => {
+    expect(resolveRedirectPair({ issueType: 'redirect-chain', evidence: { url: 'https://a.com', chain: [] } })).toBeNull();
+    expect(
+      resolveRedirectPair({ issueType: 'canonical-conflict', evidence: { url: 'https://a.com', canonical: 'https://a.com' } }),
+    ).toBeNull();
+  });
+});
+
+describe('generateRedirectAction', () => {
+  it('generates a proposed redirect diff for a redirect-chain finding', () => {
+    const f = finding({
+      issueType: 'redirect-chain',
+      evidence: { url: 'https://acme.com/final', chain: ['https://acme.com/old'] },
+    });
+    const a = generateRedirectAction(f, ctx(), ENV)!;
+    expect(a.type).toBe('redirect');
+    expect(a.status).toBe('proposed');
+    expect(a.diff).toEqual({ before: 'https://acme.com/old', after: 'https://acme.com/final', format: 'text' });
+  });
+
+  it('returns null when the finding carries no resolvable redirect pair', () => {
+    expect(generateRedirectAction(finding({ issueType: 'schema-missing' }), ctx(), ENV)).toBeNull();
+  });
+});
+
 describe('generateActions dispatcher', () => {
   it('emits a schema action for a schema finding', () => {
     const f = finding({ actionTemplates: [{ type: 'schema', label: 'Generate JSON-LD', description: '' }] });
@@ -120,6 +167,18 @@ describe('generateActions dispatcher', () => {
     expect(actions[0].type).toBe('robots');
     expect(actions[0].diff.after).toMatch(/GPTBot/);
     expect(actions[0].diff.after).toMatch(/ClaudeBot/);
+  });
+
+  it('emits a redirect action for a redirect-chain finding', () => {
+    const f = finding({
+      issueType: 'redirect-chain',
+      evidence: { url: 'https://acme.com/final', chain: ['https://acme.com/old'] },
+      actionTemplates: [{ type: 'redirect', label: 'Collapse redirect chain', description: '' }],
+    });
+    const actions = generateActions(f, ctx(), ENV);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].type).toBe('redirect');
+    expect(actions[0].diff.after).toBe('https://acme.com/final');
   });
 
   it('yields no actions for a finding with no templates (non-executable diagnosis)', () => {

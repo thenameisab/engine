@@ -1,6 +1,11 @@
 name = "engine-edge"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+# Required by the `postgres` driver (node built-ins) on the Workers runtime —
+# same as apps/api. Without it the worker can't boot at all (`No such module
+# "node:events"`), which this repo only discovered by actually running
+# `wrangler dev` for this worker for the first time (M2.3 verification).
+compatibility_flags = ["nodejs_compat"]
 
 # One deployed worker per customer site (the 'edge-worker' DeployTarget —
 # see @engine/core's DeployTarget.workerName). ORIGIN and PROJECT_ID are set

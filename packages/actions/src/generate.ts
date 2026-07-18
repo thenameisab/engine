@@ -11,6 +11,7 @@ import { defaultEnv, type BuildEnv } from './build.js';
 import { generateSchemaAction } from './schema.js';
 import { generateMetaTitleAction, generateMetaDescriptionAction } from './meta.js';
 import { generateRobotsAction } from './robots.js';
+import { generateRedirectAction } from './redirect.js';
 
 /** Pull the blocked-crawler list out of a finding's evidence, if present. */
 function blockedFromEvidence(finding: Finding): string[] | undefined {
@@ -57,8 +58,13 @@ export function generateActions(finding: Finding, ctx: ActionContext, env: Build
         if (a) actions.push(a);
         break;
       }
-      // 'redirect' | 'content' | 'gbp' are not generated in the MVP (no C4/C3/C5
-      // executor yet); the diagnosis layer still surfaces those findings.
+      case 'redirect': {
+        const a = generateRedirectAction(finding, ctx, env);
+        if (a) actions.push(a);
+        break;
+      }
+      // 'content' | 'gbp' are not generated in the MVP (no C3/C5 executor
+      // yet); the diagnosis layer still surfaces those findings.
       default:
         break;
     }
