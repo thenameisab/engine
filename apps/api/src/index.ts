@@ -8,7 +8,7 @@ import {
 } from '@engine/scoring';
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { generateActions, transition, defaultEnv, type ActionContext } from '@engine/actions';
-import { verifyHtmlDeploy, verifyRobotsDeploy } from '@engine/deploy';
+import { verifyHtmlDeploy, verifyRobotsDeploy, exportActionAsPr } from '@engine/deploy';
 import {
   verifyStripeSignature,
   mapStripeSubscriptionEvent,
@@ -65,6 +65,8 @@ interface Env extends AuthEnv {
   GEMINI_MODEL?: string;
   /** Comma-separated allowed dashboard origins for CORS. '*' (default) is fine for the pre-alpha internal build. */
   CORS_ORIGINS?: string;
+  /** C4.5 GitHub PR export — token for the 'github-pr' DeployTarget's real API calls. */
+  GITHUB_TOKEN?: string;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -537,8 +539,26 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     const db = createDb(c.env.DATABASE_URL);
     const action = await getAction(db, c.req.param('actionId') as string);
     if (!action) return c.json({ error: 'action not found' }, 404);
+
+    // C4.5: a 'github-pr' target has no live-request path to apply a diff
+    // through (unlike edge-worker/cms-plugin) — 'deployed' here means
+    // "opened the PR", so the export happens synchronously as part of this
+    // transition rather than a separate push step.
+    let detail = body.detail;
+    if (to === 'deployed' && action.target.kind === 'github-pr') {
+      if (!c.env.GITHUB_TOKEN) {
+        return c.json({ error: 'GitHub PR export is not configured (set GITHUB_TOKEN)' }, 503);
+      }
+      try {
+        const pr = await exportActionAsPr(c.env.GITHUB_TOKEN, action);
+        detail = { ...detail, prUrl: pr.url, prNumber: pr.number };
+      } catch (err) {
+        return c.json({ error: `GitHub PR export failed: ${(err as Error).message}` }, 502);
+      }
+    }
+
     try {
-      const next = transition(action, to, defaultEnv(), auditActor(c.get('user'), body.actor), body.detail);
+      const next = transition(action, to, defaultEnv(), auditActor(c.get('user'), body.actor), detail);
       const saved = await saveActionTransition(db, next);
       if (to === 'deployed') await markFirstFixDeployed(db, c.req.param('projectId') as string);
       return c.json({ action: saved });

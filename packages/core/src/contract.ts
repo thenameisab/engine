@@ -45,7 +45,7 @@ export type ActionType = 'schema' | 'meta' | 'redirect' | 'robots' | 'content' |
 export type DeployTarget =
   | { kind: 'cms-plugin'; plugin: 'wordpress' | 'shopify'; siteId: string }
   | { kind: 'edge-worker'; workerName: string }
-  | { kind: 'github-pr'; repo: string; branch: string }
+  | { kind: 'github-pr'; repo: string; branch: string; path: string }
   | { kind: 'gbp-api'; locationId: string };
 
 export type ActionStatus = 'proposed' | 'approved' | 'deployed' | 'verified' | 'rolled_back';
