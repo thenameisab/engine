@@ -23,7 +23,7 @@ export interface IntegrationEnvVar {
   example?: string;
 }
 
-export type IntegrationCategory = 'identity' | 'billing' | 'serp' | 'llm' | 'data';
+export type IntegrationCategory = 'identity' | 'billing' | 'serp' | 'llm' | 'data' | 'deploy';
 
 /** The activation status of a whole integration, decided by whether its required vars are present. */
 export type IntegrationStatus = 'configured' | 'partial' | 'missing';
@@ -254,6 +254,26 @@ export const INTEGRATIONS: IntegrationDef[] = [
       },
     ],
     notes: 'Built and fixture-tested for readiness. Can run in parallel with OpenAI once a key is set.',
+  },
+  {
+    id: 'github-pr',
+    name: 'GitHub (PR export)',
+    category: 'deploy',
+    purpose: "C4.5 GitHub PR export: for headless sites with no edge worker or CMS plugin, deploy a fix as a reviewable PR against the customer's repo (@engine/deploy's 'github-pr' DeployTarget).",
+    account: 'A GitHub App or fine-grained PAT with contents:write + pull-requests:write on the customer repo(s).',
+    requiredForMvp: false,
+    env: [
+      {
+        name: 'GITHUB_TOKEN',
+        description:
+          "Token used to call GitHub's REST API on the customer's behalf. Bound as a Worker secret. Per-account tokens are a later scope; this is a single shared token for pre-alpha.",
+        secret: true,
+        required: true,
+        example: 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      },
+    ],
+    notes:
+      'Request shapes (branch create, file write, PR open) are fully unit-tested against GitHub\'s documented REST API with a mocked fetch — no live token needed for that. Going live needs a real GitHub App/PAT scoped to a customer repo.',
   },
 ];
 

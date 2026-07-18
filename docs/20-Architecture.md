@@ -393,6 +393,46 @@ prior M1.4/M1.5 session had smoke-tested `apps/workers`' logic via scratch
 scripts against pure functions, never the actual Workers runtime, so this had
 never been caught.
 
+### 3.10 GitHub PR export (C4.5)
+Implements the `github-pr` `DeployTarget`, frozen in `@engine/core`'s
+contract since the first scaffold commit and never built. For a headless
+site there is no edge worker or CMS plugin to push a fix into — the fix has
+to land as a reviewable change to a source file in the customer's repo.
+Extended the target's shape (additive) with a required `path`: the existing
+`repo`/`branch` say *where*, but nothing said *which file* a diff should
+write to, and that can't be inferred (a site generator's file layout is
+opaque to Engine).
+
+`packages/deploy/src/githubPr.ts` calls GitHub's REST API directly via
+`fetch` (same reasoning as `packages/billing/src/checkout.ts` for Stripe: no
+SDK, `fetchImpl` injectable for testing). `exportActionAsPr` orchestrates:
+read the base branch's sha → create a branch named from the action id
+(`engine-fix/<id prefix>`, so a retried deploy reuses the same branch rather
+than piling up duplicates) → write the diff's `after` content to `path` →
+open a PR. Unlike the other deploy targets in this package, this one is
+genuinely I/O — there's no pure string transform to test the way
+`applyHtmlActions`/`unblockCrawlers` are, so every GitHub call is unit-tested
+against mocked `fetch` responses routed by request shape (10 tests), the same
+discipline `plugins/shopify` already established for an external API this
+sandbox has no live credentials for.
+
+Wired into the existing generic `deploy` transition
+(`app.post('/projects/:projectId/actions/:actionId/deploy')`): a `github-pr`
+target has no live-request path to apply a diff through, so "deployed" means
+"the PR is open" and the export runs synchronously inside the transition,
+before the status flips — a failed export (missing `GITHUB_TOKEN`, or a real
+GitHub API error) leaves the action `approved`, not falsely `deployed`. The
+opened PR's URL/number are recorded in the transition's audit-log `detail`.
+
+**Verified live**: the surrounding plumbing only — a real action targeting
+`github-pr` generated, approved, then a real `wrangler dev` + Neon deploy
+attempt with no `GITHUB_TOKEN` configured correctly `503`s before any GitHub
+call, and the action stayed `approved` rather than silently `deployed`. The
+actual GitHub API round-trip (branch create, file write, PR open) is not
+verified against a live repo — the user declined a live test this session
+rather than spend a real token/PR on it, so this is disclosed as a known gap
+the same way the Shopify plugin's live API calls are, not claimed as proven.
+
 ---
 
 ## 4. Security, compliance & data residency

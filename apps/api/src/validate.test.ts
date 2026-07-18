@@ -216,6 +216,7 @@ describe('checkGenerateBody', () => {
     [{ kind: 'cms-plugin', siteId: 's1' }, 'context.target.plugin'],
     [{ kind: 'cms-plugin', plugin: 'wordpress' }, 'context.target.siteId'],
     [{ kind: 'github-pr', repo: 'o/r' }, 'context.target.branch'],
+    [{ kind: 'github-pr', repo: 'o/r', branch: 'main' }, 'context.target.path'],
     [{ kind: 'gbp-api' }, 'context.target.locationId'],
   ])('rejects a %p target missing its variant field', (target, field) => {
     const context = { ...validContext, target: target as never };
@@ -227,7 +228,7 @@ describe('checkGenerateBody', () => {
       { kind: 'edge-worker', workerName: 'w' },
       { kind: 'cms-plugin', plugin: 'wordpress', siteId: 's1' },
       { kind: 'cms-plugin', plugin: 'shopify', siteId: 's2' },
-      { kind: 'github-pr', repo: 'o/r', branch: 'main' },
+      { kind: 'github-pr', repo: 'o/r', branch: 'main', path: 'content/pricing.mdx' },
       { kind: 'gbp-api', locationId: 'loc_1' },
     ];
     for (const target of targets) {

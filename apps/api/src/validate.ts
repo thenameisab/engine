@@ -217,7 +217,11 @@ function checkDeployTarget(value: unknown, field: string): Invalid | null {
     case 'edge-worker':
       return checkString(t.workerName, `${field}.workerName`);
     case 'github-pr':
-      return first(checkString(t.repo, `${field}.repo`), checkString(t.branch, `${field}.branch`));
+      return first(
+        checkString(t.repo, `${field}.repo`),
+        checkString(t.branch, `${field}.branch`),
+        checkString(t.path, `${field}.path`),
+      );
     case 'gbp-api':
       return checkString(t.locationId, `${field}.locationId`);
     default:
