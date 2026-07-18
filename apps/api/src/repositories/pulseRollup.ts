@@ -76,7 +76,7 @@ export async function assembleSurfaceScores(
  * distinct (engine, prompt) pairs whenever a prompt's own space landed where
  * the key's delimiter did.
  */
-function aiFromRows(rows: readonly CitationEventRow[]): ConfidenceBand {
+export function aiFromRows(rows: readonly CitationEventRow[]): ConfidenceBand {
   const groups = new Map<string, { engine: string; prompt: string; rows: CitationEventRow[] }>();
   for (const row of rows) {
     const key = JSON.stringify([row.engine, row.prompt]);

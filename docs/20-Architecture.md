@@ -344,6 +344,23 @@ only `subscription_data.metadata` propagates there. Getting this wrong would
 have silently broken every post-checkout webhook while looking correct in a
 manual Stripe dashboard test.
 
+### 3.8 The entity Copilot query (M2.2)
+`GET /projects/:id/entities/:entityId/copilot/summary` (`apps/api/src/repositories/entityCopilot.ts`)
+is the first real payoff of the entity-first bet §0 named as something that
+"cannot be retrofitted": one query joining A1 (`serp_positions`), A2
+(`citation_events`), and B1 (`findings`) through a single `entity_id` — the
+only column all three pillars share. A URL-keyed model couldn't do this join
+at all: an AI answer citing a brand carries no URL, and a finding is scoped
+to a crawled page, not a SERP row.
+
+Reuses the existing pure scoring functions (`organicSov`, and `aiFromRows`
+lifted out of `pulseRollup.ts` so the project-level Pulse rollup and the
+entity-level Copilot summary share one citation-grouping implementation
+rather than two that could drift) — no new scoring math, just a narrower
+join. Surfaced in `apps/dashboard` as a ⌘K modal (D1.3 "persistent copilot,
+available on every screen"); this ships the query, not the natural-language
+layer, which is the fuller D1 build.
+
 ---
 
 ## 4. Security, compliance & data residency

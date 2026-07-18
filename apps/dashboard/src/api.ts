@@ -11,9 +11,11 @@
 import type {
   ActionCard,
   ApiAction,
+  ApiEntity,
   ApiFinding,
   ApiPulseResponse,
   AuditData,
+  CopilotSummary,
   PulseData,
   ReadinessReport,
   ActionStatus,
@@ -156,6 +158,22 @@ const TRANSITION_PATH: Record<Exclude<ActionStatus, 'proposed'>, string> = {
   verified: 'verify',
   rolled_back: 'rollback',
 };
+
+/** The project's tracked entities — the Copilot's own picker list. */
+export function fetchEntities(): Promise<ApiEntity[]> {
+  return request<{ entities: ApiEntity[] }>(`/projects/${getProjectId()}/entities`).then((r) => r.entities);
+}
+
+/**
+ * The Copilot's one real query (M2.2): a cross-SEO/GEO summary for a single
+ * entity, joined server-side across A1 (organic), A2 (AI citation), and B1
+ * (findings) through `entity_id`.
+ */
+export function fetchCopilotSummary(entityId: string): Promise<CopilotSummary> {
+  return request<{ summary: CopilotSummary }>(
+    `/projects/${getProjectId()}/entities/${entityId}/copilot/summary`,
+  ).then((r) => r.summary);
+}
 
 /** Attempt a live Fix Queue transition (DB-backed; may fail in pre-alpha). */
 export function transitionAction(actionId: string, to: Exclude<ActionStatus, 'proposed'>): Promise<unknown> {

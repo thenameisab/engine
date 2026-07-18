@@ -116,3 +116,19 @@ export async function listFindingsByProject(db: Db, projectId: string): Promise<
   `;
   return rows.map(toFinding);
 }
+
+/**
+ * One entity's own findings, worst-impact first. The direct `entity_id`
+ * lookup this Copilot query needs (M2.2) — no project hop required, since
+ * the caller already resolved and tenancy-checked the entity.
+ */
+export async function listFindingsByEntity(db: Db, entityId: string, limit = 5): Promise<Finding[]> {
+  const rows = await db<FindingRow[]>`
+    select id, entity_id, source, issue_type, severity, predicted_impact, evidence, action_templates, created_at
+    from findings
+    where entity_id = ${entityId}
+    order by predicted_impact desc, created_at desc
+    limit ${limit}
+  `;
+  return rows.map(toFinding);
+}

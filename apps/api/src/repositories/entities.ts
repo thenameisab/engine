@@ -41,6 +41,20 @@ export async function listEntitiesByProject(db: Db, projectId: string): Promise<
   return rows.map(toEntity);
 }
 
+/**
+ * One entity, tenancy-checked against its project in the same query — the
+ * `entities.project_id` comparison the Copilot summary route needs before it
+ * spends a second query on data that isn't the caller's to see.
+ */
+export async function getEntityInProject(db: Db, projectId: string, entityId: string): Promise<Entity | null> {
+  const rows = await db<EntityRow[]>`
+    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, created_at, updated_at
+    from entities
+    where id::text = ${entityId} and project_id::text = ${projectId}
+  `;
+  return rows.length > 0 ? toEntity(rows[0]) : null;
+}
+
 export async function createEntity(
   db: Db,
   projectId: string,
