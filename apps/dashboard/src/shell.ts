@@ -2,6 +2,7 @@ import { el } from './dom.js';
 import { icon, ICONS } from './icons.js';
 import { getUser, signOut, initials } from './auth/session.js';
 import { signOutRemote } from './auth/neonAuth.js';
+import { mountCopilot } from './copilot.js';
 import type { AppContext, View } from './context.js';
 import { pulseView } from './views/pulse.js';
 import { serpView } from './views/serp.js';
@@ -128,12 +129,14 @@ export function mountShell(root: HTMLElement): void {
     collapseBtn,
     el('div', { class: 'crumb', id: 'crumb' }, ['Pulse']),
     el('div', { class: 'grow' }),
+    el('span', { class: 'kbdhint', title: 'Open the Copilot' }, ['⌘K']),
     themeBtn,
   ]);
 
   const main = appEl.querySelector('.main') as HTMLElement;
   main.append(topbar, content);
   root.append(appEl, toastHost);
+  mountCopilot(root);
 
   let startCollapsed = false;
   try {

@@ -25,7 +25,8 @@ import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '
 import { createDb } from './db.js';
 import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody, checkUuidParam } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
-import { createEntity, listEntitiesByProject } from './repositories/entities.js';
+import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
+import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
 import { findingBelongsToProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
@@ -311,6 +312,23 @@ app.get('/projects/:projectId/entities/:entityId/keywords', async (c) => {
   }
   const configs = await listKeywordConfigsByEntity(db, entityId);
   return c.json({ configs });
+});
+
+/**
+ * M2.2 "entity graph online": one cross-SEO/GEO query, powered by the
+ * entity-first joins the architecture doc named as the thing that "cannot be
+ * retrofitted" — organic rank (A1), AI citation band (A2), and open findings
+ * (B1) all read through the same `entity_id`, which is the Copilot's first
+ * real query rather than a mock.
+ */
+app.get('/projects/:projectId/entities/:entityId/copilot/summary', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const entity = await getEntityInProject(db, c.req.param('projectId'), c.req.param('entityId'));
+  if (!entity) {
+    return c.json({ error: 'entity does not belong to this project', entityId: c.req.param('entityId') }, 400);
+  }
+  const summary = await buildEntityCopilotSummary(db, entity.id, entity.canonicalName);
+  return c.json({ summary });
 });
 
 /**

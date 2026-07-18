@@ -142,6 +142,25 @@ export interface SerpInspectResult {
   polledAt: string;
 }
 
+/** One entity as `GET /projects/:id/entities` returns it (apps/api). */
+export interface ApiEntity {
+  id: string;
+  canonicalName: string;
+}
+
+/**
+ * `GET /projects/:id/entities/:entityId/copilot/summary` (M2.2) — the
+ * entity-first cross-SEO/GEO join: organic rank (A1), AI citation band (A2),
+ * and open findings (B1), all keyed on the one entity.
+ */
+export interface CopilotSummary {
+  entityId: string;
+  canonicalName: string;
+  organic: { sov: number; keywordsTracked: number };
+  ai: { band: { low: number; point: number; high: number }; samplesObserved: number };
+  topFindings: { id: string; issueType: string; predictedImpact: number; evidence: { url?: string } }[];
+}
+
 /** Whether a view is showing live API data or the built-in sample. */
 export type DataSource = 'live' | 'sample';
 
