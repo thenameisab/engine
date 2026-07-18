@@ -1,0 +1,20 @@
+{
+  "name": "@engine/shopify-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Shopify side of the 'cms-plugin' DeployTarget (C2.2) — pulls approved Engine actions and writes them into Shopify product metafields.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "sync": "node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

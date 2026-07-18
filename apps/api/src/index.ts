@@ -25,6 +25,7 @@ import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
 import { createKeywordConfig, listKeywordConfigsByEntity } from './repositories/keywordConfigs.js';
+import { listPendingCmsPluginActions } from './repositories/cmsPluginActions.js';
 import {
   getOnboardingProgress,
   markDomainConnected,
@@ -201,6 +202,35 @@ app.post('/projects/:projectId/entities', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const entity = await createEntity(db, c.req.param('projectId'), body.canonicalName);
   return c.json({ entity }, 201);
+});
+
+const CMS_PLUGINS = ['wordpress', 'shopify'] as const;
+
+/**
+ * The 'cms-plugin' DeployTarget's pull queue (C2.2 — "CMS plugin *or*
+ * Cloudflare Worker, no dev ticket"). A plugin installed on the customer's
+ * WordPress/Shopify site polls this on a schedule (WP-Cron / a scheduled
+ * Shopify job), applies each `diff` through the CMS's own API, then calls the
+ * existing `POST .../actions/:id/deploy` transition to record the push —
+ * that route already exists and already appends the audit entry; this only
+ * adds the read side a plugin needs to know *what* to push.
+ *
+ * Authenticated the same way the crawler is (a bearer service token via
+ * `requireAuth`, already applied to every `/projects/*` route) — a plugin
+ * install has no user session either.
+ */
+app.get('/projects/:projectId/cms-plugin/actions', async (c) => {
+  const plugin = c.req.query('plugin');
+  const siteId = c.req.query('siteId');
+  if (!plugin || !(CMS_PLUGINS as readonly string[]).includes(plugin)) {
+    return c.json({ error: `invalid plugin: expected one of "wordpress", "shopify"`, field: 'plugin' }, 400);
+  }
+  if (!siteId) {
+    return c.json({ error: 'missing siteId', field: 'siteId' }, 400);
+  }
+  const db = createDb(c.env.DATABASE_URL);
+  const actions = await listPendingCmsPluginActions(db, c.req.param('projectId'), plugin as 'wordpress' | 'shopify', siteId);
+  return c.json({ actions });
 });
 
 /**

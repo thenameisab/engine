@@ -156,6 +156,20 @@ describe('POST /projects/:projectId/entities/:entityId/keywords', () => {
   });
 });
 
+describe('GET /projects/:projectId/cms-plugin/actions', () => {
+  it('rejects an unrecognized plugin before any database call', async () => {
+    const res = await app.request('/projects/proj_1/cms-plugin/actions?plugin=wix&siteId=s1', {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('plugin');
+  });
+
+  it('rejects a missing siteId', async () => {
+    const res = await app.request('/projects/proj_1/cms-plugin/actions?plugin=wordpress', {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('siteId');
+  });
+});
+
 /**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone

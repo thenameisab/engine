@@ -295,6 +295,32 @@ on §3.4's `serp_positions` table landing in a separate PR (to avoid a stacked
 branch) — that PR has since merged, so `hasAiOverlap` applying to
 `serp_positions.features` is now a small follow-up, not a blocked one.
 
+### 3.6 The 'cms-plugin' DeployTarget (C2.2)
+The edge-worker `DeployTarget` (`apps/workers`) re-derives its HTML transform
+from the live `deployed`/`verified` action set on every request, so a
+rollback takes effect on the next page load with no separate push step. A
+`'cms-plugin'` target can't work that way — WordPress and Shopify have no
+equivalent of "serve the untransformed origin response" — so it's a **pull,
+apply-once, report** model instead:
+
+1. `GET /projects/:id/cms-plugin/actions?plugin=<wordpress|shopify>&siteId=<id>`
+   (`apps/api`) returns every `approved` action scoped to one plugin install,
+   with the page URL its Finding was raised on.
+2. The plugin (`plugins/wordpress/engine-seo.php` on WP-Cron;
+   `plugins/shopify`'s `engine-shopify-sync` CLI on an external schedule)
+   resolves that URL to a CMS-native resource and writes the diff into it —
+   WordPress post meta, rendered via `wp_head`/`pre_get_document_title`;
+   Shopify product metafields under the `engine_seo` namespace.
+3. The plugin reports the push via the ordinary `POST .../actions/:id/deploy`
+   transition — the same one every other deploy path uses.
+
+Once `approved`, the action drops out of step 1's query as soon as it's
+`deployed`; there's no separate "mark seen." The known asymmetry with the
+edge-worker path: a `rolled_back` action here is **not** automatically
+reverted — the write stays until the next audit re-detects the issue and a
+new fix is approved. Both plugin READMEs document this and recommend the
+edge-worker path when instant rollback matters.
+
 ---
 
 ## 4. Security, compliance & data residency
