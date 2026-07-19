@@ -55,7 +55,7 @@ export interface Diff {
   after: string;
   format: 'json-ld' | 'html' | 'text' | 'file';
   /** Which element a 'meta' Diff targets — required for a deploy target to know where to write it. */
-  field?: 'title' | 'description';
+  field?: 'title' | 'description' | 'hreflang';
 }
 
 export interface AuditEntry {

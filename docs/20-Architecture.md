@@ -433,6 +433,37 @@ verified against a live repo — the user declined a live test this session
 rather than spend a real token/PR on it, so this is disclosed as a known gap
 the same way the Shopify plugin's live API calls are, not claimed as proven.
 
+### 3.11 hreflang generation (C4.3)
+Closes M2.3's remaining technical-fix gap: B1.9's `hreflang-missing` finding
+carried a `meta` `ActionTemplate` since diagnosis was built, but `generate.ts`'s
+`'meta'` dispatch only ever regenerated title/description — a hreflang finding
+silently produced nothing.
+
+The alternates themselves aren't derivable from crawling one page — B1.9's own
+`expectsHreflang` field is already documented as "caller's i18n config, not
+observable from one fetch" — so `ActionContext.hreflangAlternates` carries
+them in, and `generateHreflangAction`
+(`packages/actions/src/hreflang.ts`) only generates the `<link rel="alternate"
+hreflang="…">` markup, nothing inferred. `generate.ts`'s `'meta'` case now
+dispatches on `finding.issueType === 'hreflang-missing'` before falling
+through to title/description — the same "route by finding, not by template
+type alone" pattern `'redirect'` already uses for its two source findings.
+
+Extended `Diff.field` with `'hreflang'` (additive, alongside `'title'`/
+`'description'`) so `packages/deploy` knows where to write it:
+`applyMetaDiff` inserts the tag block before `</head>` (always appended, never
+searched-and-replaced — the finding only fires when a page declares *no*
+hreflang, so there's nothing existing to find), and `verifyHtmlDeploy` checks
+the block landed. No worker changes needed: `apps/workers` already applies
+any `'meta'`-typed action generically.
+
+**Verified live end-to-end**, including through the edge worker for the first
+time this session's redirect work didn't need: a real page audited with
+`expectsHreflang: true` and no `hreflang` produced the finding → generated a
+real action with two supplied alternates → approved → deployed → a genuine
+`wrangler dev` origin proxy served the two `<link>` tags inside `<head>` of
+the actual response.
+
 ---
 
 ## 4. Security, compliance & data residency

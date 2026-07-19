@@ -51,6 +51,13 @@ describe('applyMetaDiff', () => {
     const out = applyMetaDiff(BASE_HTML, { before: 'Old', after: 'Fish & Chips <best>', format: 'text', field: 'title' });
     expect(out).toContain('<title>Fish &amp; Chips &lt;best&gt;</title>');
   });
+
+  it('inserts hreflang link tags before </head>, verbatim (already-escaped by the generator)', () => {
+    const tags = '<link rel="alternate" hreflang="en" href="https://acme.com/en/widget">';
+    const out = applyMetaDiff(BASE_HTML, { before: '', after: tags, format: 'html', field: 'hreflang' });
+    expect(out).toContain(tags);
+    expect(out.indexOf(tags)).toBeLessThan(out.indexOf('</head>'));
+  });
 });
 
 describe('applyHtmlActions', () => {
@@ -91,6 +98,13 @@ describe('verifyHtmlDeploy', () => {
 
   it('confirms a title action landed', () => {
     const action = metaAction('title', 'New Title', 'Old');
+    const deployed = applyHtmlDiff(BASE_HTML, action);
+    expect(verifyHtmlDeploy(deployed, action)).toBe(true);
+    expect(verifyHtmlDeploy(BASE_HTML, action)).toBe(false);
+  });
+
+  it('confirms a hreflang action landed', () => {
+    const action = metaAction('hreflang', '<link rel="alternate" hreflang="en" href="https://acme.com/en/widget">');
     const deployed = applyHtmlDiff(BASE_HTML, action);
     expect(verifyHtmlDeploy(deployed, action)).toBe(true);
     expect(verifyHtmlDeploy(BASE_HTML, action)).toBe(false);

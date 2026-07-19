@@ -42,4 +42,14 @@ export interface ActionContext {
 
   /** AI crawlers reported blocked (from the finding evidence), for the robots fix. */
   blockedCrawlers?: string[];
+
+  /**
+   * The i18n cluster's language → URL alternates for the hreflang fix (C4.3).
+   * Not observable from crawling this one page — `crawlPage`'s own
+   * `expectsHreflang` doc comment says as much ("caller's i18n config") — so
+   * the caller (onboarding config, sitemap-derived cluster mapping) supplies
+   * it. Include this page's own entry if a self-referencing alternate is
+   * wanted; the generator emits exactly what it's given, nothing inferred.
+   */
+  hreflangAlternates?: { lang: string; href: string }[];
 }
