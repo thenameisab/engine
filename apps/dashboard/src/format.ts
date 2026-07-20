@@ -4,7 +4,9 @@
  * the fiddly bits are verifiable in isolation.
  */
 import type {
+  AccountCard,
   ActionCard,
+  ApiAccount,
   ApiAction,
   ApiFinding,
   ApiPulseResponse,
@@ -325,6 +327,11 @@ const STATUS_LABELS: Record<ActionStatus, string> = {
 
 export function statusLabel(status: ActionStatus): string {
   return STATUS_LABELS[status];
+}
+
+/** Map an `ApiAccount` onto the multi-client grid's card (drops `createdAt` — the grid has no use for it). */
+export function toAccountCard(a: ApiAccount): AccountCard {
+  return { id: a.id, name: a.name, branding: a.branding, projects: a.projects };
 }
 
 /** The Fix Queue lanes, in lifecycle order (rolled_back shown as its own lane). */

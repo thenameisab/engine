@@ -605,6 +605,77 @@ generation itself is unit-tested only (mocked OpenAI responses, 9 tests) —
 disclosed as unverified live, same shape as the GitHub PR export's live gap,
 not claimed as proven.
 
+### 3.15 Agency white-label — accounts, membership, branding, reports (M2.5)
+`accounts`/`projects` (migration 0001) always had the right shape — one
+account owns many projects — but nothing could create either row (every
+account/project in this environment was seeded straight into Postgres), and
+nothing linked a signed-in identity to an account at all: every existing
+`/projects/:projectId/*` route trusted the URL's `projectId` with zero
+ownership check. Traced this as the real gap before designing the "multi-client
+grid" UI — a grid of "your clients" cannot exist without a table saying which
+projects are yours.
+
+**Migration 0006** adds `users` (mirrors `AuthUser.id`, the Neon Auth JWT
+`sub`, upserted lazily on each authenticated request — no Neon Auth webhook is
+wired to sync it any other way), `account_members` (`account_id, user_id,
+role`, `'owner' | 'member'`), and `accounts.branding jsonb` (`companyName?,
+logoUrl?, primaryColor?`).
+
+**New routes**, all under the existing `requireAuth` gate: `POST /accounts`
+(create, caller becomes owner), `GET /accounts` (every account the caller
+belongs to, each with its project list — the multi-client grid's entire data
+source, scoped by the caller's own identity rather than a caller-supplied id,
+so there is no cross-tenant path to check there at all), `POST
+/accounts/:id/projects` and `PATCH /accounts/:id/branding` (both
+membership-checked via `isAccountMember` — the one place in this slice where
+an `accountId` *is* caller-supplied), and `GET /accounts/:id/report`.
+
+**The branded report** (`apps/api/src/report.ts`) is a self-contained HTML
+document — `text/html`, not a generated PDF: Workers have no headless-Chromium
+runtime, and a browser's own Print-to-PDF already covers that need. Reuses
+`assembleSurfaceScores` (same rollup `/projects/:id/pulse` reads) and
+`latestAuditRun` per project; an unmeasured score renders as "not measured
+yet", never a misleading 0 — the same honesty rule `/audit`'s null
+`healthScore` already established.
+
+**Dashboard**: a new "Clients" nav item (`views/accounts.ts`) renders the
+grid; clicking a project sets it active (`setProjectId`, same mechanism
+Settings already used) and drops into the existing single-project views
+unchanged. Branding lives in Settings (an account-level setting, not a new
+top-level page) and operates on `getAccountId()` — the account last selected
+from the grid. `views/report.ts` fetches the report as a Blob URL and renders
+it in an iframe with a standalone-tab link, rather than re-rendering the HTML
+as dashboard chrome.
+
+**A real CORS bug surfaced live, not in vitest**: the branding save failed
+silently in the browser (`net::ERR_FAILED` after a *successful* preflight) —
+the Hono `cors()` middleware's `allowMethods` only listed `['GET', 'POST',
+'OPTIONS']`, so the actual `PATCH` was blocked client-side even though the
+preflight itself returned 204. No unit test exercises a live CORS preflight;
+this only showed up driving the real dashboard against the real Worker.
+Fixed by adding `'PATCH'` to `allowMethods`.
+
+**Verified live end-to-end against migrated Neon**: created a real account
+("Acme Agency") and project via `POST /accounts`/`POST
+/accounts/:id/projects`, confirmed `GET /accounts` returns it correctly scoped
+to the dev user; confirmed a non-member correctly gets `403` on
+`/accounts/:id/report` for someone else's account (the actual authz property
+this slice exists to establish) and `400` on a non-uuid id; ran a real 1-page
+`/audit` (schema-missing finding, health score 44) and confirmed the report
+reflects it exactly, alongside an honest "not measured yet" for the
+unpolled unified score. Browser-verified the full dashboard flow against the
+live API (dev-session bypass): Clients grid renders real data, branding saves
+and the report picks it up live, both themes, zero console errors after the
+CORS fix.
+
+**Explicitly out of scope, disclosed**: retrofitting ownership checks onto
+the ~15 pre-existing `/projects/:projectId/*` routes (real, pre-existing gap
+this slice's audit surfaced — flagged as a separate follow-up task rather
+than silently folded in here); scheduled report delivery/email dispatch
+(needs an email-provider account — SendGrid/Postmark/Resend — this sandbox
+doesn't have; M2.5's own DoD line asks for "branded reports shipping," not
+scheduled delivery, which is the broader Platform-scope D3 bullet).
+
 ---
 
 ## 4. Security, compliance & data residency

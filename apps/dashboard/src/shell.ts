@@ -9,6 +9,8 @@ import { serpView } from './views/serp.js';
 import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
 import { settingsView } from './views/settings.js';
+import { accountsView } from './views/accounts.js';
+import { reportView } from './views/report.js';
 
 interface Route {
   id: string;
@@ -22,14 +24,24 @@ const ROUTES: Route[] = [
   { id: 'serp', label: 'SERP Inspector', iconMarkup: ICONS.serp, view: serpView },
   { id: 'fix-queue', label: 'Fix Queue', iconMarkup: ICONS.kanban, view: fixQueueView },
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
+  { id: 'clients', label: 'Clients', iconMarkup: ICONS.clients, view: accountsView },
   { id: 'settings', label: 'Settings', iconMarkup: ICONS.gear, view: settingsView },
 ];
+
+/**
+ * M2.5's report view is reached from a Clients-grid card, not the primary
+ * nav rail — dispatchable, but not one of the rail's `navItems`. Kept out of
+ * `ROUTES` so the rail doesn't grow a link nobody navigates to directly.
+ */
+const HIDDEN_ROUTES: Route[] = [{ id: 'report', label: 'Branded report', iconMarkup: ICONS.doc, view: reportView }];
+
+const ALL_ROUTES = [...ROUTES, ...HIDDEN_ROUTES];
 
 const RAIL_KEY = 'engine.railCollapsed';
 
 function currentRouteId(): string {
   const id = location.hash.replace(/^#\/?/, '');
-  return ROUTES.some((r) => r.id === id) ? id : 'pulse';
+  return ALL_ROUTES.some((r) => r.id === id) ? id : 'pulse';
 }
 
 // ---- theme ----
@@ -148,7 +160,7 @@ export function mountShell(root: HTMLElement): void {
 
   async function renderRoute(): Promise<void> {
     const id = currentRouteId();
-    const route = ROUTES.find((r) => r.id === id)!;
+    const route = ALL_ROUTES.find((r) => r.id === id)!;
     navItems.forEach((n) => n.classList.toggle('on', n.getAttribute('data-route') === id));
     (document.getElementById('crumb') as HTMLElement).textContent = route.label;
     content.replaceChildren(el('div', { class: 'loading num' }, ['loading…']));

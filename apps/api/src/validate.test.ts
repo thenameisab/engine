@@ -9,6 +9,9 @@ import {
   checkCreateKeywordConfigBody,
   checkCreateCheckoutBody,
   checkUuidParam,
+  checkCreateAccountBody,
+  checkCreateProjectBody,
+  checkBrandingBody,
 } from './validate.js';
 
 /**
@@ -394,5 +397,52 @@ describe('checkUuidParam', () => {
 
   it('rejects an empty string', () => {
     expect(checkUuidParam('', 'accountId')?.field).toBe('accountId');
+  });
+});
+
+describe('checkCreateAccountBody', () => {
+  it('accepts a name', () => {
+    expect(checkCreateAccountBody({ name: 'Acme Agency' })).toBeNull();
+  });
+
+  it('rejects a missing name', () => {
+    expect(checkCreateAccountBody({})?.field).toBe('name');
+  });
+
+  it('rejects a non-string name', () => {
+    expect(checkCreateAccountBody({ name: 42 })?.field).toBe('name');
+  });
+});
+
+describe('checkCreateProjectBody', () => {
+  const valid = { name: 'Acme Corp site', domain: 'acme.example' };
+
+  it('accepts a valid body', () => {
+    expect(checkCreateProjectBody(valid)).toBeNull();
+  });
+
+  it('rejects a missing domain', () => {
+    const { domain: _domain, ...withoutDomain } = valid;
+    expect(checkCreateProjectBody(withoutDomain)?.field).toBe('domain');
+  });
+});
+
+describe('checkBrandingBody', () => {
+  it('accepts an empty body (every field optional)', () => {
+    expect(checkBrandingBody({})).toBeNull();
+  });
+
+  it('accepts a fully populated body', () => {
+    expect(
+      checkBrandingBody({ companyName: 'Acme Agency', logoUrl: 'https://acme.example/logo.png', primaryColor: '#ff6600' }),
+    ).toBeNull();
+  });
+
+  it('rejects a non-http(s) logoUrl', () => {
+    expect(checkBrandingBody({ logoUrl: 'javascript:alert(1)' })?.field).toBe('logoUrl');
+  });
+
+  it('rejects a non-string companyName', () => {
+    expect(checkBrandingBody({ companyName: 42 })?.field).toBe('companyName');
   });
 });
