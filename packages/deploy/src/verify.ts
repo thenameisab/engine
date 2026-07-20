@@ -17,6 +17,9 @@ export function verifyHtmlDeploy(html: string, action: Pick<Action, 'type' | 'di
     if (action.diff.field === 'description') {
       return html.includes(escapeHtml(action.diff.after));
     }
+    if (action.diff.field === 'hreflang') {
+      return html.includes(action.diff.after);
+    }
     return false;
   }
   return false;

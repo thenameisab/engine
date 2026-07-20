@@ -6,6 +6,7 @@ import { buildJsonLd, generateSchemaAction } from './schema.js';
 import { proposeTitle, proposeDescription, TITLE_MAX } from './meta.js';
 import { unblockCrawlers } from './robots.js';
 import { resolveRedirectPair, generateRedirectAction } from './redirect.js';
+import { buildHreflangTags, generateHreflangAction } from './hreflang.js';
 import { generateActions } from './generate.js';
 
 const ENV: BuildEnv = { now: () => '2026-07-15T00:00:00.000Z', makeId: () => 'act_fixed' };
@@ -142,6 +143,40 @@ describe('generateRedirectAction', () => {
   });
 });
 
+describe('buildHreflangTags', () => {
+  it('emits one link tag per alternate', () => {
+    const out = buildHreflangTags([
+      { lang: 'en', href: 'https://acme.com/en/widget' },
+      { lang: 'fr', href: 'https://acme.com/fr/widget' },
+    ]);
+    expect(out).toContain('<link rel="alternate" hreflang="en" href="https://acme.com/en/widget">');
+    expect(out).toContain('<link rel="alternate" hreflang="fr" href="https://acme.com/fr/widget">');
+  });
+
+  it('escapes attribute-sensitive characters', () => {
+    const out = buildHreflangTags([{ lang: 'en', href: 'https://acme.com/widget?a=1&b="x"' }]);
+    expect(out).toContain('href="https://acme.com/widget?a=1&amp;b=&quot;x&quot;"');
+  });
+});
+
+describe('generateHreflangAction', () => {
+  it('generates a proposed meta/hreflang diff from the supplied alternates', () => {
+    const a = generateHreflangAction(
+      'fnd_1',
+      ctx({ hreflangAlternates: [{ lang: 'en', href: 'https://acme.com/en/widget' }] }),
+      ENV,
+    )!;
+    expect(a.type).toBe('meta');
+    expect(a.diff.field).toBe('hreflang');
+    expect(a.diff.after).toContain('hreflang="en"');
+  });
+
+  it('returns null when the caller supplied no alternates', () => {
+    expect(generateHreflangAction('fnd_1', ctx({ hreflangAlternates: undefined }), ENV)).toBeNull();
+    expect(generateHreflangAction('fnd_1', ctx({ hreflangAlternates: [] }), ENV)).toBeNull();
+  });
+});
+
 describe('generateActions dispatcher', () => {
   it('emits a schema action for a schema finding', () => {
     const f = finding({ actionTemplates: [{ type: 'schema', label: 'Generate JSON-LD', description: '' }] });
@@ -155,6 +190,20 @@ describe('generateActions dispatcher', () => {
     const actions = generateActions(f, ctx({ currentTitle: '', currentMetaDescription: 'present' }), ENV);
     expect(actions).toHaveLength(1);
     expect(actions[0].diff.after).toContain('Acme Widget');
+  });
+
+  it('dispatches a hreflang-missing finding to the hreflang generator, not title/description', () => {
+    const f = finding({
+      issueType: 'hreflang-missing',
+      actionTemplates: [{ type: 'meta', label: 'Generate hreflang', description: '' }],
+    });
+    const actions = generateActions(
+      f,
+      ctx({ hreflangAlternates: [{ lang: 'en', href: 'https://acme.com/en/widget' }] }),
+      ENV,
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0].diff.field).toBe('hreflang');
   });
 
   it('pulls blocked crawlers from finding evidence for a robots fix', () => {

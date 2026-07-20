@@ -12,6 +12,7 @@ import { generateSchemaAction } from './schema.js';
 import { generateMetaTitleAction, generateMetaDescriptionAction } from './meta.js';
 import { generateRobotsAction } from './robots.js';
 import { generateRedirectAction } from './redirect.js';
+import { generateHreflangAction } from './hreflang.js';
 
 /** Pull the blocked-crawler list out of a finding's evidence, if present. */
 function blockedFromEvidence(finding: Finding): string[] | undefined {
@@ -40,7 +41,16 @@ export function generateActions(finding: Finding, ctx: ActionContext, env: Build
         break;
       }
       case 'meta': {
-        // Emit whichever meta field is actually missing/empty in context.
+        // hreflang-missing (B1.9/C4.3) is a distinct fix from title/description
+        // regeneration sharing the same 'meta' template type — dispatch on the
+        // finding's own issue type rather than an ActionContext field, the
+        // same reasoning 'redirect' already applies to its two source findings.
+        if (finding.issueType === 'hreflang-missing') {
+          const a = generateHreflangAction(finding.id, ctx, env);
+          if (a) actions.push(a);
+          break;
+        }
+        // Otherwise, emit whichever meta field is actually missing/empty in context.
         if (!ctx.currentTitle || ctx.currentTitle.trim() === '') {
           actions.push(generateMetaTitleAction(finding.id, ctx, env));
         }

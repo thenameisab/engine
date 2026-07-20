@@ -23,10 +23,11 @@ export function applySchemaDiff(html: string, diff: Diff): string {
   return /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${tag}\n</head>`) : html + tag;
 }
 
-/** Replace (or insert) <title> / <meta name="description">, per `diff.field`. */
+/** Replace (or insert) <title> / <meta name="description"> / hreflang alternates, per `diff.field`. */
 export function applyMetaDiff(html: string, diff: Diff): string {
   if (diff.field === 'title') return applyTitle(html, diff.after);
   if (diff.field === 'description') return applyDescription(html, diff.after);
+  if (diff.field === 'hreflang') return applyHreflang(html, diff.after);
   return html;
 }
 
@@ -45,6 +46,16 @@ function applyDescription(html: string, description: string): string {
     return html.replace(/<meta\s+name=["']description["'][^>]*>/i, metaTag);
   }
   return /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${metaTag}\n</head>`) : html;
+}
+
+/**
+ * Insert the hreflang `<link>` tags into `<head>`. Always appended rather
+ * than searched-and-replaced against any existing hreflang block: the
+ * finding this fixes (`hreflang-missing`) only fires when the page declares
+ * *none*, so there is nothing pre-existing to find and replace against.
+ */
+function applyHreflang(html: string, tags: string): string {
+  return /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${tags}\n</head>`) : html;
 }
 
 /** Apply a single 'schema' or 'meta' Action's diff to HTML; other action types pass through untouched. */
