@@ -82,6 +82,20 @@ export async function listActionsByProject(db: Db, projectId: string): Promise<Q
   return rows.map((row) => ({ ...toAction(row), predictedImpact: Number(row.predicted_impact) }));
 }
 
+/**
+ * Which of these findings already have at least one Action (any status) —
+ * the guard `/audit`'s at-scale meta auto-propose (C3.2) needs so a re-audit
+ * doesn't re-propose (and duplicate) a fix someone already has in their Fix
+ * Queue, proposed or otherwise.
+ */
+export async function findingIdsWithActions(db: Db, findingIds: readonly string[]): Promise<Set<string>> {
+  if (findingIds.length === 0) return new Set();
+  const rows = await db<{ finding_id: string }[]>`
+    select distinct finding_id from actions where finding_id in ${db(findingIds)}
+  `;
+  return new Set(rows.map((r) => r.finding_id));
+}
+
 export async function getAction(db: Db, id: string): Promise<Action | null> {
   const rows = await db<ActionRow[]>`
     select id, finding_id, type, target, diff, status, audit_log from actions where id = ${id}

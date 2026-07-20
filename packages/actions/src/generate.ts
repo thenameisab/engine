@@ -41,21 +41,27 @@ export function generateActions(finding: Finding, ctx: ActionContext, env: Build
         break;
       }
       case 'meta': {
-        // hreflang-missing (B1.9/C4.3) is a distinct fix from title/description
-        // regeneration sharing the same 'meta' template type — dispatch on the
-        // finding's own issue type rather than an ActionContext field, the
-        // same reasoning 'redirect' already applies to its two source findings.
-        if (finding.issueType === 'hreflang-missing') {
+        // Three distinct B1 findings share the 'meta' template type
+        // (title-missing, description-missing, hreflang-missing) — dispatch
+        // on the finding's own issue type, not an ActionContext field. Doing
+        // this by ctx state alone (as this used to) double-counted: two
+        // findings for the same page (one per missing field) would each
+        // blindly re-check *both* ctx.currentTitle and
+        // ctx.currentMetaDescription and each emit both actions, producing
+        // duplicate title/description proposals the moment more than one
+        // meta finding on a page was processed in the same pass — exactly
+        // what auto-proposing "at scale" across a whole crawl does (C3.2).
+        if (finding.issueType === 'meta-title-missing') {
+          if (!ctx.currentTitle || ctx.currentTitle.trim() === '') {
+            actions.push(generateMetaTitleAction(finding.id, ctx, env));
+          }
+        } else if (finding.issueType === 'meta-description-missing') {
+          if (!ctx.currentMetaDescription || ctx.currentMetaDescription.trim() === '') {
+            actions.push(generateMetaDescriptionAction(finding.id, ctx, env));
+          }
+        } else if (finding.issueType === 'hreflang-missing') {
           const a = generateHreflangAction(finding.id, ctx, env);
           if (a) actions.push(a);
-          break;
-        }
-        // Otherwise, emit whichever meta field is actually missing/empty in context.
-        if (!ctx.currentTitle || ctx.currentTitle.trim() === '') {
-          actions.push(generateMetaTitleAction(finding.id, ctx, env));
-        }
-        if (!ctx.currentMetaDescription || ctx.currentMetaDescription.trim() === '') {
-          actions.push(generateMetaDescriptionAction(finding.id, ctx, env));
         }
         break;
       }

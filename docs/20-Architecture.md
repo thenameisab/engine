@@ -464,6 +464,46 @@ real action with two supplied alternates → approved → deployed → a genuine
 `wrangler dev` origin proxy served the two `<link>` tags inside `<head>` of
 the actual response.
 
+### 3.12 Meta fixes at scale (C3.2)
+Closes M2.3's remaining item. Before this, generating a fix meant one
+`POST /actions/generate` call per finding, each with a caller-assembled
+`ActionContext` — for a real crawl with dozens of missing titles/descriptions,
+nobody in the product actually called it in a loop: neither `apps/dashboard`
+nor `packages/crawler`'s `engine-crawl` ever invoked `/actions/generate` at
+all. A crawl produced findings; nothing turned them into proposed fixes
+without a human hitting the API by hand.
+
+`POST /projects/:id/audit` now accepts an optional `target: DeployTarget` —
+opt-in, since Engine has no per-project default deploy target stored anywhere
+and shouldn't invent one. When supplied, every `meta-title-missing`/
+`meta-description-missing` finding from that crawl that doesn't already have
+an Action gets one proposed automatically, using that page's own crawled
+`title`/`metaDescription` as the diff's `before`. Omitted, `/audit` behaves
+exactly as it always has — a caller who only wants findings never gets
+actions they didn't ask for. Scoped to meta only, not schema/robots/redirect:
+those need entity facts or evidence this route has no basis to assume the
+caller wants auto-applied. `findingIdsWithActions`
+(`apps/api/src/repositories/actions.ts`) guards a re-audit of an unchanged
+site from piling up duplicate proposals.
+
+**Building this surfaced a real, pre-existing bug in `generate.ts`'s `'meta'`
+dispatch**, invisible until something actually processed two related findings
+for the same page in one pass (which nothing had, before this): the case
+checked `ctx.currentTitle`/`ctx.currentMetaDescription` directly rather than
+the finding's own `issueType`, so a `meta-title-missing` finding and a
+`meta-description-missing` finding for the same page — both hitting the same
+`'meta'` case — each independently re-checked *both* ctx fields and each
+emitted *both* actions, doubling every meta proposal. Fixed by dispatching on
+`finding.issueType` explicitly (mirroring how `'hreflang-missing'` already had
+to), with a guarding test that runs both findings through the same context and
+asserts exactly one title action and one description action, not two of each.
+
+**Verified live end-to-end**: a 2-page crawl with both title and description
+missing, audited with a `target`, proposed exactly 4 actions (not 8) — one
+title and one description per page. A re-audit of the same page proposed
+zero, and omitting `target` proposed nothing, confirming the opt-in stays
+backward compatible.
+
 ---
 
 ## 4. Security, compliance & data residency

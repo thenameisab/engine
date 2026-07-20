@@ -184,12 +184,48 @@ describe('generateActions dispatcher', () => {
     expect(actions.map((a) => a.type)).toEqual(['schema']);
   });
 
-  it('emits only the missing meta field', () => {
-    const f = finding({ actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }] });
-    // title missing, description present → only a title action
+  it('routes a meta-title-missing finding to only a title action', () => {
+    const f = finding({
+      issueType: 'meta-title-missing',
+      actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }],
+    });
     const actions = generateActions(f, ctx({ currentTitle: '', currentMetaDescription: 'present' }), ENV);
     expect(actions).toHaveLength(1);
+    expect(actions[0].diff.field).toBe('title');
     expect(actions[0].diff.after).toContain('Acme Widget');
+  });
+
+  it('routes a meta-description-missing finding to only a description action', () => {
+    const f = finding({
+      issueType: 'meta-description-missing',
+      actionTemplates: [{ type: 'meta', label: 'Regenerate meta description', description: '' }],
+    });
+    const actions = generateActions(f, ctx({ currentTitle: 'present', currentMetaDescription: '' }), ENV);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].diff.field).toBe('description');
+  });
+
+  it('does not duplicate title/description across two separate findings for the same page', () => {
+    // The bug this guards: dispatching by ctx state alone (rather than by
+    // finding.issueType) made each of these two findings independently
+    // re-check *both* ctx fields, so processing both in one pass emitted the
+    // title action twice and the description action twice.
+    const titleFinding = finding({
+      issueType: 'meta-title-missing',
+      actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }],
+    });
+    const descriptionFinding = finding({
+      issueType: 'meta-description-missing',
+      actionTemplates: [{ type: 'meta', label: 'Regenerate meta description', description: '' }],
+    });
+    const pageCtx = ctx({ currentTitle: '', currentMetaDescription: '' });
+    const actions = [...generateActions(titleFinding, pageCtx, ENV), ...generateActions(descriptionFinding, pageCtx, ENV)];
+    expect(actions.map((a) => a.diff.field).sort()).toEqual(['description', 'title']);
+  });
+
+  it('emits nothing for an unrecognized meta issue type', () => {
+    const f = finding({ actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }] });
+    expect(generateActions(f, ctx({ currentTitle: '', currentMetaDescription: '' }), ENV)).toEqual([]);
   });
 
   it('dispatches a hreflang-missing finding to the hreflang generator, not title/description', () => {
