@@ -9,10 +9,14 @@
  * that says which happened.
  */
 import type {
+  AccountCard,
   ActionCard,
+  ApiAccount,
+  ApiAccountBranding,
   ApiAction,
   ApiEntity,
   ApiFinding,
+  ApiProject,
   ApiPulseResponse,
   AuditData,
   CopilotSummary,
@@ -21,11 +25,12 @@ import type {
   ActionStatus,
   SerpInspectResult,
 } from './types.js';
-import { toActionCard, toFindingRow, toPulseData } from './format.js';
+import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
 
 const BASE_KEY = 'engine.apiBaseUrl';
 const PROJECT_KEY = 'engine.projectId';
+const ACCOUNT_KEY = 'engine.accountId';
 
 export function getApiBaseUrl(): string {
   return localStorage.getItem(BASE_KEY) ?? '';
@@ -38,6 +43,13 @@ export function getProjectId(): string {
 }
 export function setProjectId(id: string): void {
   localStorage.setItem(PROJECT_KEY, id.trim() || 'demo');
+}
+/** The account the Clients grid last selected — null until the user picks one. */
+export function getAccountId(): string | null {
+  return localStorage.getItem(ACCOUNT_KEY);
+}
+export function setAccountId(id: string): void {
+  localStorage.setItem(ACCOUNT_KEY, id);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -181,4 +193,57 @@ export function transitionAction(actionId: string, to: Exclude<ActionStatus, 'pr
     method: 'POST',
     body: JSON.stringify({ actor: 'dashboard:internal' }),
   });
+}
+
+/**
+ * M2.5 agency white-label: every account the signed-in caller belongs to,
+ * each with its project list — the multi-client grid's data source. No
+ * sample fallback, same reasoning as `fetchActions`/`fetchAudit`: an empty
+ * list (no clients yet) and an unreachable API are different facts.
+ */
+export async function fetchAccounts(): Promise<AccountCard[]> {
+  const resp = await request<{ accounts: ApiAccount[] }>('/accounts');
+  return resp.accounts.map(toAccountCard);
+}
+
+export async function createAccountApi(name: string): Promise<AccountCard> {
+  const resp = await request<{ account: ApiAccount }>('/accounts', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+  return toAccountCard({ ...resp.account, projects: [] });
+}
+
+export async function createProjectApi(accountId: string, name: string, domain: string): Promise<ApiProject> {
+  const resp = await request<{ project: ApiProject }>(`/accounts/${accountId}/projects`, {
+    method: 'POST',
+    body: JSON.stringify({ name, domain }),
+  });
+  return resp.project;
+}
+
+export async function updateBrandingApi(accountId: string, branding: ApiAccountBranding): Promise<ApiAccount> {
+  const resp = await request<{ account: ApiAccount }>(`/accounts/${accountId}/branding`, {
+    method: 'PATCH',
+    body: JSON.stringify(branding),
+  });
+  return resp.account;
+}
+
+/**
+ * The branded report is a self-contained HTML document (`text/html`), not
+ * JSON — fetched with the same auth header as every other call, then handed
+ * to the caller as a Blob URL so it can be opened in a new tab rather than
+ * re-rendered as dashboard chrome.
+ */
+export async function fetchReportUrl(accountId: string): Promise<string> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error('no API base URL configured');
+  const token = await getApiToken();
+  const res = await fetch(`${base}/accounts/${accountId}/report`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  const html = await res.text();
+  return URL.createObjectURL(new Blob([html], { type: 'text/html' }));
 }

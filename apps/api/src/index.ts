@@ -24,7 +24,16 @@ import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQu
 import { durationMs, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
-import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody, checkUuidParam } from './validate.js';
+import {
+  checkAuditBody,
+  checkGenerateBody,
+  checkCreateKeywordConfigBody,
+  checkCreateCheckoutBody,
+  checkUuidParam,
+  checkCreateAccountBody,
+  checkCreateProjectBody,
+  checkBrandingBody,
+} from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
@@ -40,6 +49,18 @@ import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
 import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
+import {
+  upsertUser,
+  createAccount,
+  isAccountMember,
+  getProjectAccountId,
+  listAccountsForUser,
+  createProject,
+  getAccount,
+  updateAccountBranding,
+  listProjectsByAccount,
+} from './repositories/accounts.js';
+import { renderAccountReportHtml, type ProjectReportRow } from './report.js';
 import { createKeywordConfig, listKeywordConfigsByEntity } from './repositories/keywordConfigs.js';
 import { listPendingCmsPluginActions } from './repositories/cmsPluginActions.js';
 import {
@@ -87,7 +108,10 @@ app.use('*', (c, next) => {
   const configured = c.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
   return cors({
     origin: configured && configured.length > 0 ? configured : '*',
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    // 'PATCH' added for M2.5's branding update route — the browser's real
+    // PATCH request otherwise fails after a *successful* preflight, since the
+    // preflight itself reports which methods are allowed.
+    allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
   })(c, next);
 });
@@ -878,6 +902,135 @@ app.get('/accounts/:accountId/plan', async (c) => {
   const [subscription, usage] = await Promise.all([getSubscription(db, accountId), getUsageCounters(db, accountId)]);
   const planTier = subscription?.planTier ?? 'starter';
   return c.json({ subscription, usage, planTier, overLimit: isOverLimit(usage, planTier) });
+});
+
+/**
+ * M2.5 agency white-label. Before this, `accounts`/`projects` existed only as
+ * rows seeded straight into Postgres — no route created either, and nothing
+ * linked a signed-in identity to an account. These routes are the first place
+ * that link is established, so every one of them upserts the caller into
+ * `users` first: an `account_members` row needs a real `users` row to FK
+ * against, and there is no Neon Auth webhook wired to do that sync any other way.
+ */
+app.post('/accounts', async (c) => {
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkCreateAccountBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { name: string };
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  const account = await createAccount(db, body.name, user.id);
+  return c.json({ account }, 201);
+});
+
+/**
+ * The multi-client grid's data source: every account the caller belongs to,
+ * each with its project list. Scoped entirely by the caller's own identity
+ * (`listAccountsForUser`), not a caller-supplied id, so there is no
+ * cross-tenant path to check here — unlike every route below, which takes an
+ * `:accountId` from the URL and must verify membership explicitly.
+ */
+app.get('/accounts', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  const accounts = await listAccountsForUser(db, user.id);
+  return c.json({ accounts });
+});
+
+app.post('/accounts/:accountId/projects', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkCreateProjectBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { name: string; domain: string };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  // accountId is caller-supplied via the URL — the one new route where that's
+  // true, so it needs the explicit membership check the pre-existing
+  // /projects/:projectId/* routes are still missing (flagged separately).
+  if (!(await isAccountMember(db, accountId, user.id))) {
+    return c.json({ error: 'you are not a member of this account', accountId }, 403);
+  }
+  const project = await createProject(db, accountId, body);
+  return c.json({ project }, 201);
+});
+
+app.patch('/accounts/:accountId/branding', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkBrandingBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { companyName?: string; logoUrl?: string; primaryColor?: string };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  if (!(await isAccountMember(db, accountId, user.id))) {
+    return c.json({ error: 'you are not a member of this account', accountId }, 403);
+  }
+  const account = await updateAccountBranding(db, accountId, body);
+  return c.json({ account });
+});
+
+/**
+ * The branded report (M2.5 "branded reports shipping"): one HTML document per
+ * account, listing every client project's real A3 unified score (reusing
+ * `assembleSurfaceScores`, the same rollup `/projects/:id/pulse` reads) and
+ * technical health score (`latestAuditRun`, same as `/projects/:id/audit`).
+ * `text/html` rather than a generated PDF — Workers have no headless-Chromium
+ * runtime, and a browser's own Print-to-PDF already covers that need.
+ */
+app.get('/accounts/:accountId/report', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  if (!(await isAccountMember(db, accountId, user.id))) {
+    return c.json({ error: 'you are not a member of this account', accountId }, 403);
+  }
+
+  const account = await getAccount(db, accountId);
+  if (!account) return c.json({ error: 'account not found' }, 404);
+
+  const projects = await listProjectsByAccount(db, accountId);
+  const rows: ProjectReportRow[] = await Promise.all(
+    projects.map(async (p): Promise<ProjectReportRow> => {
+      const [{ surfaces, mix, keywordsTracked, citationSamples }, run] = await Promise.all([
+        assembleSurfaceScores(db, p.id, DEFAULT_CHANNEL_MIX),
+        latestAuditRun(db, p.id),
+      ]);
+      const hasData = keywordsTracked > 0 || citationSamples > 0;
+      const unified = hasData ? unifiedVisibilityScore(surfaces, mix) : null;
+      return {
+        id: p.id,
+        name: p.name,
+        domain: p.domain,
+        healthScore: run?.healthScore ?? null,
+        unifiedScore: unified?.band.point ?? null,
+        keywordsTracked,
+        citationSamples,
+      };
+    }),
+  );
+
+  const html = renderAccountReportHtml(account, rows);
+  return c.body(html, 200, { 'content-type': 'text/html; charset=utf-8' });
 });
 
 export default app;

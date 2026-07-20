@@ -161,6 +161,39 @@ export interface CopilotSummary {
   topFindings: { id: string; issueType: string; predictedImpact: number; evidence: { url?: string } }[];
 }
 
+/** M2.5 agency white-label — the branding a report/logo is rendered with. */
+export interface ApiAccountBranding {
+  companyName?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+}
+
+/** One project as `GET /accounts` nests it under its owning account. */
+export interface ApiProject {
+  id: string;
+  accountId: string;
+  name: string;
+  domain: string;
+  createdAt: string;
+}
+
+/** An account with its projects, as `GET /accounts` returns it (apps/api). */
+export interface ApiAccount {
+  id: string;
+  name: string;
+  branding: ApiAccountBranding;
+  createdAt: string;
+  projects: ApiProject[];
+}
+
+/** The multi-client grid's view model: one card per account. */
+export interface AccountCard {
+  id: string;
+  name: string;
+  branding: ApiAccountBranding;
+  projects: ApiProject[];
+}
+
 /** Whether a view is showing live API data or the built-in sample. */
 export type DataSource = 'live' | 'sample';
 

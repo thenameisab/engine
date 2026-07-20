@@ -1,0 +1,162 @@
+/**
+ * M2.5 agency white-label: accounts, the users who belong to them, and the
+ * projects (clients) each account owns. Before this, `accounts`/`projects`
+ * existed only as rows seeded straight into Postgres — no route created
+ * either, and no table linked a signed-in identity to an account at all.
+ */
+import type { Account, AccountBranding, Project } from '@engine/core';
+import { toJsonb, type Db } from '../db.js';
+
+interface AccountRow {
+  id: string;
+  name: string;
+  branding: AccountBranding;
+  created_at: Date;
+}
+
+function toAccount(row: AccountRow): Account {
+  return { id: row.id, name: row.name, branding: row.branding ?? {}, createdAt: row.created_at.toISOString() };
+}
+
+interface ProjectRow {
+  id: string;
+  account_id: string;
+  name: string;
+  domain: string;
+  created_at: Date;
+}
+
+function toProject(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    name: row.name,
+    domain: row.domain,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+/**
+ * Lazily sync the authenticated caller into `users` so `account_members` has
+ * a real row to FK against. There is no Neon Auth webhook wired, so this runs
+ * once per request instead of once per signup — `on conflict` makes repeated
+ * calls a no-op update rather than a duplicate-key error.
+ */
+export async function upsertUser(
+  db: Db,
+  user: { id: string; email?: string; name?: string },
+): Promise<void> {
+  await db`
+    insert into users (id, email, name)
+    values (${user.id}, ${user.email ?? null}, ${user.name ?? null})
+    on conflict (id) do update set email = excluded.email, name = excluded.name
+  `;
+}
+
+/** Create an account and make the caller its owner, in one call. */
+export async function createAccount(db: Db, name: string, ownerUserId: string): Promise<Account> {
+  const [row] = await db<AccountRow[]>`
+    insert into accounts (name)
+    values (${name})
+    returning id, name, branding, created_at
+  `;
+  await db`
+    insert into account_members (account_id, user_id, role)
+    values (${row.id}, ${ownerUserId}, 'owner')
+  `;
+  return toAccount(row);
+}
+
+export async function isAccountMember(db: Db, accountId: string, userId: string): Promise<boolean> {
+  const rows = await db`
+    select 1 from account_members where account_id::text = ${accountId} and user_id = ${userId}
+  `;
+  return rows.length > 0;
+}
+
+/** Resolves a project to its owning account, so a project-scoped route can check membership. */
+export async function getProjectAccountId(db: Db, projectId: string): Promise<string | null> {
+  const rows = await db<{ account_id: string }[]>`
+    select account_id from projects where id::text = ${projectId}
+  `;
+  return rows[0]?.account_id ?? null;
+}
+
+/**
+ * Every account a user belongs to, each with its project list — the
+ * multi-client grid's data source. Scoped by `userId`, not a caller-supplied
+ * `accountId`, so there is no cross-tenant path here to check: a user can
+ * only ever see rows their own `account_members` membership joins to.
+ */
+export async function listAccountsForUser(
+  db: Db,
+  userId: string,
+): Promise<Array<Account & { projects: Project[] }>> {
+  const accountRows = await db<AccountRow[]>`
+    select a.id, a.name, a.branding, a.created_at
+    from accounts a
+    join account_members m on m.account_id = a.id
+    where m.user_id = ${userId}
+    order by a.created_at desc
+  `;
+  const accounts = accountRows.map(toAccount);
+
+  const projectRows = accounts.length > 0
+    ? await db<ProjectRow[]>`
+        select id, account_id, name, domain, created_at
+        from projects
+        where account_id::text = any(${accounts.map((a) => a.id)})
+        order by created_at desc
+      `
+    : [];
+  const projectsByAccount = new Map<string, Project[]>();
+  for (const row of projectRows.map(toProject)) {
+    const list = projectsByAccount.get(row.accountId) ?? [];
+    list.push(row);
+    projectsByAccount.set(row.accountId, list);
+  }
+
+  return accounts.map((a) => ({ ...a, projects: projectsByAccount.get(a.id) ?? [] }));
+}
+
+export async function createProject(
+  db: Db,
+  accountId: string,
+  project: { name: string; domain: string },
+): Promise<Project> {
+  const [row] = await db<ProjectRow[]>`
+    insert into projects (account_id, name, domain)
+    values (${accountId}, ${project.name}, ${project.domain})
+    returning id, account_id, name, domain, created_at
+  `;
+  return toProject(row);
+}
+
+export async function listProjectsByAccount(db: Db, accountId: string): Promise<Project[]> {
+  const rows = await db<ProjectRow[]>`
+    select id, account_id, name, domain, created_at
+    from projects
+    where account_id::text = ${accountId}
+    order by created_at desc
+  `;
+  return rows.map(toProject);
+}
+
+export async function getAccount(db: Db, accountId: string): Promise<Account | null> {
+  const rows = await db<AccountRow[]>`
+    select id, name, branding, created_at from accounts where id::text = ${accountId}
+  `;
+  return rows[0] ? toAccount(rows[0]) : null;
+}
+
+export async function updateAccountBranding(
+  db: Db,
+  accountId: string,
+  branding: AccountBranding,
+): Promise<Account> {
+  const [row] = await db<AccountRow[]>`
+    update accounts set branding = ${toJsonb(db, branding)} where id::text = ${accountId}
+    returning id, name, branding, created_at
+  `;
+  return toAccount(row);
+}

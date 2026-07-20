@@ -370,7 +370,7 @@ export function checkCreateKeywordConfigBody(body: unknown): Invalid | null {
 
 const PLAN_TIERS = ['starter', 'growth', 'agency', 'enterprise'] as const;
 
-function checkUrl(value: unknown, field: string): Invalid | null {
+export function checkUrl(value: unknown, field: string): Invalid | null {
   const invalid = checkString(value, field);
   if (invalid) return invalid;
   let parsed: URL;
@@ -413,5 +413,39 @@ export function checkCreateCheckoutBody(body: unknown): Invalid | null {
     checkUrl(b.successUrl, 'successUrl'),
     checkUrl(b.cancelUrl, 'cancelUrl'),
     optional(b.customerEmail, () => checkString(b.customerEmail, 'customerEmail')),
+  );
+}
+
+// ── M2.5 agency white-label (POST /accounts, POST /accounts/:id/projects,
+// PATCH /accounts/:id/branding) ─────────────────────────────────────────────
+
+export function checkCreateAccountBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return checkString(b.name, 'name');
+}
+
+export function checkCreateProjectBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(checkString(b.name, 'name'), checkString(b.domain, 'domain'));
+}
+
+/**
+ * `logoUrl` gets the same http(s)-only check as `successUrl`/`cancelUrl`: it
+ * is caller-supplied and rendered back into a branded report page, so the
+ * same open-redirect-adjacent reasoning applies. `companyName`/`primaryColor`
+ * are free text — nothing downstream executes them as a URL or a query.
+ */
+export function checkBrandingBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(
+    optional(b.companyName, () => checkString(b.companyName, 'companyName')),
+    optional(b.logoUrl, () => checkUrl(b.logoUrl, 'logoUrl')),
+    optional(b.primaryColor, () => checkString(b.primaryColor, 'primaryColor')),
   );
 }
