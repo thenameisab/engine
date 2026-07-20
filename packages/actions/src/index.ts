@@ -5,4 +5,5 @@ export * from './meta.js';
 export * from './robots.js';
 export * from './redirect.js';
 export * from './hreflang.js';
+export * from './content.js';
 export * from './generate.js';

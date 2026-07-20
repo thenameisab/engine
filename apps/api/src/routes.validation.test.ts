@@ -237,6 +237,31 @@ describe('GET /accounts/:accountId/plan', () => {
   });
 });
 
+describe('POST /projects/:projectId/actions/generate-content', () => {
+  it('returns 503 before validating anything when no OpenAI key is configured', async () => {
+    const res = await post('/projects/proj_1/actions/generate-content', {
+      finding: validFinding,
+      context: { url: 'https://example.com/product', target: validTarget },
+    });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain('OPENAI_API_KEY');
+  });
+
+  it('rejects a malformed body before any database call, once configured', async () => {
+    const res = await app.request(
+      '/projects/proj_1/actions/generate-content',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ finding: validFinding, context: { url: 'https://example.com/product' } }),
+      },
+      { ...env, OPENAI_API_KEY: 'sk-test' },
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('context.target');
+  });
+});
+
 /**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone
