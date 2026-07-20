@@ -405,25 +405,33 @@ app.post('/projects/:projectId/audit', async (c) => {
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
   const result = runAudit(pages);
-  // B2 content/extractability (M2.1) — a separate scored dimension from B1's
-  // technical health, not folded into it (§8 defines the health score as
-  // technical-issue-only). Pages with no captured content (bodyText absent —
-  // most callers today, until the crawler ships this) contribute neither a
-  // finding nor a score, not a false "healthy" or "unhealthy".
-  const contentResult = runContentAudit(pages);
 
   // A page names the entity it belongs to, and that id becomes findings.entity_id.
   // Check the entities are actually this project's before writing: an unchecked
   // id would either trip the FK as a 500, or — worse, since the id is
   // caller-supplied — let one project hang findings off another project's entity.
+  // Fetched once and reused for B2.1 entity-coverage facts below, rather than
+  // a second query for the same rows.
   const cited = [...new Set(pages.map((p) => p.entityId))];
+  const projectEntities = cited.length > 0 ? await listEntitiesByProject(db, projectId) : [];
   if (cited.length > 0) {
-    const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
+    const known = new Set(projectEntities.map((e) => e.id));
     const unknown = cited.filter((id) => !known.has(id));
     if (unknown.length > 0) {
       return c.json({ error: 'pages cite entities that do not belong to this project', unknownEntityIds: unknown }, 400);
     }
   }
+
+  // B2 content/extractability (M2.1) — a separate scored dimension from B1's
+  // technical health, not folded into it (§8 defines the health score as
+  // technical-issue-only). B2.1 entity coverage scores against each page's
+  // own entity's known name/keywords; pages with no captured content
+  // (bodyText absent) contribute neither a finding nor a score, not a false
+  // "healthy" or "unhealthy".
+  const entityCoverageFacts = new Map(
+    projectEntities.map((e) => [e.id, { canonicalName: e.canonicalName, keywords: e.keywords }]),
+  );
+  const contentResult = runContentAudit(pages, { entities: entityCoverageFacts });
 
   const findings = await upsertFindings(db, [...result.findings, ...contentResult.findings]);
   // Record the run itself. The health score is normalized by pages audited, so

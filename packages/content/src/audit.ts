@@ -9,11 +9,13 @@ import type { Finding } from '@engine/core';
 import type { CrawledPage } from '@engine/diagnosis';
 import { detectContentIssues, type RawContentIssue } from './rules.js';
 import { actionTemplatesFor } from './actions.js';
-import type { ExtractabilityScore } from './score.js';
+import type { ExtractabilityScore, EntityCoverageFacts } from './score.js';
 
 export interface ContentAuditOptions {
   now?: () => string;
   makeId?: (page: CrawledPage, issue: RawContentIssue) => string;
+  /** B2.1 entity coverage facts per entity id — the caller looks these up (this package has no DB access). Omitted entries score `entityCoverage: 'not-measured'`. */
+  entities?: ReadonlyMap<string, EntityCoverageFacts>;
 }
 
 export interface PageExtractability {
@@ -29,7 +31,7 @@ export interface ContentAuditResult {
   pagesWithoutContent: number;
 }
 
-function toFinding(page: CrawledPage, issue: RawContentIssue, opts: Required<ContentAuditOptions>): Finding {
+function toFinding(page: CrawledPage, issue: RawContentIssue, opts: Required<Omit<ContentAuditOptions, 'entities'>>): Finding {
   return {
     id: opts.makeId(page, issue),
     entityId: page.entityId,
@@ -58,17 +60,18 @@ function defaultId(page: CrawledPage, issue: RawContentIssue): string {
 }
 
 export function runContentAudit(pages: readonly CrawledPage[], options: ContentAuditOptions = {}): ContentAuditResult {
-  const opts: Required<ContentAuditOptions> = {
+  const opts: Required<Omit<ContentAuditOptions, 'entities'>> = {
     now: options.now ?? (() => new Date().toISOString()),
     makeId: options.makeId ?? defaultId,
   };
+  const entities = options.entities;
 
   const findings: Finding[] = [];
   const pageScores: PageExtractability[] = [];
   let pagesWithoutContent = 0;
 
   for (const page of pages) {
-    const { issues, score } = detectContentIssues(page);
+    const { issues, score } = detectContentIssues(page, entities?.get(page.entityId));
     if (!score) {
       pagesWithoutContent++;
       continue;

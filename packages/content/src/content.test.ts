@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { CrawledPage } from '@engine/diagnosis';
-import { answerFirstScore, selfContainmentScore, eeatScore, extractabilityScore } from './score.js';
+import { answerFirstScore, selfContainmentScore, eeatScore, entityCoverageScore, extractabilityScore } from './score.js';
 import { detectContentIssues } from './rules.js';
 import { runContentAudit } from './audit.js';
 
@@ -94,12 +94,38 @@ describe('extractabilityScore', () => {
     expect(extractabilityScore(page({ bodyText: undefined }))).toBeNull();
   });
 
-  it('combines all three dimensions into one 0-100 score, entity coverage disclosed as not-measured', () => {
+  it('combines all three dimensions into one 0-100 score, entity coverage disclosed as not-measured when no entity is supplied', () => {
     const p = page({ headings: [{ level: 1, text: 'What is Engine' }], bodyText: 'By Jane Doe. Published. ' + GOOD_LEAD });
     const result = extractabilityScore(p)!;
     expect(result.score).toBeGreaterThan(0);
     expect(result.entityCoverage).toBe('not-measured');
     expect(Object.keys(result.breakdown).sort()).toEqual(['answerFirst', 'eeat', 'selfContainment']);
+  });
+
+  it('folds in a real entityCoverage number when entity facts are supplied', () => {
+    const p = page({ headings: [{ level: 1, text: 'What is Engine' }], bodyText: 'By Jane Doe. Published. ' + GOOD_LEAD });
+    const result = extractabilityScore(p, { canonicalName: 'Engine', keywords: ['Fix Queue'] })!;
+    expect(result.entityCoverage).toBe(1);
+  });
+});
+
+describe('entityCoverageScore', () => {
+  it('scores the fraction of the entity\'s name + keywords found on the page', () => {
+    const p = page({ title: 'About Engine', bodyText: 'Engine ships a real Fix Queue for every customer.' });
+    expect(
+      entityCoverageScore(p, { canonicalName: 'Engine', keywords: ['Fix Queue', 'Unified Visibility Score'] }),
+    ).toBeCloseTo(2 / 3, 5);
+  });
+
+  it('matches case-insensitively', () => {
+    const p = page({ bodyText: 'this page never says the brand name explicitly' });
+    expect(entityCoverageScore(p, { canonicalName: 'ACME', keywords: [] })).toBe(0);
+    const p2 = page({ bodyText: 'Acme is a great company.' });
+    expect(entityCoverageScore(p2, { canonicalName: 'ACME', keywords: [] })).toBe(1);
+  });
+
+  it('returns null when the entity has no name or keywords to check against', () => {
+    expect(entityCoverageScore(page({ bodyText: 'x' }), { canonicalName: '', keywords: [] })).toBeNull();
   });
 });
 
@@ -123,6 +149,24 @@ describe('detectContentIssues', () => {
     const { issues, score } = detectContentIssues(page({ bodyText: undefined }));
     expect(issues).toEqual([]);
     expect(score).toBeNull();
+  });
+
+  it('fires weak-entity-coverage when entity facts are supplied and the page never mentions them', () => {
+    const p = page({
+      headings: [{ level: 1, text: 'What is Engine' }],
+      bodyText: 'By Jane Doe. Published on July 1, 2026. ' + GOOD_LEAD,
+    });
+    const { issues } = detectContentIssues(p, { canonicalName: 'Widgetco', keywords: ['unrelated widget term'] });
+    expect(issues.map((i) => i.type)).toContain('weak-entity-coverage');
+  });
+
+  it('does not fire weak-entity-coverage when no entity facts are supplied at all', () => {
+    const p = page({
+      headings: [{ level: 1, text: 'What is Engine' }],
+      bodyText: 'By Jane Doe. Published on July 1, 2026. ' + GOOD_LEAD,
+    });
+    const { issues } = detectContentIssues(p);
+    expect(issues.map((i) => i.type)).not.toContain('weak-entity-coverage');
   });
 });
 
@@ -150,5 +194,19 @@ describe('runContentAudit', () => {
     const a = runContentAudit(pages, ENV);
     const b = runContentAudit(pages, ENV);
     expect(a.findings).toEqual(b.findings);
+  });
+
+  it('looks up entity facts per page by entityId and scores coverage against them', () => {
+    const pages = [
+      page({
+        entityId: 'ent_1',
+        headings: [{ level: 1, text: 'What is Engine' }],
+        bodyText: 'By Jane Doe. Published on July 1, 2026. ' + GOOD_LEAD,
+      }),
+    ];
+    const entities = new Map([['ent_1', { canonicalName: 'Engine', keywords: ['Fix Queue'] }]]);
+    const result = runContentAudit(pages, { ...ENV, entities });
+    expect(result.pageScores[0].score.entityCoverage).toBe(1);
+    expect(result.findings.map((f) => f.issueType)).not.toContain('weak-entity-coverage');
   });
 });
