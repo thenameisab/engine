@@ -185,6 +185,18 @@ describe('checkAuditBody', () => {
     expect(checkAuditBody([validPage])?.field).toBe('body');
     expect(checkAuditBody(null)?.field).toBe('body');
   });
+
+  it('tolerates an absent target (opt-in for C3.2 at-scale meta fixes)', () => {
+    expect(checkAuditBody({ pages: [validPage] })).toBeNull();
+  });
+
+  it('accepts a well-formed target', () => {
+    expect(checkAuditBody({ pages: [validPage], target: { kind: 'edge-worker', workerName: 'w' } })).toBeNull();
+  });
+
+  it('rejects a malformed target, naming the field', () => {
+    expect(checkAuditBody({ pages: [validPage], target: { kind: 'edge-worker' } })?.field).toBe('target.workerName');
+  });
 });
 
 describe('checkGenerateBody', () => {

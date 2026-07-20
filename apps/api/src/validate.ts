@@ -183,14 +183,23 @@ export function checkCrawledPage(value: unknown, field: string): Invalid | null 
   );
 }
 
-/** Validate the `POST /audit` body. On success the cast is earned, not asserted. */
+/**
+ * Validate the `POST /audit` body. On success the cast is earned, not asserted.
+ *
+ * `target` is optional (C3.2 "at scale" opt-in): if supplied, `/audit` also
+ * auto-proposes meta title/description fixes for every eligible finding in
+ * this crawl, deployed to that target. Omitted, the route behaves exactly as
+ * before — a caller who only wants findings never gets actions they didn't
+ * ask for.
+ */
 export function checkAuditBody(body: unknown): Invalid | null {
   const invalid = checkObject(body, 'body');
   if (invalid) return invalid;
-  const pages = (body as Record<string, unknown>).pages;
-  // Absent `pages` is an empty crawl, which the route already tolerates.
-  if (pages === undefined) return null;
-  return checkArray(pages, 'pages') ?? each(pages as unknown[], 'pages', checkCrawledPage);
+  const b = body as Record<string, unknown>;
+  const pagesInvalid =
+    b.pages === undefined ? null : checkArray(b.pages, 'pages') ?? each(b.pages as unknown[], 'pages', checkCrawledPage);
+  if (pagesInvalid) return pagesInvalid;
+  return optional(b.target, () => checkDeployTarget(b.target, 'target'));
 }
 
 // ── Finding + ActionContext (POST /projects/:projectId/actions/generate) ────

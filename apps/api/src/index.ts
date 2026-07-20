@@ -20,14 +20,20 @@ import {
 } from '@engine/billing';
 import { evaluateReadiness } from '@engine/config';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
-import { durationMs, type Finding, type PlanTier } from '@engine/core';
+import { durationMs, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
-import { createDb } from './db.js';
+import { createDb, type Db } from './db.js';
 import { checkAuditBody, checkGenerateBody, checkCreateKeywordConfigBody, checkCreateCheckoutBody, checkUuidParam } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
-import { createAction, getAction, listActionsByProject, saveActionTransition } from './repositories/actions.js';
+import {
+  createAction,
+  getAction,
+  listActionsByProject,
+  saveActionTransition,
+  findingIdsWithActions,
+} from './repositories/actions.js';
 import { findingBelongsToProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
 import { insertSerpPositions } from './repositories/rankPositions.js';
@@ -393,7 +399,7 @@ app.post('/projects/:projectId/audit', async (c) => {
   if (invalid) {
     return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
   }
-  const body = raw as { pages?: CrawledPage[] };
+  const body = raw as { pages?: CrawledPage[]; target?: DeployTarget };
   const pages = body.pages ?? [];
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
@@ -424,10 +430,55 @@ app.post('/projects/:projectId/audit', async (c) => {
   });
   await markFirstCrawl(db, projectId);
   if (findings.length > 0) await markFirstInsight(db, projectId);
+
+  const proposedActions = body.target ? await autoProposeMetaFixes(db, findings, pages, body.target) : [];
+  if (proposedActions.length > 0) await markFirstFixProposed(db, projectId);
+
   // `findings` overrides the run's copy: same findings, but carrying their
   // persisted uuids, which is what /actions/generate needs to reference.
-  return c.json({ projectId, ...result, findings, run });
+  return c.json({ projectId, ...result, findings, run, proposedActions });
 });
+
+/**
+ * C3.2 "at scale": when the caller opts in with a `target`, propose meta
+ * title/description fixes for every eligible finding from this crawl in one
+ * call, instead of the caller looping `/actions/generate` once per finding.
+ * Scoped to meta only (not schema/robots/redirect) — those need entity facts
+ * or evidence this route doesn't have reason to assume the caller wants
+ * auto-applied. Skips a finding that already has any Action, so a re-audit
+ * of an unchanged site doesn't pile up duplicate proposals.
+ */
+const META_AUTO_ISSUE_TYPES = new Set(['meta-title-missing', 'meta-description-missing']);
+
+async function autoProposeMetaFixes(
+  db: Db,
+  findings: Finding[],
+  pages: CrawledPage[],
+  target: DeployTarget,
+) {
+  const eligible = findings.filter((f) => META_AUTO_ISSUE_TYPES.has(f.issueType));
+  if (eligible.length === 0) return [];
+
+  const already = await findingIdsWithActions(db, eligible.map((f) => f.id));
+  const pageByUrl = new Map(pages.map((p) => [p.url, p]));
+
+  const created = [];
+  for (const finding of eligible) {
+    if (already.has(finding.id)) continue;
+    const url = (finding.evidence as { url?: string }).url;
+    const page = url ? pageByUrl.get(url) : undefined;
+    const ctx: ActionContext = {
+      url: url ?? '',
+      target,
+      currentTitle: page?.title,
+      currentMetaDescription: page?.metaDescription,
+    };
+    for (const action of generateActions(finding, ctx)) {
+      created.push(await createAction(db, action));
+    }
+  }
+  return created;
+}
 
 /**
  * The project's finding inventory — the read side of the audit (B1 → the
