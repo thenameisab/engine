@@ -573,6 +573,38 @@ name scored full coverage (`entityCoverage: 1`) and fired no coverage
 finding; a page that never mentioned it scored `0` and correctly fired
 `weak-entity-coverage`.
 
+### 3.14 Content rewrites (C3.1)
+Gives B2's content findings (`not-answer-first`, `poor-self-containment`,
+`weak-eeat`, `weak-entity-coverage`) something to execute — the one gap
+`generate.ts`'s own comment named all session ("`'content' | 'gbp'` are not
+generated in the MVP"). `packages/actions/src/content.ts` calls OpenAI's
+Chat Completions API directly via `fetch` (same approach as
+`packages/billing/checkout.ts` and `packages/deploy/githubPr.ts` — no SDK,
+`fetchImpl` injectable for testing), with a system prompt that forbids
+inventing new facts/statistics/names/dates and an issue-specific rewrite
+instruction per finding type.
+
+**Deliberately not wired into `generateActions`'s synchronous dispatcher.**
+Every other generator (schema/meta/robots/redirect/hreflang) is a free,
+instant, pure string transform; this one is a real, costed LLM call. Bundling
+it into the same call that produces free deterministic fixes would spend
+money as a side effect of a request that didn't ask for it. Instead: a
+dedicated route, `POST /projects/:id/actions/generate-content`, gated on
+`OPENAI_API_KEY` (503 when unset, same pattern as Stripe Checkout and GitHub
+PR export), that the caller invokes explicitly per content finding.
+
+**Blocked on a real external-account limit, not a code bug**: the OpenAI key
+wired this session authenticates correctly but the account has no billing
+quota (`429 insufficient_quota`). Verified this is a clean, well-handled
+failure rather than a crash: a real `weak-eeat` finding, generated through
+the actual audit → generate-content flow against migrated Neon, hit the real
+OpenAI API, received the real 429, and the route returned a `502` naming the
+failure — with **no partial/orphaned Action persisted** (confirmed directly
+against Neon: zero rows for that finding). The actual rewritten-content
+generation itself is unit-tested only (mocked OpenAI responses, 9 tests) —
+disclosed as unverified live, same shape as the GitHub PR export's live gap,
+not claimed as proven.
+
 ---
 
 ## 4. Security, compliance & data residency

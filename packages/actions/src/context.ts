@@ -52,4 +52,7 @@ export interface ActionContext {
    * wanted; the generator emits exactly what it's given, nothing inferred.
    */
   hreflangAlternates?: { lang: string; href: string }[];
+
+  /** The page's current captured body text (B2's `CrawledPage.bodyText`) — the C3.1 content rewrite's `before`, and the source text the LLM edits. */
+  currentBodyText?: string;
 }

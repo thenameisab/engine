@@ -8,7 +8,7 @@ import {
 } from '@engine/scoring';
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { runContentAudit } from '@engine/content';
-import { generateActions, transition, defaultEnv, type ActionContext } from '@engine/actions';
+import { generateActions, generateContentAction, transition, defaultEnv, type ActionContext } from '@engine/actions';
 import { verifyHtmlDeploy, verifyRobotsDeploy, exportActionAsPr } from '@engine/deploy';
 import {
   verifyStripeSignature,
@@ -562,6 +562,52 @@ app.post('/projects/:projectId/actions/generate', async (c) => {
   const actions = await Promise.all(generated.map((action) => createAction(db, action)));
   if (actions.length > 0) await markFirstFixProposed(db, projectId);
   return c.json({ projectId, actions });
+});
+
+/**
+ * C3.1 "AI-drafted extractability rewrites" — the executor for B2's content
+ * findings. Deliberately a separate route from `/actions/generate`, not a
+ * case inside its dispatch: every other template type there is a free,
+ * instant, deterministic transform; this one is a real, costed LLM call, and
+ * that difference belongs in the caller's explicit choice to spend it, not
+ * folded into the same request that produces free fixes.
+ */
+app.post('/projects/:projectId/actions/generate-content', async (c) => {
+  if (!c.env.OPENAI_API_KEY) {
+    return c.json({ error: 'Content rewrites are not configured (set OPENAI_API_KEY)' }, 503);
+  }
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkGenerateBody(raw);
+  if (invalid) {
+    return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  }
+  const body = raw as { finding: Finding; context: ActionContext };
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+
+  if (!(await findingBelongsToProject(db, body.finding.id, projectId))) {
+    return c.json({ error: 'finding does not belong to this project', findingId: body.finding.id }, 400);
+  }
+
+  let action;
+  try {
+    action = await generateContentAction(
+      body.finding,
+      body.context,
+      { apiKey: c.env.OPENAI_API_KEY, model: c.env.OPENAI_MODEL },
+      defaultEnv(),
+    );
+  } catch (err) {
+    return c.json({ error: `content rewrite failed: ${(err as Error).message}` }, 502);
+  }
+  if (!action) {
+    return c.json({ error: 'nothing to rewrite: context.currentBodyText is missing or empty', field: 'context.currentBodyText' }, 400);
+  }
+
+  const saved = await createAction(db, action);
+  await markFirstFixProposed(db, projectId);
+  return c.json({ projectId, action: saved });
 });
 
 /**
