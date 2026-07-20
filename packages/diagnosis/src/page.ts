@@ -78,4 +78,16 @@ export interface CrawledPage {
    * 0.5 when the crawler has no signal.
    */
   pageValue?: number;
+
+  /**
+   * B2 content/extractability inputs. Optional, unlike every other field
+   * here: B1's rule engine has run without them since day one, and every
+   * existing caller (crawler tests, API fixtures, dashboard) constructs a
+   * `CrawledPage` without them. Making them required would ripple through
+   * the whole repo for a signal only `@engine/content`'s B2 scorer reads.
+   * Visible heading text, in document order (typically H1-H3).
+   */
+  headings?: { level: number; text: string }[];
+  /** Rendered visible body text (main content, not nav/footer chrome), for B2's extractability heuristics. */
+  bodyText?: string;
 }

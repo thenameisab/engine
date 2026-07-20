@@ -7,6 +7,7 @@ import {
   type ChannelMix,
 } from '@engine/scoring';
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
+import { runContentAudit } from '@engine/content';
 import { generateActions, transition, defaultEnv, type ActionContext } from '@engine/actions';
 import { verifyHtmlDeploy, verifyRobotsDeploy, exportActionAsPr } from '@engine/deploy';
 import {
@@ -404,6 +405,12 @@ app.post('/projects/:projectId/audit', async (c) => {
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
   const result = runAudit(pages);
+  // B2 content/extractability (M2.1) — a separate scored dimension from B1's
+  // technical health, not folded into it (§8 defines the health score as
+  // technical-issue-only). Pages with no captured content (bodyText absent —
+  // most callers today, until the crawler ships this) contribute neither a
+  // finding nor a score, not a false "healthy" or "unhealthy".
+  const contentResult = runContentAudit(pages);
 
   // A page names the entity it belongs to, and that id becomes findings.entity_id.
   // Check the entities are actually this project's before writing: an unchecked
@@ -418,7 +425,7 @@ app.post('/projects/:projectId/audit', async (c) => {
     }
   }
 
-  const findings = await upsertFindings(db, result.findings);
+  const findings = await upsertFindings(db, [...result.findings, ...contentResult.findings]);
   // Record the run itself. The health score is normalized by pages audited, so
   // it belongs to this run and cannot be recomputed from the findings later —
   // without this row, GET /audit would have to invent one.
@@ -436,7 +443,14 @@ app.post('/projects/:projectId/audit', async (c) => {
 
   // `findings` overrides the run's copy: same findings, but carrying their
   // persisted uuids, which is what /actions/generate needs to reference.
-  return c.json({ projectId, ...result, findings, run, proposedActions });
+  return c.json({
+    projectId,
+    ...result,
+    findings,
+    run,
+    proposedActions,
+    content: { pageScores: contentResult.pageScores, pagesWithoutContent: contentResult.pagesWithoutContent },
+  });
 });
 
 /**

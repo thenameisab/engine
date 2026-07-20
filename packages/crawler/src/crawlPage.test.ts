@@ -38,6 +38,13 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
     expect(page.structuredData).toEqual([{ type: 'Organization', valid: true, errors: [] }]);
     expect(page.noindex).toBeUndefined();
 
+    // B2 content capture (M2.1): real headings + body text off the real DOM,
+    // not a fixture — this is the field `page.evaluate` silently dropped
+    // (`BODY_TEXT_MAX_CHARS is not defined`) before it was inlined into the
+    // evaluated function.
+    expect(page.headings).toEqual([{ level: 1, text: 'Hello' }]);
+    expect(page.bodyText).toContain('Hello');
+
     // Lab Core Web Vitals: real numbers from a real page load, not fixtures.
     expect(page.vitals.field).toBe(false);
     expect(page.vitals.lcpMs).toBeGreaterThanOrEqual(0);

@@ -16,6 +16,7 @@
     "@engine/billing": "workspace:*",
     "@engine/config": "workspace:*",
     "@engine/connectors": "workspace:*",
+    "@engine/content": "workspace:*",
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",

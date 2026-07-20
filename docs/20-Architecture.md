@@ -504,6 +504,65 @@ title and one description per page. A re-audit of the same page proposed
 zero, and omitting `target` proposed nothing, confirming the opt-in stays
 backward compatible.
 
+### 3.13 Extractability scorer v1 (M2.1)
+The roadmap's M2.1 exit criterion — "classifier beats heuristic baseline on
+held-out cited/non-cited set" — presupposes the heuristic baseline exists.
+`docs/feature-specs/B2-content-extractability.md` §6/§10 name that baseline
+explicitly as the contingency for a too-small labeled corpus ("start with
+heuristic + few-shot LLM, swap to trained classifier as labels accumulate").
+This is that baseline, not the classifier: `packages/content` (new,
+mirroring `@engine/diagnosis`'s shape — `score.ts`/`rules.ts`/`actions.ts`/
+`audit.ts`) scores B2.2 (answer-first structure), B2.3 (passage
+self-containment), and B2.4 (E-E-A-T signals) with pure pattern-matching
+heuristics, no LLM, no embeddings, no training data. B2.1 (entity/topic
+coverage) is explicitly *not* scored — it needs the entity's keyword set
+(the entity graph M2.2 shipped) wired in, which nothing does yet; the
+combined score reports `entityCoverage: 'not-measured'` rather than a 0 that
+would read as "no coverage" instead of "not checked".
+
+Content findings carry `source: 'content'` (not `'technical'`) and a
+`'content'` `ActionTemplate` — the C3.1 executor `@engine/actions`'s
+`generate.ts` still doesn't build (declined this session, needs an LLM key).
+The finding ships anyway: diagnosis and execution are separate concerns, and
+a Fix Queue card with no diff to preview yet is still more honest than no
+card at all.
+
+**`CrawledPage` gained two optional fields** (`headings`, `bodyText`) —
+optional, unlike everywhere else this package prefers required fields,
+because `CrawledPage` is constructed in every crawler test, every API
+fixture, and the dashboard; making these required would ripple a B2-only
+signal through call sites that have no reason to know about it. The crawler
+(`packages/crawler`) now extracts both from the real rendered DOM, preferring
+`<main>`/`<article>` over the whole `<body>` to avoid nav/footer chrome
+polluting the heuristics.
+
+**This surfaced a real bug the moment it ran against real Chromium, not a
+mock**: `page.evaluate()` only serializes the function passed to it, not the
+module-scope constants it closes over — a `const BODY_TEXT_MAX_CHARS`
+declared outside `extractDomSignals` threw `ReferenceError:
+BODY_TEXT_MAX_CHARS is not defined` *inside the browser context*, invisible
+to `tsc` and to any test that doesn't actually launch a browser. Fixed by
+inlining the constant into the evaluated function. Caught by
+`crawlPage.test.ts`'s existing real-Chromium test suite (the same discipline
+that caught the connectors' "Illegal invocation" bug and the crawler's
+`Sitemap:`-resolution bug in earlier sessions) — this is the class of bug
+this repo's testing philosophy exists to catch.
+
+`POST /projects/:id/audit` now runs `runContentAudit` alongside B1's
+`runAudit` and merges both finding sets before persisting — B2's score is a
+separate dimension from B1's technical health score (§8 defines that score
+as technical-issue-only), reported in a new `content: { pageScores,
+pagesWithoutContent }` response field rather than folded into `healthScore`.
+
+**Verified live end-to-end** against migrated Neon: a page with a byline,
+date, and answer-first lead scored 90/100 with no findings; a thin page with
+the same structure but no authorship signals scored 57 and fired exactly one
+`weak-eeat` finding; a page with no captured content was excluded from both
+scoring and findings, counted separately (`pagesWithoutContent`) rather than
+defaulting to a misleading score. All three states round-tripped correctly
+through `GET /audit`, including the persisted `content`-type action
+template.
+
 ---
 
 ## 4. Security, compliance & data residency

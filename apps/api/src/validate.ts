@@ -147,6 +147,13 @@ function checkHreflangEntry(value: unknown, field: string): Invalid | null {
   return first(checkString(h.lang, `${field}.lang`), checkString(h.href, `${field}.href`));
 }
 
+function checkHeadingEntry(value: unknown, field: string): Invalid | null {
+  const invalid = checkObject(value, field);
+  if (invalid) return invalid;
+  const h = value as Record<string, unknown>;
+  return first(checkNumber(h.level, `${field}.level`), checkString(h.text, `${field}.text`));
+}
+
 function checkNoindex(value: unknown, field: string): Invalid | null {
   const invalid = checkObject(value, field);
   if (invalid) return invalid;
@@ -180,6 +187,13 @@ export function checkCrawledPage(value: unknown, field: string): Invalid | null 
       each(p.hreflang as unknown[], `${field}.hreflang`, checkHreflangEntry),
     checkBoolean(p.expectsHreflang, `${field}.expectsHreflang`),
     optional(p.pageValue, () => checkNumber(p.pageValue, `${field}.pageValue`)),
+    optional(
+      p.headings,
+      () =>
+        checkArray(p.headings, `${field}.headings`) ??
+        each(p.headings as unknown[], `${field}.headings`, checkHeadingEntry),
+    ),
+    optional(p.bodyText, () => checkString(p.bodyText, `${field}.bodyText`)),
   );
 }
 
