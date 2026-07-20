@@ -9,7 +9,7 @@
  */
 import type { ActionTemplate } from '@engine/core';
 
-export type ContentIssueType = 'not-answer-first' | 'poor-self-containment' | 'weak-eeat';
+export type ContentIssueType = 'not-answer-first' | 'poor-self-containment' | 'weak-eeat' | 'weak-entity-coverage';
 
 const ACTION_TEMPLATES: Record<ContentIssueType, ActionTemplate[]> = {
   'not-answer-first': [
@@ -20,6 +20,9 @@ const ACTION_TEMPLATES: Record<ContentIssueType, ActionTemplate[]> = {
   ],
   'weak-eeat': [
     { type: 'content', label: 'Add authorship/freshness signals', description: 'Add byline, publish/update date, and citation signals (C3.1).' },
+  ],
+  'weak-entity-coverage': [
+    { type: 'content', label: 'Add covering sections', description: "Add sections grounded in the entity's known attributes/keywords (C3.1)." },
   ],
 };
 

@@ -513,12 +513,16 @@ heuristic + few-shot LLM, swap to trained classifier as labels accumulate").
 This is that baseline, not the classifier: `packages/content` (new,
 mirroring `@engine/diagnosis`'s shape — `score.ts`/`rules.ts`/`actions.ts`/
 `audit.ts`) scores B2.2 (answer-first structure), B2.3 (passage
-self-containment), and B2.4 (E-E-A-T signals) with pure pattern-matching
-heuristics, no LLM, no embeddings, no training data. B2.1 (entity/topic
-coverage) is explicitly *not* scored — it needs the entity's keyword set
-(the entity graph M2.2 shipped) wired in, which nothing does yet; the
-combined score reports `entityCoverage: 'not-measured'` rather than a 0 that
-would read as "no coverage" instead of "not checked".
+self-containment), B2.4 (E-E-A-T signals), and B2.1 (entity/topic coverage)
+with pure pattern-matching heuristics, no LLM, no embeddings, no training
+data. B2.1 scores the fraction of the entity's canonical name + known
+keywords (from the entity graph, M2.2) found on the page — the caller
+supplies `EntityCoverageFacts` per entity id, since this package has no
+database access of its own; a page whose entity carries no keywords yet
+reports `entityCoverage: 'not-measured'` (not a 0) rather than penalizing a
+fresh entity for data nobody has defined. `apps/api`'s `/audit` route wires
+the project's already-fetched `Entity[]` (reused from the existing
+cross-tenant check, not a second query) into this map.
 
 Content findings carry `source: 'content'` (not `'technical'`) and a
 `'content'` `ActionTemplate` — the C3.1 executor `@engine/actions`'s
@@ -562,6 +566,12 @@ scoring and findings, counted separately (`pagesWithoutContent`) rather than
 defaulting to a misleading score. All three states round-tripped correctly
 through `GET /audit`, including the persisted `content`-type action
 template.
+
+**B2.1 wired in the same session, immediately after**: verified live against
+the same Neon project — a page mentioning the tracked entity's canonical
+name scored full coverage (`entityCoverage: 1`) and fired no coverage
+finding; a page that never mentioned it scored `0` and correctly fired
+`weak-entity-coverage`.
 
 ---
 

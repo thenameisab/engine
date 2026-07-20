@@ -6,7 +6,7 @@
  * a false "everything's fine" or a false "everything's broken".
  */
 import type { CrawledPage } from '@engine/diagnosis';
-import { extractabilityScore, type ExtractabilityScore } from './score.js';
+import { extractabilityScore, type ExtractabilityScore, type EntityCoverageFacts } from './score.js';
 import type { ContentIssueType } from './actions.js';
 
 /** Below this on a 0-1 dimension, the page gets a finding for it. */
@@ -17,8 +17,11 @@ export interface RawContentIssue {
   evidence: { url: string; score: number };
 }
 
-export function detectContentIssues(page: CrawledPage): { issues: RawContentIssue[]; score: ExtractabilityScore | null } {
-  const score = extractabilityScore(page);
+export function detectContentIssues(
+  page: CrawledPage,
+  entity?: EntityCoverageFacts,
+): { issues: RawContentIssue[]; score: ExtractabilityScore | null } {
+  const score = extractabilityScore(page, entity);
   if (!score) return { issues: [], score: null };
 
   const issues: RawContentIssue[] = [];
@@ -30,6 +33,9 @@ export function detectContentIssues(page: CrawledPage): { issues: RawContentIssu
   }
   if (score.breakdown.eeat < THRESHOLD) {
     issues.push({ type: 'weak-eeat', evidence: { url: page.url, score: score.breakdown.eeat } });
+  }
+  if (typeof score.entityCoverage === 'number' && score.entityCoverage < THRESHOLD) {
+    issues.push({ type: 'weak-entity-coverage', evidence: { url: page.url, score: score.entityCoverage } });
   }
   return { issues, score };
 }

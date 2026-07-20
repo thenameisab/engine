@@ -6,25 +6,33 @@
  * accumulate"). No LLM, no embeddings, no training corpus — this package
  * *is* the baseline a future classifier has to beat, not the classifier.
  *
- * B2.1 entity/topic coverage is deliberately not scored here: it needs the
- * entity's known keyword set (from the entity graph, M2.2), which nothing
- * passes into this pure, page-only scorer yet. Wiring it is a documented
- * follow-up, not a silent gap — `extractabilityScore` reports
- * `entityCoverage: 'not-measured'` rather than guessing a 0 that would read
- * as "no coverage" instead of "not checked".
+ * B2.1 entity/topic coverage scores against the entity's own known keyword
+ * set (from the entity graph, M2.2) — the caller passes it in as
+ * `EntityCoverageFacts` since this package is a pure, page-only scorer with
+ * no database access of its own. Omitted, `entityCoverage` reports
+ * `'not-measured'` rather than guessing a 0 that would read as "no
+ * coverage" instead of "not checked" — most callers before this session's
+ * wiring, and any caller that hasn't looked up the entity, still get an
+ * honest "don't know" instead of a penalty for data they never supplied.
  */
 import type { CrawledPage } from '@engine/diagnosis';
 
+/** The entity facts B2.1 coverage scoring needs — a subset of `@engine/core`'s `Entity`. */
+export interface EntityCoverageFacts {
+  canonicalName: string;
+  keywords: readonly string[];
+}
+
 export interface ExtractabilityScore {
-  /** 0-100 combined heuristic score (answer-first + self-containment + E-E-A-T, weighted). */
+  /** 0-100 combined heuristic score. */
   score: number;
   breakdown: {
     answerFirst: number;
     selfContainment: number;
     eeat: number;
   };
-  /** B2.1 — not scored by this package yet; see module doc comment. */
-  entityCoverage: 'not-measured';
+  /** B2.1 — 0-1 fraction of the entity's known terms found on the page, or 'not-measured' when no entity facts were supplied. */
+  entityCoverage: number | 'not-measured';
 }
 
 const FILLER_OPENERS = [
@@ -113,20 +121,44 @@ export function eeatScore(page: CrawledPage): number {
   return clamp01(signals / 3);
 }
 
+/**
+ * B2.1 "does the page actually cover the entity it's supposed to be about?"
+ * Fraction of the entity's keywords, plus the canonical name itself, found
+ * (case-insensitive substring match) anywhere in the page's captured
+ * content. `null` (not 0) when the entity carries no keywords yet — a fresh
+ * entity with an empty keyword list hasn't failed a coverage check, it
+ * hasn't had one defined.
+ */
+export function entityCoverageScore(page: CrawledPage, entity: EntityCoverageFacts): number | null {
+  const terms = [entity.canonicalName, ...entity.keywords].map((t) => t.trim()).filter(Boolean);
+  if (terms.length === 0) return null;
+
+  const haystack = `${page.title} ${page.bodyText ?? ''}`.toLowerCase();
+  const covered = terms.filter((term) => haystack.includes(term.toLowerCase()));
+  return clamp01(covered.length / terms.length);
+}
+
 /** Null when the page carries no captured content — nothing to score, not a 0 that would read as "extremely poor". */
-export function extractabilityScore(page: CrawledPage): ExtractabilityScore | null {
+export function extractabilityScore(page: CrawledPage, entity?: EntityCoverageFacts): ExtractabilityScore | null {
   if (!page.bodyText) return null;
 
   const answerFirst = answerFirstScore(page);
   const selfContainment = selfContainmentScore(page);
   const eeat = eeatScore(page);
+  const coverage = entity ? entityCoverageScore(page, entity) : null;
 
-  const combined = answerFirst * 0.35 + selfContainment * 0.35 + eeat * 0.3;
+  // Reweight to include coverage only when it was actually measured — an
+  // unmeasured dimension must not silently drag the combined score down
+  // (or up) by being treated as 0 in a fixed-weight average.
+  const combined =
+    coverage === null
+      ? answerFirst * 0.35 + selfContainment * 0.35 + eeat * 0.3
+      : answerFirst * 0.25 + selfContainment * 0.25 + eeat * 0.2 + coverage * 0.3;
 
   return {
     score: Math.round(combined * 100),
     breakdown: { answerFirst, selfContainment, eeat },
-    entityCoverage: 'not-measured',
+    entityCoverage: coverage ?? 'not-measured',
   };
 }
 
