@@ -32,9 +32,17 @@ interface DomSignals {
   metaNoindex: boolean;
   hreflang: { lang: string; href: string }[];
   jsonLdScripts: string[];
+  headings: { level: number; text: string }[];
+  bodyText: string;
 }
 
 function extractDomSignals(): DomSignals {
+  // Cap on captured body text — B2's heuristics only need the lead content,
+  // not the whole page. Inlined rather than a module-scope const:
+  // `page.evaluate` serializes only this function's source, not the
+  // closure it would otherwise capture — a `ReferenceError` in the browser
+  // context that a Node-side unit test would never catch.
+  const BODY_TEXT_MAX_CHARS = 20_000;
   const canonicalEl = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
   const descEl = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
   const robotsEl = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
@@ -44,6 +52,10 @@ function extractDomSignals(): DomSignals {
   const jsonLdEls = Array.from(
     document.querySelectorAll('script[type="application/ld+json"]'),
   ) as HTMLScriptElement[];
+  const headingEls = Array.from(document.querySelectorAll('h1, h2, h3')) as HTMLHeadingElement[];
+  // Prefer semantic main content over the whole body (nav/footer chrome adds
+  // noise B2's answer-first/self-containment heuristics would misread).
+  const contentEl = document.querySelector('main, article') ?? document.body;
 
   return {
     title: document.title ?? '',
@@ -52,6 +64,8 @@ function extractDomSignals(): DomSignals {
     metaNoindex: (robotsEl?.content ?? '').toLowerCase().includes('noindex'),
     hreflang: hreflangEls.map((el) => ({ lang: el.hreflang, href: el.href })),
     jsonLdScripts: jsonLdEls.map((el) => el.textContent ?? ''),
+    headings: headingEls.map((el) => ({ level: Number(el.tagName[1]), text: (el.textContent ?? '').trim() })),
+    bodyText: (contentEl?.textContent ?? '').trim().slice(0, BODY_TEXT_MAX_CHARS),
   };
 }
 
@@ -123,6 +137,8 @@ export async function crawlPage(
       hreflang: dom.hreflang,
       expectsHreflang: options.expectsHreflang ?? dom.hreflang.length > 0,
       pageValue: options.pageValue,
+      headings: dom.headings,
+      bodyText: dom.bodyText,
     };
   } finally {
     await page.close();

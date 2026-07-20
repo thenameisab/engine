@@ -24,6 +24,9 @@
       "path": "../../packages/connectors"
     },
     {
+      "path": "../../packages/content"
+    },
+    {
       "path": "../../packages/core"
     },
     {
