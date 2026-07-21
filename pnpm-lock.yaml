@@ -35,6 +35,9 @@ importers:
       '@engine/content':
         specifier: workspace:*
         version: link:../../packages/content
+      '@engine/copilot':
+        specifier: workspace:*
+        version: link:../../packages/copilot
       '@engine/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -168,6 +171,19 @@ importers:
       '@engine/diagnosis':
         specifier: workspace:*
         version: link:../diagnosis
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/copilot:
+    dependencies:
+      '@engine/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.7.0

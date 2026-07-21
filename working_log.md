@@ -279,3 +279,13 @@
   - Live verification (wrangler dev + real Neon): audit produced sparse-internal-linking findings + persisted pages; propose generated an internal-link action linking sibling page ("Acme Corp" -> /pricing) targeting github-pr; queue shows it; approve+deploy reaches PR export (503 w/o token); no-target->400; bogus finding->404. The 0008 constraint gap was caught by this live run (insert rejected internal-link before the fix).
   - Cleaned up acme.example test rows afterward and reset the demo project's deploy_target to null.
   - Full turbo build + all 26 test tasks green (actions 48, deploy 42, content 26, api 104, crawler 32).
+
+## 2026-07-21 (M2.4 Copilot GA)
+- Confirmed PR #43 (M2.3 close-out) merged; code on origin/main. M2.3 done.
+- Scoped + built M2.4: NL question -> cited, drill-downable answer <3s. Branch feat/m2.4-copilot-ga off main.
+- New package `@engine/copilot` (pure, 21 tests): deterministic intent parser (entity_visibility / organic_vs_ai / top_findings / keyword_rank / unknown) w/ fuzzy entity resolution; cited-answer builder (every figure carries a Citation naming its source table A1/A2/B1); PhrasingModel interface — deterministic template default, openAiPhrasing swappable behind it w/ hard timeout + fallback (OpenAI key present but no credits, so template path ships).
+- apps/api: repositories/copilotQuery.ts (retrieval reuses M2.2 buildEntityCopilotSummary + keyword-rank lookup + latency log); route POST /projects/:id/copilot/ask; migration 0009_copilot_queries (analytics log). Applied to Neon.
+- Finding->Action bridge wired: answers carry suggestedAction pointing at the M2.3 POST /findings/:id/propose route.
+- Dashboard: NL ask bar in ⌘K Copilot + answer view w/ citation chips (per-pillar tags), latency readout, and "Propose fix" button that drives the propose route; new styles.
+- Live verification (wrangler dev + real Neon, seeded acme test data): all 5 intents answered end-to-end, latencies 216–2493ms (<3s); OpenAI phrasing correctly fell back to deterministic text (no credits); propose bridge produced a real proposed meta action; copilot_queries logged all 5 (unknown w/ no entity). Cleaned up test rows after.
+- Full turbo build + all test tasks green (copilot 21 added).

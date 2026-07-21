@@ -19,6 +19,7 @@ import type {
   ApiProject,
   ApiPulseResponse,
   AuditData,
+  CopilotAnswer,
   CopilotSummary,
   PulseData,
   ReadinessReport,
@@ -186,6 +187,19 @@ export function fetchCopilotSummary(entityId: string): Promise<CopilotSummary> {
   return request<{ summary: CopilotSummary }>(
     `/projects/${getProjectId()}/entities/${entityId}/copilot/summary`,
   ).then((r) => r.summary);
+}
+
+/**
+ * M2.4 Copilot GA: ask a natural-language question and get a cited,
+ * drill-downable answer. The server does the intent parse + entity-first
+ * retrieval; the client just sends the question and renders the citations and
+ * the optional Finding -> Action suggestion.
+ */
+export function askCopilot(question: string): Promise<{ answer: CopilotAnswer; latencyMs: number }> {
+  return request<{ answer: CopilotAnswer; latencyMs: number }>(`/projects/${getProjectId()}/copilot/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  });
 }
 
 /**
