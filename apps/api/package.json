@@ -14,6 +14,7 @@
     "@engine/actions": "workspace:*",
     "@engine/auth": "workspace:*",
     "@engine/billing": "workspace:*",
+    "@engine/competitor": "workspace:*",
     "@engine/config": "workspace:*",
     "@engine/connectors": "workspace:*",
     "@engine/content": "workspace:*",

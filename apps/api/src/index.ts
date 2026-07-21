@@ -41,6 +41,13 @@ import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
 import { runProjectEntityAudit, listEntityStrengths } from './repositories/entityAudit.js';
 import {
+  addCompetitor,
+  removeCompetitor,
+  listCompetitors,
+  runProjectCompetitorAudit,
+  listCompetitorGaps,
+} from './repositories/competitor.js';
+import {
   createAction,
   getAction,
   listActionsByProject,
@@ -505,6 +512,96 @@ app.get('/projects/:projectId/entity-audit', async (c) => {
 
   const strengths = await listEntityStrengths(db, projectId);
   return c.json({ strengths });
+});
+
+/**
+ * A5 Competitor Intelligence — manage the competitor set and run the gap
+ * analysis of a self-entity against it. Both sides are entities in the
+ * entity-first model, so the analysis is a deterministic set-difference over
+ * the columns each entity already carries (keywords/prompts/citations/mentions)
+ * plus B3 strength; every gap emits a Finding into the same inventory B1/B2/B3
+ * write, so it proposes through the existing Fix Queue flow.
+ */
+
+/** List the competitor set for a self-entity. */
+app.get('/projects/:projectId/entities/:selfEntityId/competitors', async (c) => {
+  const projectId = c.req.param('projectId');
+  const selfEntityId = c.req.param('selfEntityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const competitors = await listCompetitors(db, projectId, selfEntityId);
+  return c.json({ competitors });
+});
+
+/** Add a competitor entity to a self-entity's set. */
+app.post('/projects/:projectId/entities/:selfEntityId/competitors', async (c) => {
+  const projectId = c.req.param('projectId');
+  const selfEntityId = c.req.param('selfEntityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const body = await c.req.json<{ competitorEntityId?: string }>().catch(() => ({}) as { competitorEntityId?: string });
+  if (!body.competitorEntityId || typeof body.competitorEntityId !== 'string') {
+    return c.json({ error: 'competitorEntityId is required' }, 400);
+  }
+  const res = await addCompetitor(db, projectId, selfEntityId, body.competitorEntityId);
+  if (!res.ok) {
+    const status = res.reason === 'same-entity' ? 400 : 404;
+    return c.json({ error: res.reason }, status);
+  }
+  return c.json({ id: res.id }, 201);
+});
+
+/** Remove a competitor link from a self-entity's set. */
+app.delete('/projects/:projectId/entities/:selfEntityId/competitors/:competitorSetId', async (c) => {
+  const projectId = c.req.param('projectId');
+  const competitorSetId = c.req.param('competitorSetId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const removed = await removeCompetitor(db, projectId, competitorSetId);
+  if (!removed) return c.json({ error: 'competitor not found' }, 404);
+  return c.json({ ok: true });
+});
+
+/**
+ * Run + persist the competitor gap analysis for a self-entity. Emits findings
+ * for the Fix Queue and persists the ranked gap list (migration 0011).
+ */
+app.post('/projects/:projectId/entities/:selfEntityId/competitor-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const selfEntityId = c.req.param('selfEntityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const result = await runProjectCompetitorAudit(db, projectId, selfEntityId);
+  if (!result) return c.json({ error: 'self entity not found in project' }, 404);
+  if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  return c.json({
+    selfEntityId: result.selfEntityId,
+    competitorsAudited: result.competitorsAudited,
+    findingsCount: result.findings.length,
+    gaps: result.gaps,
+    byType: result.byType,
+    findings: result.findings,
+  });
+});
+
+/**
+ * The project's persisted competitor gaps for a self-entity, biggest first —
+ * the "biggest gaps to close" view. Empty until an analysis has run.
+ */
+app.get('/projects/:projectId/entities/:selfEntityId/competitor-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const selfEntityId = c.req.param('selfEntityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const gaps = await listCompetitorGaps(db, projectId, selfEntityId);
+  return c.json({ gaps });
 });
 
 /**
