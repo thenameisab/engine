@@ -13,6 +13,7 @@
   "dependencies": {
     "@engine/actions": "workspace:*",
     "@engine/auth": "workspace:*",
+    "@engine/backlink": "workspace:*",
     "@engine/billing": "workspace:*",
     "@engine/competitor": "workspace:*",
     "@engine/config": "workspace:*",

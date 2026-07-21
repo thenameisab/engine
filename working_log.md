@@ -306,3 +306,11 @@
 - Dashboard: new "Competitors" nav view — self/competitor entity pickers, competitor chips, "Biggest gaps to close" ranked lead list + five per-dimension gap tables; new versus icon + ci- CSS.
 - Full turbo build green (20/20) + all test tasks green (32/32; competitor 12 added, api 101).
 - NOT DONE: live wrangler+Neon verification (the usual rhythm) — DATABASE_URL secret is unavailable in this environment, and migration 0011 is unapplied. Needs to run before merge.
+
+## 2026-07-21 (A6 Backlink & Mention Index, v1.5)
+- Phase-2 queue: A5 (PR #46, open) → A6 next. Branch feat/a6-backlink-mention-index off origin/main.
+- New package `@engine/backlink` (pure, 13 tests): A6 v1.5 deterministic core = citation-domain intelligence mined from the A2 archive (citation_events.sources_cited). buildDomainIntel aggregates cited registrable domains across the category (self + peers) → per-domain {citationCount, distinctEntities, engines, authority, selfPresent}; authority saturates on distinct-entity breadth (cap 5, like B3 corroboration). citationOpportunities = high-authority (≥0.4) domains the self-entity is absent from, ranked. Plus deterministic sentiment-cluster detection (negative-mention findings) and profile completeness (known G2/Capterra/JustDial/Trustpilot/Crunchbase domains missing from mentions). runOffsiteAudit emits source='content' Findings (frozen contract; no new ActionType/source), injectable clock/id.
+- apps/api: repositories/offsite.ts (category = project entities; reads citation_events sources_cited+sentiment over 90d; run+persist+read). Routes POST/GET .../offsite-audit. Migration 0012_citation_domain_intel (upserted citation_opportunities ranked store). NOT applied to Neon.
+- Dashboard: new "Backlinks" nav view — entity picker + "Citation opportunities" ranked list (domain · cited×N · peers · authority%); new link icon + off- CSS.
+- Full turbo build green (21/21) + all test tasks green (34/34; backlink 13 added).
+- NOT DONE: live wrangler+Neon verification (DATABASE_URL unavailable in env) + migration 0012 apply. Needs to run before merge.

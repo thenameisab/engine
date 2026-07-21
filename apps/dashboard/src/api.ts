@@ -19,6 +19,7 @@ import type {
   ApiProject,
   ApiPulseResponse,
   AuditData,
+  CitationOpportunity,
   CompetitorGap,
   CompetitorRef,
   CopilotAnswer,
@@ -253,6 +254,26 @@ export function runCompetitorAudit(
   selfEntityId: string,
 ): Promise<{ selfEntityId: string; competitorsAudited: number; findingsCount: number; gaps: CompetitorGap[]; byType: Record<GapType, CompetitorGap[]> }> {
   return request(`/projects/${getProjectId()}/entities/${selfEntityId}/competitor-audit`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+/**
+ * A6 Backlink & Mention Index. GET reads the persisted citation opportunities
+ * (biggest first); POST re-mines the A2 citation archive for the self-entity's
+ * category, persisting off-site findings + opportunities, and returns both plus
+ * the full per-domain intelligence.
+ */
+export function fetchCitationOpportunities(selfEntityId: string): Promise<CitationOpportunity[]> {
+  return request<{ opportunities: CitationOpportunity[] }>(
+    `/projects/${getProjectId()}/entities/${selfEntityId}/offsite-audit`,
+  ).then((r) => r.opportunities);
+}
+export function runOffsiteAudit(
+  selfEntityId: string,
+): Promise<{ selfEntityId: string; observationsAnalyzed: number; categorySize: number; findingsCount: number; opportunities: CitationOpportunity[] }> {
+  return request(`/projects/${getProjectId()}/entities/${selfEntityId}/offsite-audit`, {
     method: 'POST',
     body: JSON.stringify({}),
   });
