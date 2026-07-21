@@ -39,6 +39,9 @@
       "path": "../../packages/diagnosis"
     },
     {
+      "path": "../../packages/entity-audit"
+    },
+    {
       "path": "../../packages/keywords"
     },
     {

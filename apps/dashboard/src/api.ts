@@ -21,6 +21,7 @@ import type {
   AuditData,
   CopilotAnswer,
   CopilotSummary,
+  EntityStrength,
   PulseData,
   ReadinessReport,
   ActionStatus,
@@ -200,6 +201,21 @@ export function askCopilot(question: string): Promise<{ answer: CopilotAnswer; l
     method: 'POST',
     body: JSON.stringify({ question }),
   });
+}
+
+/**
+ * B3 entity-graph audit. GET reads the persisted strengths (weakest first);
+ * POST re-runs the deterministic audit over the project's entities, persisting
+ * findings (into the shared inventory) and strengths, and returns both.
+ */
+export function fetchEntityStrengths(): Promise<EntityStrength[]> {
+  return request<{ strengths: EntityStrength[] }>(`/projects/${getProjectId()}/entity-audit`).then((r) => r.strengths);
+}
+export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCount: number; strengths: EntityStrength[] }> {
+  return request<{ entitiesAudited: number; findingsCount: number; strengths: EntityStrength[] }>(
+    `/projects/${getProjectId()}/entity-audit`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
 }
 
 /**

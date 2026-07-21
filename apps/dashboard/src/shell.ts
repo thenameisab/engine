@@ -8,6 +8,7 @@ import { pulseView } from './views/pulse.js';
 import { serpView } from './views/serp.js';
 import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
+import { entityGraphView } from './views/entityGraph.js';
 import { settingsView } from './views/settings.js';
 import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
@@ -24,6 +25,7 @@ const ROUTES: Route[] = [
   { id: 'serp', label: 'SERP Inspector', iconMarkup: ICONS.serp, view: serpView },
   { id: 'fix-queue', label: 'Fix Queue', iconMarkup: ICONS.kanban, view: fixQueueView },
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
+  { id: 'entity-graph', label: 'Entity Graph', iconMarkup: ICONS.entity, view: entityGraphView },
   { id: 'clients', label: 'Clients', iconMarkup: ICONS.clients, view: accountsView },
   { id: 'settings', label: 'Settings', iconMarkup: ICONS.gear, view: settingsView },
 ];

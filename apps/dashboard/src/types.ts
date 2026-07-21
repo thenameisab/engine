@@ -200,6 +200,21 @@ export interface CopilotAnswer {
   suggestedAction?: CopilotSuggestedAction;
 }
 
+/**
+ * B3 Entity & Knowledge Graph Audit — one entity's strength breakdown from
+ * `GET/POST /projects/:id/entity-audit`. `score` and each component are 0–1;
+ * the components say *why* an entity is weak (missing schema vs. weak
+ * corroboration), which is what the view leads with.
+ */
+export interface EntityStrength {
+  entityId: string;
+  canonicalName: string;
+  score: number;
+  components: { wikidata: number; schema: number; sameAsConsistency: number; corroboration: number };
+  corroboratingDomains: number;
+  updatedAt?: string;
+}
+
 /** M2.5 agency white-label — the branding a report/logo is rendered with. */
 export interface ApiAccountBranding {
   companyName?: string;

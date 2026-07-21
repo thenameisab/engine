@@ -21,6 +21,7 @@
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",
+    "@engine/entity-audit": "workspace:*",
     "@engine/keywords": "workspace:*",
     "@engine/scoring": "workspace:*",
     "hono": "^4.6.0",
