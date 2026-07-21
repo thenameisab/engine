@@ -52,6 +52,18 @@ export interface PulseData {
 
 export type ActionStatus = 'proposed' | 'approved' | 'deployed' | 'verified' | 'rolled_back';
 
+/** A project's deploy target (packages/core's DeployTarget), as the API stores/returns it. */
+export interface DeployTarget {
+  kind: 'cms-plugin' | 'edge-worker' | 'github-pr' | 'gbp-api';
+  plugin?: 'wordpress' | 'shopify';
+  siteId?: string;
+  workerName?: string;
+  repo?: string;
+  branch?: string;
+  path?: string;
+  locationId?: string;
+}
+
 /** An Action exactly as `GET /projects/:id/actions` returns it (apps/api). */
 export interface ApiAction {
   id: string;

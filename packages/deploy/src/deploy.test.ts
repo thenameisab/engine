@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Action, Diff } from '@engine/core';
-import { applyHtmlDiff, applyHtmlActions, applySchemaDiff, applyMetaDiff } from './html.js';
+import { applyHtmlDiff, applyHtmlActions, applySchemaDiff, applyMetaDiff, applyBodyDiff } from './html.js';
 import { applyRobotsActions } from './robots.js';
 import { verifyHtmlDeploy, verifyRobotsDeploy, verifyRedirectDeploy } from './verify.js';
 import { checkRedirectDeployHealth } from './health.js';
@@ -72,9 +72,31 @@ describe('applyHtmlActions', () => {
     expect(out).toContain('{"@type":"Organization"}');
   });
 
-  it('leaves non schema/meta action types untouched', () => {
+  it('leaves action types with no live-HTML transform untouched', () => {
     const out = applyHtmlDiff(BASE_HTML, { type: 'robots', diff: { before: '', after: 'irrelevant', format: 'text' } });
     expect(out).toBe(BASE_HTML);
+  });
+});
+
+describe('applyBodyDiff (internal-link / content on live targets)', () => {
+  const html = '<html><body><p>Read our widget guide today.</p></body></html>';
+
+  it('swaps a body block when the diff before is present verbatim', () => {
+    const before = '<p>Read our widget guide today.</p>';
+    const after = '<p>Read our <a href="/guide">widget guide</a> today.</p>';
+    const out = applyHtmlDiff(html, { type: 'internal-link', diff: { before, after, format: 'html' } });
+    expect(out).toContain(after);
+  });
+
+  it('applies a content rewrite diff the same way', () => {
+    const before = '<p>Read our widget guide today.</p>';
+    const out = applyHtmlDiff(html, { type: 'content', diff: { before, after: '<p>Rewritten.</p>', format: 'text' } });
+    expect(out).toContain('<p>Rewritten.</p>');
+  });
+
+  it('is a safe no-op when before is absent (page diverged) rather than blindly appending', () => {
+    const out = applyBodyDiff(html, { before: '<p>not on this page</p>', after: '<p>x</p>', format: 'html' });
+    expect(out).toBe(html);
   });
 });
 

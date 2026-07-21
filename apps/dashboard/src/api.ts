@@ -23,6 +23,7 @@ import type {
   PulseData,
   ReadinessReport,
   ActionStatus,
+  DeployTarget,
   SerpInspectResult,
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
@@ -185,6 +186,36 @@ export function fetchCopilotSummary(entityId: string): Promise<CopilotSummary> {
   return request<{ summary: CopilotSummary }>(
     `/projects/${getProjectId()}/entities/${entityId}/copilot/summary`,
   ).then((r) => r.summary);
+}
+
+/**
+ * The project's configured deploy target — where a generated fix lands. Null
+ * until the user sets one in Settings; the Audit view reads it to know whether
+ * "Propose fix" can work yet.
+ */
+export function fetchDeployTarget(): Promise<DeployTarget | null> {
+  return request<{ target: DeployTarget | null }>(`/projects/${getProjectId()}/deploy-target`).then((r) => r.target);
+}
+
+/** Set the project's deploy target. */
+export function saveDeployTarget(target: DeployTarget): Promise<DeployTarget> {
+  return request<{ target: DeployTarget }>(`/projects/${getProjectId()}/deploy-target`, {
+    method: 'PUT',
+    body: JSON.stringify({ target }),
+  }).then((r) => r.target);
+}
+
+/**
+ * Ask the API to generate the fix(es) for a finding (M2.3 #3). The server
+ * rebuilds the context from the stored crawl + the project's deploy target, so
+ * the client sends only the finding id. Returns the created actions (empty,
+ * with a note, when the fix needs context this crawl didn't capture).
+ */
+export function proposeFix(findingId: string): Promise<{ actions: ApiAction[]; note?: string }> {
+  return request<{ actions: ApiAction[]; note?: string }>(
+    `/projects/${getProjectId()}/findings/${findingId}/propose`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
 }
 
 /** Attempt a live Fix Queue transition (DB-backed; may fail in pre-alpha). */

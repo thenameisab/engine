@@ -33,6 +33,7 @@ import {
   checkCreateAccountBody,
   checkCreateProjectBody,
   checkBrandingBody,
+  checkDeployTargetBody,
 } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
@@ -44,8 +45,10 @@ import {
   saveActionTransition,
   findingIdsWithActions,
 } from './repositories/actions.js';
-import { findingBelongsToProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
+import { findingBelongsToProject, getFindingInProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
+import { upsertCrawledPages, getCrawledPage, listInternalLinkTargets } from './repositories/crawledPages.js';
+import { getProjectDeployTarget, setProjectDeployTarget } from './repositories/projectTarget.js';
 import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
@@ -524,6 +527,11 @@ app.post('/projects/:projectId/audit', async (c) => {
   const contentResult = runContentAudit(pages, { entities: entityCoverageFacts });
 
   const findings = await upsertFindings(db, [...result.findings, ...contentResult.findings]);
+  // Persist the fix-relevant slice of each page (M2.3 #3): /audit used to
+  // discard the pages after scoring, leaving a later "generate a fix" call
+  // with no title/body to build a diff from. Storing them here is what lets
+  // the dashboard propose a fix for any finding without re-crawling.
+  await upsertCrawledPages(db, projectId, pages);
   // Record the run itself. The health score is normalized by pages audited, so
   // it belongs to this run and cannot be recomputed from the findings later —
   // without this row, GET /audit would have to invent one.
@@ -706,6 +714,137 @@ app.post('/projects/:projectId/actions/generate-content', async (c) => {
   const saved = await createAction(db, action);
   await markFirstFixProposed(db, projectId);
   return c.json({ projectId, action: saved });
+});
+
+/**
+ * Best-effort schema.org @type for a schema fix's JSON-LD, read off the
+ * entity's stored structured-data blocks. Falls back to 'Thing' — the valid
+ * schema.org supertype — when the entity declares no typed block, so a schema
+ * action is still generable rather than blocked on a missing type.
+ */
+function entitySchemaType(schema: object[]): string {
+  for (const block of schema) {
+    const t = (block as { '@type'?: unknown })['@type'];
+    if (typeof t === 'string' && t.trim() !== '') return t;
+  }
+  return 'Thing';
+}
+
+/**
+ * The project's configured deploy target (M2.3 #3) — where every generated
+ * Action lands. The dashboard reads this to know whether a project can propose
+ * fixes yet, and writes it from Settings. `null` until configured.
+ */
+app.get('/projects/:projectId/deploy-target', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const target = await getProjectDeployTarget(db, projectId);
+  return c.json({ target });
+});
+
+app.put('/projects/:projectId/deploy-target', async (c) => {
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkDeployTargetBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const { target } = raw as { target: DeployTarget };
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  await setProjectDeployTarget(db, projectId, target);
+  return c.json({ target });
+});
+
+/**
+ * Propose the fix(es) for a stored Finding (M2.3 #3) — the server-side
+ * generate the dashboard drives, so a user can turn any finding into a queued
+ * Action (content rewrite, GitHub PR, internal links, …) without re-crawling
+ * or hand-assembling context. Unlike `/actions/generate`, the caller sends no
+ * finding or context: both are rebuilt here from what `/audit` persisted (the
+ * finding, its page's stored title/body, its entity's facts, the project's
+ * deploy target), which is the whole reason those are now stored.
+ *
+ * A `content`-template finding is a costed LLM rewrite, so it is only run when
+ * OPENAI is configured; the free deterministic fixes (schema/meta/robots/
+ * redirect/internal-link) always run. Internal-link suggestions default to the
+ * project's other pages (entity-graph-derived), overridable in the body.
+ */
+app.post('/projects/:projectId/findings/:findingId/propose', async (c) => {
+  const projectId = c.req.param('projectId');
+  const findingId = c.req.param('findingId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const body = (await c.req.json<{ target?: DeployTarget; internalLinkSuggestions?: { anchor: string; href: string }[] }>().catch(() => ({}))) as {
+    target?: DeployTarget;
+    internalLinkSuggestions?: { anchor: string; href: string }[];
+  };
+
+  const finding = await getFindingInProject(db, findingId, projectId);
+  if (!finding) return c.json({ error: 'finding not found', findingId }, 404);
+
+  const target = body.target ?? (await getProjectDeployTarget(db, projectId));
+  if (!target) {
+    return c.json({ error: 'no deploy target: configure one for the project or pass `target`', field: 'target' }, 400);
+  }
+
+  const url = (finding.evidence as { url?: string }).url ?? '';
+  const page = url ? await getCrawledPage(db, projectId, url) : null;
+  const entity = await getEntityInProject(db, projectId, finding.entityId);
+
+  // Suggestions come from the caller if given, else the project's other pages —
+  // the "which related pages to link" decision the generator won't make itself.
+  const internalLinkSuggestions =
+    body.internalLinkSuggestions ?? (url ? await listInternalLinkTargets(db, projectId, url) : []);
+
+  const ctx: ActionContext = {
+    url,
+    target,
+    currentTitle: page?.title ?? undefined,
+    currentMetaDescription: page?.metaDescription ?? undefined,
+    currentBodyText: page?.bodyText ?? undefined,
+    currentBodyHtml: page?.bodyHtml ?? undefined,
+    internalLinkSuggestions,
+    entity: entity
+      ? { schemaType: entitySchemaType(entity.schema), name: entity.canonicalName, properties: undefined }
+      : undefined,
+  };
+
+  // Free, deterministic generators (schema/meta/robots/redirect/internal-link).
+  const generated = generateActions(finding, ctx);
+
+  // The costed content rewrite, only if the finding wants one and it's configured.
+  const wantsContent = finding.actionTemplates.some((t) => t.type === 'content');
+  if (wantsContent && c.env.OPENAI_API_KEY) {
+    try {
+      const contentAction = await generateContentAction(
+        finding,
+        ctx,
+        { apiKey: c.env.OPENAI_API_KEY, model: c.env.OPENAI_MODEL },
+        defaultEnv(),
+      );
+      if (contentAction) generated.push(contentAction);
+    } catch (err) {
+      return c.json({ error: `content rewrite failed: ${(err as Error).message}` }, 502);
+    }
+  }
+
+  const actions = await Promise.all(generated.map((action) => createAction(db, action)));
+  if (actions.length > 0) await markFirstFixProposed(db, projectId);
+
+  // An empty result is a real answer, not an error: the finding's fix needs
+  // context this crawl didn't capture (e.g. a content rewrite with OPENAI
+  // unset, or a page with no stored body). Say so, don't 500.
+  return c.json({
+    projectId,
+    findingId,
+    actions,
+    note: actions.length === 0 ? 'no action could be generated — the fix needs context this crawl did not capture' : undefined,
+  });
 });
 
 /**

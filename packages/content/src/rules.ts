@@ -12,6 +12,14 @@ import type { ContentIssueType } from './actions.js';
 /** Below this on a 0-1 dimension, the page gets a finding for it. */
 const THRESHOLD = 0.5;
 
+/**
+ * A page with real body content but fewer than this many internal links is
+ * flagged for the C3 internal-link fix. Only evaluated when the crawler
+ * captured a count (`internalLinkCount` is set) — an absent signal fires
+ * nothing, same silence-not-false-pass contract as the scored dimensions.
+ */
+const MIN_INTERNAL_LINKS = 2;
+
 export interface RawContentIssue {
   type: ContentIssueType;
   evidence: { url: string; score: number };
@@ -36,6 +44,14 @@ export function detectContentIssues(
   }
   if (typeof score.entityCoverage === 'number' && score.entityCoverage < THRESHOLD) {
     issues.push({ type: 'weak-entity-coverage', evidence: { url: page.url, score: score.entityCoverage } });
+  }
+  // C3 internal links: a page with real content but too few internal links.
+  // Only evaluated when the crawler captured a count; the score recorded is
+  // the link count normalized against the target, so severity reflects how
+  // link-starved the page is (0 links → severity 1).
+  if (typeof page.internalLinkCount === 'number' && page.internalLinkCount < MIN_INTERNAL_LINKS) {
+    const linkScore = Math.max(0, Math.min(1, page.internalLinkCount / MIN_INTERNAL_LINKS));
+    issues.push({ type: 'sparse-internal-linking', evidence: { url: page.url, score: linkScore } });
   }
   return { issues, score };
 }

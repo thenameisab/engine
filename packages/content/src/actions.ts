@@ -9,7 +9,12 @@
  */
 import type { ActionTemplate } from '@engine/core';
 
-export type ContentIssueType = 'not-answer-first' | 'poor-self-containment' | 'weak-eeat' | 'weak-entity-coverage';
+export type ContentIssueType =
+  | 'not-answer-first'
+  | 'poor-self-containment'
+  | 'weak-eeat'
+  | 'weak-entity-coverage'
+  | 'sparse-internal-linking';
 
 const ACTION_TEMPLATES: Record<ContentIssueType, ActionTemplate[]> = {
   'not-answer-first': [
@@ -23,6 +28,9 @@ const ACTION_TEMPLATES: Record<ContentIssueType, ActionTemplate[]> = {
   ],
   'weak-entity-coverage': [
     { type: 'content', label: 'Add covering sections', description: "Add sections grounded in the entity's known attributes/keywords (C3.1)." },
+  ],
+  'sparse-internal-linking': [
+    { type: 'internal-link', label: 'Add internal links', description: 'Weave contextual internal links to related pages into the body (C3).' },
   ],
 };
 

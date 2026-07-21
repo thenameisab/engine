@@ -12,6 +12,7 @@ import {
   checkCreateAccountBody,
   checkCreateProjectBody,
   checkBrandingBody,
+  checkDeployTargetBody,
 } from './validate.js';
 
 /**
@@ -199,6 +200,23 @@ describe('checkAuditBody', () => {
 
   it('rejects a malformed target, naming the field', () => {
     expect(checkAuditBody({ pages: [validPage], target: { kind: 'edge-worker' } })?.field).toBe('target.workerName');
+  });
+});
+
+describe('checkDeployTargetBody', () => {
+  it('accepts each well-formed target variant', () => {
+    expect(checkDeployTargetBody({ target: { kind: 'github-pr', repo: 'a/b', branch: 'main', path: 'x.html' } })).toBeNull();
+    expect(checkDeployTargetBody({ target: { kind: 'edge-worker', workerName: 'w' } })).toBeNull();
+    expect(checkDeployTargetBody({ target: { kind: 'cms-plugin', plugin: 'wordpress', siteId: 's' } })).toBeNull();
+  });
+
+  it('rejects a malformed target, naming the field', () => {
+    expect(checkDeployTargetBody({ target: { kind: 'github-pr', repo: 'a/b', branch: 'main' } })?.field).toBe('target.path');
+    expect(checkDeployTargetBody({ target: { kind: 'nope' } })?.field).toBe('target.kind');
+  });
+
+  it('rejects a non-object body', () => {
+    expect(checkDeployTargetBody(null)?.field).toBe('body');
   });
 });
 

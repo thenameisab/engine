@@ -70,6 +70,26 @@ export async function findingBelongsToProject(db: Db, findingId: string, project
   return rows.length > 0;
 }
 
+/**
+ * One finding by id, tenancy-checked against its project through the same
+ * findings -> entities -> project_id hop the list query uses. Returns the full
+ * Finding (with its persisted uuid and action templates) the propose route
+ * needs to dispatch a generator, or null when it isn't this project's — so the
+ * caller gets a 404, never another project's finding. `id::text` for the same
+ * malformed-uuid reason as `findingBelongsToProject`.
+ */
+export async function getFindingInProject(db: Db, findingId: string, projectId: string): Promise<Finding | null> {
+  const rows = await db<FindingRow[]>`
+    select f.id, f.entity_id, f.source, f.issue_type, f.severity,
+           f.predicted_impact, f.evidence, f.action_templates, f.created_at
+    from findings f
+    join entities e on e.id = f.entity_id
+    where f.id::text = ${findingId} and e.project_id::text = ${projectId}
+    limit 1
+  `;
+  return rows.length > 0 ? toFinding(rows[0]) : null;
+}
+
 export async function upsertFindings(db: Db, findings: readonly Finding[]): Promise<Finding[]> {
   const persisted: Finding[] = [];
   for (const finding of findings) {

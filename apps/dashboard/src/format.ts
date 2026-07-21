@@ -274,6 +274,8 @@ export function actionTitle(a: ApiAction): string {
       return `Fix redirect · ${where}`;
     case 'content':
       return `Content rewrite · ${where}`;
+    case 'internal-link':
+      return `Add internal links · ${where}`;
     case 'gbp':
       return `Update business profile · ${where}`;
     default:
@@ -297,8 +299,12 @@ export function targetLabel(t: ApiAction['target']): string {
   }
 }
 
+const KIND_LABELS: Record<string, string> = {
+  'internal-link': 'Internal links',
+};
+
 export function actionKindLabel(type: string): string {
-  return type.charAt(0).toUpperCase() + type.slice(1);
+  return KIND_LABELS[type] ?? type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 /** How much work a fix costs the user, read off where it deploys. */
