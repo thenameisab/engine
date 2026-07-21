@@ -150,6 +150,35 @@ async function readJson(c: Context): Promise<unknown> {
 }
 
 /**
+ * Retrofitted ownership check for every `/projects/:projectId/*` route below.
+ * Before M2.5's `account_members` existed there was nothing to check
+ * membership against, so `requireAuth` only ever proved *some* caller was
+ * signed in — any authenticated user could poll, read, or write any project
+ * just by knowing its id. Mirrors the entity/finding ownership checks already
+ * in these handlers ("check tenancy before spending credit/writing data"),
+ * just for the `projectId` path param itself, once per route.
+ *
+ * Skipped for service callers (the crawl runner, edge worker auto-rollback):
+ * they authenticate with the shared `INTERNAL_API_TOKEN`, not a Neon Auth
+ * user id, so there is no `account_members` row to check — that shared
+ * secret is already their trust boundary (same reasoning as `auditActor`
+ * below).
+ */
+async function projectAccessError(
+  db: Db,
+  projectId: string,
+  user: AuthUser,
+): Promise<{ status: 403 | 404; body: { error: string; projectId: string } } | null> {
+  if (user.isService) return null;
+  const accountId = await getProjectAccountId(db, projectId);
+  if (!accountId) return { status: 404, body: { error: 'project not found', projectId } };
+  if (!(await isAccountMember(db, accountId, user.id))) {
+    return { status: 403, body: { error: 'you are not a member of this project', projectId } };
+  }
+  return null;
+}
+
+/**
  * Integration readiness (pre-alpha wiring check). Reports, per external
  * integration (Google OAuth/GSC, Stripe, Serper SERP, OpenAI, Gemini),
  * whether its required secrets/vars are present — without ever echoing a
@@ -182,6 +211,9 @@ app.post('/projects/:projectId/rank/poll', async (c) => {
   const projectId = c.req.param('projectId');
   const body = await c.req.json<{ queries: SerpQuery[]; entityId?: string }>();
   const db = createDb(c.env.DATABASE_URL);
+
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
 
   // Check tenancy before spending SERP credit: an entityId from another
   // project would otherwise either trip the insert's FK as a 500, or — worse,
@@ -221,6 +253,9 @@ app.post('/projects/:projectId/ai/poll', async (c) => {
   const body = await c.req.json<{ query: PromptQuery; nSamples?: number }>();
   const db = createDb(c.env.DATABASE_URL);
 
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
   // Same tenancy reasoning as rank/poll above, before spending LLM credit.
   const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
   if (!known.has(body.query?.entityId)) {
@@ -234,15 +269,21 @@ app.post('/projects/:projectId/ai/poll', async (c) => {
 });
 
 app.get('/projects/:projectId/entities', async (c) => {
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const entities = await listEntitiesByProject(db, c.req.param('projectId'));
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const entities = await listEntitiesByProject(db, projectId);
   return c.json({ entities });
 });
 
 app.post('/projects/:projectId/entities', async (c) => {
   const body = await c.req.json<{ canonicalName: string }>();
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const entity = await createEntity(db, c.req.param('projectId'), body.canonicalName);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const entity = await createEntity(db, projectId, body.canonicalName);
   return c.json({ entity }, 201);
 });
 
@@ -270,8 +311,11 @@ app.get('/projects/:projectId/cms-plugin/actions', async (c) => {
   if (!siteId) {
     return c.json({ error: 'missing siteId', field: 'siteId' }, 400);
   }
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const actions = await listPendingCmsPluginActions(db, c.req.param('projectId'), plugin as 'wordpress' | 'shopify', siteId);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const actions = await listPendingCmsPluginActions(db, projectId, plugin as 'wordpress' | 'shopify', siteId);
   return c.json({ actions });
 });
 
@@ -287,13 +331,17 @@ app.get('/projects/:projectId/cms-plugin/actions', async (c) => {
  */
 app.post('/projects/:projectId/keywords/research', async (c) => {
   const body = await c.req.json<{ seeds: string[] }>();
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const results = (body.seeds ?? []).map((seed) => ({
     seed,
     intent: classifyIntent(seed),
     hindiTransliteration: transliterateToDevanagari(seed),
     promptSeeds: generatePromptSeeds(seed),
   }));
-  return c.json({ projectId: c.req.param('projectId'), results });
+  return c.json({ projectId, results });
 });
 
 /**
@@ -312,6 +360,9 @@ app.post('/projects/:projectId/entities/:entityId/keywords', async (c) => {
   const projectId = c.req.param('projectId');
   const entityId = c.req.param('entityId');
   const db = createDb(c.env.DATABASE_URL);
+
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
 
   // Same tenancy reasoning as /audit and /actions/generate: entityId is a
   // path param, so an id from another project must not be allowed to attach
@@ -339,6 +390,8 @@ app.get('/projects/:projectId/entities/:entityId/keywords', async (c) => {
   const projectId = c.req.param('projectId');
   const entityId = c.req.param('entityId');
   const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const known = new Set((await listEntitiesByProject(db, projectId)).map((e) => e.id));
   if (!known.has(entityId)) {
     return c.json({ error: 'entity does not belong to this project', entityId }, 400);
@@ -355,8 +408,11 @@ app.get('/projects/:projectId/entities/:entityId/keywords', async (c) => {
  * real query rather than a mock.
  */
 app.get('/projects/:projectId/entities/:entityId/copilot/summary', async (c) => {
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const entity = await getEntityInProject(db, c.req.param('projectId'), c.req.param('entityId'));
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const entity = await getEntityInProject(db, projectId, c.req.param('entityId'));
   if (!entity) {
     return c.json({ error: 'entity does not belong to this project', entityId: c.req.param('entityId') }, 400);
   }
@@ -374,8 +430,12 @@ app.get('/projects/:projectId/entities/:entityId/copilot/summary', async (c) => 
  */
 app.post('/projects/:projectId/pulse', async (c) => {
   const body = await c.req.json<{ surfaces: SurfaceScores; mix?: ChannelMix }>();
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const score = unifiedVisibilityScore(body.surfaces, body.mix ?? DEFAULT_CHANNEL_MIX);
-  return c.json({ projectId: c.req.param('projectId'), score });
+  return c.json({ projectId, score });
 });
 
 /**
@@ -390,6 +450,8 @@ app.post('/projects/:projectId/pulse', async (c) => {
 app.get('/projects/:projectId/pulse', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const projectId = c.req.param('projectId');
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const { surfaces, mix, keywordsTracked, citationSamples } = await assembleSurfaceScores(
     db,
     projectId,
@@ -428,6 +490,10 @@ app.post('/projects/:projectId/audit', async (c) => {
   const pages = body.pages ?? [];
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
+
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
   const result = runAudit(pages);
 
   // A page names the entity it belongs to, and that id becomes findings.entity_id.
@@ -540,6 +606,8 @@ async function autoProposeMetaFixes(
 app.get('/projects/:projectId/audit', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const projectId = c.req.param('projectId');
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const [findings, run] = await Promise.all([
     listFindingsByProject(db, projectId),
     latestAuditRun(db, projectId),
@@ -572,6 +640,9 @@ app.post('/projects/:projectId/actions/generate', async (c) => {
   const body = raw as { finding: Finding; context: ActionContext };
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
+
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
 
   // `finding.id` becomes actions.finding_id, a uuid FK, and is caller-supplied —
   // exactly the situation the /audit entity check above exists for. Unchecked, a
@@ -610,6 +681,9 @@ app.post('/projects/:projectId/actions/generate-content', async (c) => {
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
 
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
   if (!(await findingBelongsToProject(db, body.finding.id, projectId))) {
     return c.json({ error: 'finding does not belong to this project', findingId: body.finding.id }, 400);
   }
@@ -640,13 +714,19 @@ app.post('/projects/:projectId/actions/generate-content', async (c) => {
  * the read side the dashboard's board renders.
  */
 app.get('/projects/:projectId/actions', async (c) => {
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const actions = await listActionsByProject(db, c.req.param('projectId'));
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const actions = await listActionsByProject(db, projectId);
   return c.json({ actions });
 });
 
 app.get('/projects/:projectId/actions/:actionId', async (c) => {
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const action = await getAction(db, c.req.param('actionId'));
   if (!action) return c.json({ error: 'action not found' }, 404);
   return c.json({ action });
@@ -679,7 +759,10 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     const body = await c.req
       .json<{ actor?: string; detail?: object }>()
       .catch(() => ({}) as { actor?: string; detail?: object });
+    const projectId = c.req.param('projectId') as string;
     const db = createDb(c.env.DATABASE_URL);
+    const accessError = await projectAccessError(db, projectId, c.get('user'));
+    if (accessError) return c.json(accessError.body, accessError.status);
     const action = await getAction(db, c.req.param('actionId') as string);
     if (!action) return c.json({ error: 'action not found' }, 404);
 
@@ -703,7 +786,7 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     try {
       const next = transition(action, to, defaultEnv(), auditActor(c.get('user'), body.actor), detail);
       const saved = await saveActionTransition(db, next);
-      if (to === 'deployed') await markFirstFixDeployed(db, c.req.param('projectId') as string);
+      if (to === 'deployed') await markFirstFixDeployed(db, projectId);
       return c.json({ action: saved });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 409);
@@ -724,7 +807,10 @@ app.post('/projects/:projectId/actions/:actionId/rollback', actionTransitionHand
  */
 app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
   const body = await c.req.json<{ actor?: string; renderedHtml?: string; robotsTxt?: string }>();
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const action = await getAction(db, c.req.param('actionId'));
   if (!action) return c.json({ error: 'action not found' }, 404);
 
@@ -751,8 +837,11 @@ app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
  * to first proposed fix (E3, target <48h), both measured from domain-connect.
  */
 app.get('/projects/:projectId/onboarding', async (c) => {
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const progress = await getOnboardingProgress(db, c.req.param('projectId'));
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const progress = await getOnboardingProgress(db, projectId);
   return c.json({
     progress,
     kpis: {
@@ -763,8 +852,11 @@ app.get('/projects/:projectId/onboarding', async (c) => {
 });
 
 app.post('/projects/:projectId/onboarding/domain-connected', async (c) => {
+  const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
-  const progress = await markDomainConnected(db, c.req.param('projectId'));
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const progress = await markDomainConnected(db, projectId);
   return c.json({ progress });
 });
 
@@ -774,11 +866,15 @@ app.post('/projects/:projectId/onboarding/domain-connected', async (c) => {
  * OAuth client. `GSC_CLIENT_ID`/`GSC_REDIRECT_URI` are unset until that
  * client exists; this 500s clearly rather than emitting a broken URL.
  */
-app.get('/projects/:projectId/onboarding/gsc/connect-url', (c) => {
+app.get('/projects/:projectId/onboarding/gsc/connect-url', async (c) => {
   const { GSC_CLIENT_ID, GSC_REDIRECT_URI } = c.env;
   if (!GSC_CLIENT_ID || !GSC_REDIRECT_URI) {
     return c.json({ error: 'GSC OAuth is not configured (GSC_CLIENT_ID/GSC_REDIRECT_URI)' }, 500);
   }
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.searchParams.set('client_id', GSC_CLIENT_ID);
   url.searchParams.set('redirect_uri', GSC_REDIRECT_URI);
@@ -786,7 +882,7 @@ app.get('/projects/:projectId/onboarding/gsc/connect-url', (c) => {
   url.searchParams.set('access_type', 'offline');
   url.searchParams.set('prompt', 'consent');
   url.searchParams.set('scope', 'https://www.googleapis.com/auth/webmasters.readonly');
-  url.searchParams.set('state', c.req.param('projectId'));
+  url.searchParams.set('state', projectId);
   return c.json({ url: url.toString() });
 });
 
