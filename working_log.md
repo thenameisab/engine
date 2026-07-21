@@ -289,3 +289,12 @@
 - Dashboard: NL ask bar in ⌘K Copilot + answer view w/ citation chips (per-pillar tags), latency readout, and "Propose fix" button that drives the propose route; new styles.
 - Live verification (wrangler dev + real Neon, seeded acme test data): all 5 intents answered end-to-end, latencies 216–2493ms (<3s); OpenAI phrasing correctly fell back to deterministic text (no credits); propose bridge produced a real proposed meta action; copilot_queries logged all 5 (unknown w/ no entity). Cleaned up test rows after.
 - Full turbo build + all test tasks green (copilot 21 added).
+
+## 2026-07-21 (B3 Entity & Knowledge Graph Audit)
+- #44 merged to main; started the "wrap up all Phase 2" queue (order: B3, A5, A6, B5, C5, D3, M2.6), one PR at a time off main.
+- Built B3 off main (branch feat/m2.4-b3-entity-graph-audit).
+- New package `@engine/entity-audit` (pure, 14 tests): deterministic entity-graph checks over facts already on the entities row — missing-wikidata-mapping, missing-entity-schema, inconsistent-sameas, weak-corroboration. Emits source='entity' Findings + a 0–1 EntityStrength breakdown (wikidata/schema/sameAs/corroboration components). Corroboration = distinct registrable source domains, saturating at 5. All actions map to existing schema/content types (no ActionType/constraint change).
+- apps/api: repositories/entityAudit.ts; POST /projects/:id/entity-audit (run+persist) & GET (persisted strengths, weakest-first); migration 0010_entity_graph_audits (per-entity strength store, upsert). Applied to Neon.
+- Dashboard: new "Entity Graph" nav view — leads with per-entity strength %, component bars (color-coded), corroborating-domains footer; "Run entity audit" button. New entity icon + CSS.
+- Live verification (wrangler dev + real Neon, 3 seeded entities strong/mid/weak): POST returned 4 findings across all 4 issue types sorted by impact; GET strengths weakest-first (Globex 0.00 / Initech 0.78 / Acme 1.00) with correct sub-scores; Finding->Action bridge proposed a real schema action from a missing-entity-schema finding; dashboard view rendered against live API with no console errors and the Run button re-ran idempotently. Cleaned up test rows.
+- Full turbo build + all test tasks green (entity-audit 14 added).

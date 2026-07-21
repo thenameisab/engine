@@ -2,6 +2,7 @@
 export const ICONS = {
   pulse: '<path d="M3 12h4l2 6 4-14 2 8h6" stroke-linecap="round" stroke-linejoin="round"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4-4" stroke-linecap="round"/>',
+  entity: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5 6.5 15.8M12 7.5l5.5 8.3M7.5 18h9" stroke-linecap="round"/>',
   serp: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4-4" stroke-linecap="round"/><path d="M8 11h6M11 8v6" stroke-linecap="round"/>',
   kanban: '<rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="10" rx="1.5"/>',
   doc: '<path d="M5 3h9l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5" stroke-linejoin="round"/>',

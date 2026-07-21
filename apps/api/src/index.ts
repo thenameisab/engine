@@ -39,6 +39,7 @@ import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
+import { runProjectEntityAudit, listEntityStrengths } from './repositories/entityAudit.js';
 import {
   createAction,
   getAction,
@@ -464,6 +465,46 @@ app.post('/projects/:projectId/copilot/ask', async (c) => {
   }
 
   return c.json({ answer: result.answer, latencyMs: result.latencyMs });
+});
+
+/**
+ * B3 Entity & Knowledge Graph Audit — run the entity-graph checks over the
+ * project's entities (Wikidata mapping, on-site entity schema, sameAs
+ * consistency, cross-web corroboration) and persist both the `source:'entity'`
+ * findings (into the same inventory B1/B2 write, so they propose through the
+ * existing fix flow) and each entity's strength breakdown (migration 0010).
+ * Deterministic: reads the graph facts already on each entity row, no live
+ * external call, so re-running is idempotent and testable.
+ */
+app.post('/projects/:projectId/entity-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const result = await runProjectEntityAudit(db, projectId);
+  if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  return c.json({
+    entitiesAudited: result.entitiesAudited,
+    findingsCount: result.findings.length,
+    findings: result.findings,
+    strengths: result.strengths,
+  });
+});
+
+/**
+ * The project's persisted entity strengths (B3 lead metric), weakest first —
+ * the "do search + AI understand who I am?" view. Empty until an entity audit
+ * has run; an empty array is a real answer, not sample data.
+ */
+app.get('/projects/:projectId/entity-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const strengths = await listEntityStrengths(db, projectId);
+  return c.json({ strengths });
 });
 
 /**
