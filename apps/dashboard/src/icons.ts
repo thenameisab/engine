@@ -16,6 +16,7 @@ export const ICONS = {
   check: '<path d="M20 6 9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/>',
   logo: '<path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/>',
   clients: '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
+  versus: '<path d="M4 6l3 12 3-12M20 6l-3 12M20 6h-4a2 2 0 0 0 0 4h1a2 2 0 0 1 0 4h-4" stroke-linecap="round" stroke-linejoin="round"/>',
 } as const;
 
 export function icon(markup: string, cls = ''): string {

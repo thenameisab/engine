@@ -19,9 +19,12 @@ import type {
   ApiProject,
   ApiPulseResponse,
   AuditData,
+  CompetitorGap,
+  CompetitorRef,
   CopilotAnswer,
   CopilotSummary,
   EntityStrength,
+  GapType,
   PulseData,
   ReadinessReport,
   ActionStatus,
@@ -216,6 +219,43 @@ export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCou
     `/projects/${getProjectId()}/entity-audit`,
     { method: 'POST', body: JSON.stringify({}) },
   );
+}
+
+/**
+ * A5 Competitor Intelligence. List/add/remove the competitor set for a
+ * self-entity, and GET/POST the gap analysis. GET reads the persisted ranked
+ * gaps (biggest first); POST re-runs the deterministic set-difference over the
+ * self-entity vs. its competitors, persisting findings + gaps, and returns both
+ * the flat ranked list and the per-type grouping for the four gap tables.
+ */
+export function fetchCompetitors(selfEntityId: string): Promise<CompetitorRef[]> {
+  return request<{ competitors: CompetitorRef[] }>(
+    `/projects/${getProjectId()}/entities/${selfEntityId}/competitors`,
+  ).then((r) => r.competitors);
+}
+export function addCompetitor(selfEntityId: string, competitorEntityId: string): Promise<{ id: string }> {
+  return request<{ id: string }>(`/projects/${getProjectId()}/entities/${selfEntityId}/competitors`, {
+    method: 'POST',
+    body: JSON.stringify({ competitorEntityId }),
+  });
+}
+export function removeCompetitor(selfEntityId: string, competitorSetId: string): Promise<unknown> {
+  return request(`/projects/${getProjectId()}/entities/${selfEntityId}/competitors/${competitorSetId}`, {
+    method: 'DELETE',
+  });
+}
+export function fetchCompetitorGaps(selfEntityId: string): Promise<CompetitorGap[]> {
+  return request<{ gaps: CompetitorGap[] }>(
+    `/projects/${getProjectId()}/entities/${selfEntityId}/competitor-audit`,
+  ).then((r) => r.gaps);
+}
+export function runCompetitorAudit(
+  selfEntityId: string,
+): Promise<{ selfEntityId: string; competitorsAudited: number; findingsCount: number; gaps: CompetitorGap[]; byType: Record<GapType, CompetitorGap[]> }> {
+  return request(`/projects/${getProjectId()}/entities/${selfEntityId}/competitor-audit`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /**

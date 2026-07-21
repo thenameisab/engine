@@ -215,6 +215,30 @@ export interface EntityStrength {
   updatedAt?: string;
 }
 
+/**
+ * A5 Competitor Intelligence — the five gap dimensions and one gap row from
+ * `GET/POST /projects/:id/entities/:selfEntityId/competitor-audit`. `impact`
+ * is 0–1 (share of the competitor set that beats you, or the entity-strength
+ * delta); the gap list is the "biggest gaps to close" lead view.
+ */
+export type GapType = 'keyword-gap' | 'citation-gap' | 'content-gap' | 'entity-gap' | 'backlink-gap';
+
+export interface CompetitorGap {
+  type: GapType;
+  item: string;
+  heldByCount: number;
+  heldBy: string[];
+  impact: number;
+  evidence: Record<string, unknown>;
+  updatedAt?: string;
+}
+
+export interface CompetitorRef {
+  competitorSetId: string;
+  entityId: string;
+  canonicalName: string;
+}
+
 /** M2.5 agency white-label — the branding a report/logo is rendered with. */
 export interface ApiAccountBranding {
   companyName?: string;
