@@ -10,6 +10,7 @@ import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
 import { entityGraphView } from './views/entityGraph.js';
 import { competitorsView } from './views/competitors.js';
+import { offsiteView } from './views/offsite.js';
 import { settingsView } from './views/settings.js';
 import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
@@ -28,6 +29,7 @@ const ROUTES: Route[] = [
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
   { id: 'entity-graph', label: 'Entity Graph', iconMarkup: ICONS.entity, view: entityGraphView },
   { id: 'competitors', label: 'Competitors', iconMarkup: ICONS.versus, view: competitorsView },
+  { id: 'offsite', label: 'Backlinks', iconMarkup: ICONS.link, view: offsiteView },
   { id: 'clients', label: 'Clients', iconMarkup: ICONS.clients, view: accountsView },
   { id: 'settings', label: 'Settings', iconMarkup: ICONS.gear, view: settingsView },
 ];

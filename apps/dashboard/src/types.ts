@@ -239,6 +239,22 @@ export interface CompetitorRef {
   canonicalName: string;
 }
 
+/**
+ * A6 Backlink & Mention Index (v1.5) — one citation opportunity from
+ * `GET/POST /projects/:id/entities/:selfEntityId/offsite-audit`: a
+ * high-authority domain AI engines cite in the category where the entity is
+ * absent. `authority`/`impact` are 0–1. The opportunity list is the "citation
+ * opportunities" lead view.
+ */
+export interface CitationOpportunity {
+  domain: string;
+  authority: number;
+  citationCount: number;
+  distinctEntities: number;
+  impact: number;
+  updatedAt?: string;
+}
+
 /** M2.5 agency white-label — the branding a report/logo is rendered with. */
 export interface ApiAccountBranding {
   companyName?: string;

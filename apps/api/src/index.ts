@@ -47,6 +47,7 @@ import {
   runProjectCompetitorAudit,
   listCompetitorGaps,
 } from './repositories/competitor.js';
+import { runProjectOffsiteAudit, listCitationOpportunities } from './repositories/offsite.js';
 import {
   createAction,
   getAction,
@@ -602,6 +603,50 @@ app.get('/projects/:projectId/entities/:selfEntityId/competitor-audit', async (c
   if (accessError) return c.json(accessError.body, accessError.status);
   const gaps = await listCompetitorGaps(db, projectId, selfEntityId);
   return c.json({ gaps });
+});
+
+/**
+ * A6 Backlink & Mention Index (v1.5) — mine the project's A2 citation archive
+ * (citation_events.sources_cited) into citation-domain intelligence and the
+ * "citation opportunities" for a self-entity (high-authority domains AI cites
+ * in the category where the entity is absent), persist the off-site findings
+ * (into the shared inventory) and the ranked opportunities (migration 0012).
+ * Deterministic: reads data the system already holds, so re-running is
+ * idempotent and testable.
+ */
+app.post('/projects/:projectId/entities/:selfEntityId/offsite-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const selfEntityId = c.req.param('selfEntityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const result = await runProjectOffsiteAudit(db, projectId, selfEntityId);
+  if (!result) return c.json({ error: 'self entity not found in project' }, 404);
+  if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  return c.json({
+    selfEntityId: result.selfEntityId,
+    observationsAnalyzed: result.observationsAnalyzed,
+    categorySize: result.categorySize,
+    findingsCount: result.findings.length,
+    opportunities: result.opportunities,
+    domainIntel: result.domainIntel,
+    findings: result.findings,
+  });
+});
+
+/**
+ * The project's persisted citation opportunities for a self-entity, biggest
+ * first — the "citation opportunities" view. Empty until an off-site audit ran.
+ */
+app.get('/projects/:projectId/entities/:selfEntityId/offsite-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const selfEntityId = c.req.param('selfEntityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const opportunities = await listCitationOpportunities(db, projectId, selfEntityId);
+  return c.json({ opportunities });
 });
 
 /**
