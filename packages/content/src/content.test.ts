@@ -168,6 +168,20 @@ describe('detectContentIssues', () => {
     const { issues } = detectContentIssues(p);
     expect(issues.map((i) => i.type)).not.toContain('weak-entity-coverage');
   });
+
+  it('fires sparse-internal-linking when the crawler counted too few internal links', () => {
+    const p = page({ bodyText: GOOD_LEAD, internalLinkCount: 0 });
+    const { issues } = detectContentIssues(p);
+    expect(issues.map((i) => i.type)).toContain('sparse-internal-linking');
+  });
+
+  it('does not fire sparse-internal-linking when the page has enough links, or the count is unmeasured', () => {
+    expect(detectContentIssues(page({ bodyText: GOOD_LEAD, internalLinkCount: 5 })).issues.map((i) => i.type)).not.toContain(
+      'sparse-internal-linking',
+    );
+    // Absent signal fires nothing — silence, not a false positive.
+    expect(detectContentIssues(page({ bodyText: GOOD_LEAD })).issues.map((i) => i.type)).not.toContain('sparse-internal-linking');
+  });
 });
 
 describe('runContentAudit', () => {

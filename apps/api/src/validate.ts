@@ -218,7 +218,7 @@ export function checkAuditBody(body: unknown): Invalid | null {
 
 // ── Finding + ActionContext (POST /projects/:projectId/actions/generate) ────
 
-const ACTION_TYPES = ['schema', 'meta', 'redirect', 'robots', 'content', 'gbp'] as const;
+const ACTION_TYPES = ['schema', 'meta', 'redirect', 'robots', 'content', 'internal-link', 'gbp'] as const;
 
 /**
  * `DeployTarget` is a discriminated union, and it is persisted verbatim to a
@@ -250,6 +250,17 @@ function checkDeployTarget(value: unknown, field: string): Invalid | null {
     default:
       return checkOneOf(t.kind, `${field}.kind`, ['cms-plugin', 'edge-worker', 'github-pr', 'gbp-api'] as const);
   }
+}
+
+/**
+ * Validate the `PUT /projects/:id/deploy-target` body. The target is persisted
+ * to a jsonb column the edge worker later reads, so an unrecognized variant is
+ * caught here (via the shared `checkDeployTarget`) rather than at deploy time.
+ */
+export function checkDeployTargetBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  return checkDeployTarget((body as Record<string, unknown>).target, 'target');
 }
 
 function checkActionTemplate(value: unknown, field: string): Invalid | null {

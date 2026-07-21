@@ -55,4 +55,24 @@ export interface ActionContext {
 
   /** The page's current captured body text (B2's `CrawledPage.bodyText`) — the C3.1 content rewrite's `before`, and the source text the LLM edits. */
   currentBodyText?: string;
+
+  /**
+   * The page's current body markup — the block an internal-link fix (C3)
+   * weaves anchors into, and the `before` a live deploy target locates and
+   * replaces. Distinct from `currentBodyText` (visible text, for the LLM
+   * rewrite): links can only be inserted into markup. Falls back to
+   * `currentBodyText` when absent.
+   */
+  currentBodyHtml?: string;
+
+  /**
+   * Internal-link targets to weave into the page (C3 "internal links"). Like
+   * `hreflangAlternates`, this is *not* observable from crawling the page in
+   * isolation — which related pages deserve a link, and with what anchor, is
+   * an entity-graph / related-content decision the caller owns. The generator
+   * inserts exactly what it is given: the first unlinked occurrence of each
+   * `anchor` becomes a link to `href`; suggestions whose anchor isn't found
+   * (or is already linked) are skipped, nothing invented.
+   */
+  internalLinkSuggestions?: { anchor: string; href: string }[];
 }

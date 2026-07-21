@@ -34,6 +34,8 @@ interface DomSignals {
   jsonLdScripts: string[];
   headings: { level: number; text: string }[];
   bodyText: string;
+  bodyHtml: string;
+  internalLinkCount: number;
 }
 
 function extractDomSignals(): DomSignals {
@@ -43,6 +45,10 @@ function extractDomSignals(): DomSignals {
   // closure it would otherwise capture — a `ReferenceError` in the browser
   // context that a Node-side unit test would never catch.
   const BODY_TEXT_MAX_CHARS = 20_000;
+  // Cap on captured body markup — the internal-link fix (C3) weaves anchors
+  // into it, so a few tens of KB of the lead content is plenty; the full page
+  // is not worth storing.
+  const BODY_HTML_MAX_CHARS = 40_000;
   const canonicalEl = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
   const descEl = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
   const robotsEl = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
@@ -57,6 +63,12 @@ function extractDomSignals(): DomSignals {
   // noise B2's answer-first/self-containment heuristics would misread).
   const contentEl = document.querySelector('main, article') ?? document.body;
 
+  // Same-site links in the main content (B2 → C3 sparse-internal-linking).
+  // Resolved via each anchor's `.host`, which the browser normalizes against
+  // the page's base URL, so relative hrefs are counted correctly.
+  const anchorEls = Array.from(contentEl?.querySelectorAll('a[href]') ?? []) as HTMLAnchorElement[];
+  const internalLinkCount = anchorEls.filter((a) => a.host === location.host).length;
+
   return {
     title: document.title ?? '',
     metaDescription: descEl?.content ?? '',
@@ -66,6 +78,8 @@ function extractDomSignals(): DomSignals {
     jsonLdScripts: jsonLdEls.map((el) => el.textContent ?? ''),
     headings: headingEls.map((el) => ({ level: Number(el.tagName[1]), text: (el.textContent ?? '').trim() })),
     bodyText: (contentEl?.textContent ?? '').trim().slice(0, BODY_TEXT_MAX_CHARS),
+    bodyHtml: (contentEl?.innerHTML ?? '').slice(0, BODY_HTML_MAX_CHARS),
+    internalLinkCount,
   };
 }
 
@@ -139,6 +153,8 @@ export async function crawlPage(
       pageValue: options.pageValue,
       headings: dom.headings,
       bodyText: dom.bodyText,
+      bodyHtml: dom.bodyHtml,
+      internalLinkCount: dom.internalLinkCount,
     };
   } finally {
     await page.close();

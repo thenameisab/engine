@@ -90,4 +90,8 @@ export interface CrawledPage {
   headings?: { level: number; text: string }[];
   /** Rendered visible body text (main content, not nav/footer chrome), for B2's extractability heuristics. */
   bodyText?: string;
+  /** Rendered body markup (main content), for B2 and the C3 internal-link fix that weaves anchors into it. */
+  bodyHtml?: string;
+  /** Count of internal (same-site) links in the main content, for B2's sparse-internal-linking rule (C3). */
+  internalLinkCount?: number;
 }

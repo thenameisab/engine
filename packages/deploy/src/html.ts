@@ -58,14 +58,34 @@ function applyHreflang(html: string, tags: string): string {
   return /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${tags}\n</head>`) : html;
 }
 
-/** Apply a single 'schema' or 'meta' Action's diff to HTML; other action types pass through untouched. */
-export function applyHtmlDiff(html: string, action: Pick<Action, 'type' | 'diff'>): string {
-  if (action.type === 'schema') return applySchemaDiff(html, action.diff);
-  if (action.type === 'meta') return applyMetaDiff(html, action.diff);
+/**
+ * Apply a body-content diff (C3 'internal-link' and 'content' rewrites) by
+ * locating the diff's `before` block verbatim and swapping in `after`. Unlike
+ * schema/meta these edit the body, not <head>, and there is no place to
+ * *insert* a rewrite the way a missing title can be appended — so a `before`
+ * that isn't present verbatim is a safe no-op, not a blind append: the live
+ * page has diverged from what was proposed (which the verify step also
+ * catches). Full-page rewrites whose `before` is extracted visible text
+ * rather than the literal markup will typically not match here — those deploy
+ * cleanly via `github-pr`, which writes the whole file; live application is
+ * best-effort for the snippet-scoped case (internal links).
+ */
+export function applyBodyDiff(html: string, diff: Diff): string {
+  if (diff.before && html.includes(diff.before)) {
+    return html.replace(diff.before, diff.after);
+  }
   return html;
 }
 
-/** Fold every deployed schema/meta Action for a page into its HTML, in order. */
+/** Apply a single Action's diff to HTML; action types with no live-HTML transform pass through untouched. */
+export function applyHtmlDiff(html: string, action: Pick<Action, 'type' | 'diff'>): string {
+  if (action.type === 'schema') return applySchemaDiff(html, action.diff);
+  if (action.type === 'meta') return applyMetaDiff(html, action.diff);
+  if (action.type === 'internal-link' || action.type === 'content') return applyBodyDiff(html, action.diff);
+  return html;
+}
+
+/** Fold every deployed HTML-transforming Action for a page into its HTML, in order. */
 export function applyHtmlActions(html: string, actions: readonly Pick<Action, 'type' | 'diff'>[]): string {
   return actions.reduce((acc, action) => applyHtmlDiff(acc, action), html);
 }

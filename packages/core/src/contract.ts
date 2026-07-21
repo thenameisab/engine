@@ -40,7 +40,7 @@ export interface Finding {
   createdAt: string;
 }
 
-export type ActionType = 'schema' | 'meta' | 'redirect' | 'robots' | 'content' | 'gbp';
+export type ActionType = 'schema' | 'meta' | 'redirect' | 'robots' | 'content' | 'internal-link' | 'gbp';
 
 export type DeployTarget =
   | { kind: 'cms-plugin'; plugin: 'wordpress' | 'shopify'; siteId: string }

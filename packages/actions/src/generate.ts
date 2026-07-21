@@ -13,6 +13,7 @@ import { generateMetaTitleAction, generateMetaDescriptionAction } from './meta.j
 import { generateRobotsAction } from './robots.js';
 import { generateRedirectAction } from './redirect.js';
 import { generateHreflangAction } from './hreflang.js';
+import { generateInternalLinkAction } from './internalLink.js';
 
 /** Pull the blocked-crawler list out of a finding's evidence, if present. */
 function blockedFromEvidence(finding: Finding): string[] | undefined {
@@ -79,8 +80,18 @@ export function generateActions(finding: Finding, ctx: ActionContext, env: Build
         if (a) actions.push(a);
         break;
       }
-      // 'content' | 'gbp' are not generated in the MVP (no C3/C5 executor
-      // yet); the diagnosis layer still surfaces those findings.
+      case 'internal-link': {
+        // C3 internal links: a free, deterministic markup transform, so it
+        // belongs here (unlike the LLM-costed 'content' rewrite, which stays
+        // in its own opt-in route). Suggestions come from ctx, not evidence —
+        // same caller-owned shape as hreflang.
+        const a = generateInternalLinkAction(finding, ctx, env);
+        if (a) actions.push(a);
+        break;
+      }
+      // 'content' | 'gbp' are not generated here: 'content' is a costed LLM
+      // call behind its own route (generateContentAction); C5 'gbp' has no
+      // executor yet. The diagnosis layer still surfaces both findings.
       default:
         break;
     }

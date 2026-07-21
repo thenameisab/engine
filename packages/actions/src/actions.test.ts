@@ -7,6 +7,7 @@ import { proposeTitle, proposeDescription, TITLE_MAX } from './meta.js';
 import { unblockCrawlers } from './robots.js';
 import { resolveRedirectPair, generateRedirectAction } from './redirect.js';
 import { buildHreflangTags, generateHreflangAction } from './hreflang.js';
+import { generateInternalLinkAction } from './internalLink.js';
 import { generateActions } from './generate.js';
 
 const ENV: BuildEnv = { now: () => '2026-07-15T00:00:00.000Z', makeId: () => 'act_fixed' };
@@ -177,7 +178,67 @@ describe('generateHreflangAction', () => {
   });
 });
 
+describe('generateInternalLinkAction', () => {
+  const links = [
+    { anchor: 'widget guide', href: 'https://acme.com/guide' },
+    { anchor: 'pricing', href: 'https://acme.com/pricing' },
+  ];
+
+  it('wraps the first occurrence of each suggested anchor in a link', () => {
+    const body = '<p>Read our widget guide before you compare pricing today.</p>';
+    const a = generateInternalLinkAction({ id: 'fnd_1' }, ctx({ currentBodyHtml: body, internalLinkSuggestions: links }), ENV)!;
+    expect(a.type).toBe('internal-link');
+    expect(a.diff.format).toBe('html');
+    expect(a.diff.after).toContain('<a href="https://acme.com/guide">widget guide</a>');
+    expect(a.diff.after).toContain('<a href="https://acme.com/pricing">pricing</a>');
+  });
+
+  it('never links inside an existing anchor and never double-links', () => {
+    const body = '<p>See <a href="/x">pricing</a> and more pricing details.</p>';
+    const a = generateInternalLinkAction({ id: 'fnd_1' }, ctx({ currentBodyHtml: body, internalLinkSuggestions: [links[1]] }), ENV)!;
+    // The already-linked "pricing" is untouched; the second, free occurrence gets linked.
+    expect(a.diff.after).toBe('<p>See <a href="/x">pricing</a> and more <a href="https://acme.com/pricing">pricing</a> details.</p>');
+  });
+
+  it('falls back to currentBodyText when no bodyHtml is given', () => {
+    const a = generateInternalLinkAction({ id: 'fnd_1' }, ctx({ currentBodyText: 'The pricing is fair.', internalLinkSuggestions: [links[1]] }), ENV)!;
+    expect(a.diff.after).toContain('<a href="https://acme.com/pricing">pricing</a>');
+  });
+
+  it('returns null when there is nothing to link (no source, no suggestions, or no anchor found)', () => {
+    expect(generateInternalLinkAction({ id: 'fnd_1' }, ctx({ internalLinkSuggestions: links }), ENV)).toBeNull();
+    expect(generateInternalLinkAction({ id: 'fnd_1' }, ctx({ currentBodyHtml: '<p>hi</p>' }), ENV)).toBeNull();
+    expect(
+      generateInternalLinkAction({ id: 'fnd_1' }, ctx({ currentBodyHtml: '<p>nothing relevant</p>', internalLinkSuggestions: links }), ENV),
+    ).toBeNull();
+  });
+
+  it('escapes href attribute values', () => {
+    const body = '<p>compare pricing</p>';
+    const a = generateInternalLinkAction(
+      { id: 'fnd_1' },
+      ctx({ currentBodyHtml: body, internalLinkSuggestions: [{ anchor: 'pricing', href: 'https://acme.com/p?a=1&b="2"' }] }),
+      ENV,
+    )!;
+    expect(a.diff.after).toContain('href="https://acme.com/p?a=1&amp;b=&quot;2&quot;"');
+  });
+});
+
 describe('generateActions dispatcher', () => {
+  it('emits an internal-link action for a sparse-internal-linking finding', () => {
+    const f = finding({
+      issueType: 'sparse-internal-linking',
+      actionTemplates: [{ type: 'internal-link', label: 'Add internal links', description: '' }],
+    });
+    const actions = generateActions(
+      f,
+      ctx({ currentBodyHtml: '<p>our pricing page</p>', internalLinkSuggestions: [{ anchor: 'pricing', href: 'https://acme.com/pricing' }] }),
+      ENV,
+    );
+    expect(actions.map((a) => a.type)).toEqual(['internal-link']);
+  });
+
+
   it('emits a schema action for a schema finding', () => {
     const f = finding({ actionTemplates: [{ type: 'schema', label: 'Generate JSON-LD', description: '' }] });
     const actions = generateActions(f, ctx(), ENV);
