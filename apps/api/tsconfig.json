@@ -27,6 +27,9 @@
       "path": "../../packages/content"
     },
     {
+      "path": "../../packages/copilot"
+    },
+    {
       "path": "../../packages/core"
     },
     {

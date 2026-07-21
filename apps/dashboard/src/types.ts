@@ -173,6 +173,33 @@ export interface CopilotSummary {
   topFindings: { id: string; issueType: string; predictedImpact: number; evidence: { url?: string } }[];
 }
 
+/**
+ * `POST /projects/:id/copilot/ask` (M2.4) — a natural-language question
+ * answered over the same entity-first join, with every figure cited back to
+ * its source table and an optional Finding -> Action bridge into the propose
+ * route. Mirrors `@engine/copilot`'s `CopilotAnswer`.
+ */
+export interface CopilotCitation {
+  source: 'serp_positions' | 'citation_events' | 'findings';
+  label: string;
+  ref?: string;
+}
+export interface CopilotSuggestedAction {
+  findingId: string;
+  issueType: string;
+  actionType: string;
+  proposeHref: string;
+  label: string;
+}
+export interface CopilotAnswer {
+  intent: 'entity_visibility' | 'organic_vs_ai' | 'top_findings' | 'keyword_rank' | 'unknown';
+  entityId?: string;
+  answer: string;
+  citations: CopilotCitation[];
+  drilldown: { kind: 'entity' | 'finding'; id: string }[];
+  suggestedAction?: CopilotSuggestedAction;
+}
+
 /** M2.5 agency white-label — the branding a report/logo is rendered with. */
 export interface ApiAccountBranding {
   companyName?: string;

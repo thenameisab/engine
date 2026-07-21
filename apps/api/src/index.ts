@@ -38,6 +38,7 @@ import {
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
+import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
 import {
   createAction,
   getAction,
@@ -421,6 +422,48 @@ app.get('/projects/:projectId/entities/:entityId/copilot/summary', async (c) => 
   }
   const summary = await buildEntityCopilotSummary(db, entity.id, entity.canonicalName);
   return c.json({ summary });
+});
+
+/**
+ * M2.4 "Copilot GA": a natural-language question -> a cited, drill-downable
+ * answer. The whole answer is computed deterministically from the same
+ * entity-first A1/A2/B1 join the summary route serves — the intent parse,
+ * cited-answer assembly, and phrasing contract all live in `@engine/copilot`
+ * and run without any model call, which is how the <3s budget is met and how
+ * the path stays exercisable even with the OpenAI key present but out of
+ * credits. When credits exist, `OPENAI_API_KEY` upgrades only the prose
+ * fluency (behind a hard timeout), never the numbers or citations.
+ *
+ * Every answer carries `citations` naming the exact table each figure came
+ * from, `drilldown` ids the UI links to, and — via the Finding -> Action
+ * bridge — an optional `suggestedAction` pointing at the M2.3 propose route,
+ * so the Copilot is a launch point for a fix, not just a read surface.
+ */
+app.post('/projects/:projectId/copilot/ask', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const body = (await c.req.json<{ question?: unknown }>().catch(() => ({}))) as { question?: unknown };
+  const question = typeof body.question === 'string' ? body.question.trim() : '';
+  if (!question) {
+    return c.json({ error: 'question is required', field: 'question' }, 400);
+  }
+
+  const result = await answerQuestion(db, projectId, question, {
+    openAiApiKey: c.env.OPENAI_API_KEY,
+    openAiModel: c.env.OPENAI_MODEL,
+  });
+
+  // Best-effort analytics: never let a logging failure sink an answer.
+  try {
+    await logCopilotQuery(db, projectId, question, result.answer.intent, result.latencyMs, result.entityId);
+  } catch {
+    /* swallow: the log is telemetry, not the product */
+  }
+
+  return c.json({ answer: result.answer, latencyMs: result.latencyMs });
 });
 
 /**

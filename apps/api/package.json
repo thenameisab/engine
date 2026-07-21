@@ -17,6 +17,7 @@
     "@engine/config": "workspace:*",
     "@engine/connectors": "workspace:*",
     "@engine/content": "workspace:*",
+    "@engine/copilot": "workspace:*",
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",
