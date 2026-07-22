@@ -11,7 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@engine/core": "workspace:*"
+    "@engine/core": "workspace:*",
+    "@engine/deploy": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
