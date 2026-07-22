@@ -75,4 +75,23 @@ export interface ActionContext {
    * (or is already linked) are skipped, nothing invented.
    */
   internalLinkSuggestions?: { anchor: string; href: string }[];
+
+  /**
+   * Caller-owned inputs for a C5 GBP fix (B5 findings). Like
+   * `hreflangAlternates`/`internalLinkSuggestions`, the value to write is not
+   * inferable from the finding alone — the new field text, the reply wording,
+   * the post copy are authored by the caller (owner-approved, or an LLM draft
+   * upstream) — so the generator emits exactly what it is given and produces
+   * nothing when the matching input is absent. Which op a finding needs is
+   * decided from its `issueType`; these supply that op's payload.
+   */
+  gbp?: {
+    /** New value for an `incomplete-gbp-field` fix (paired with the finding's `evidence.field`). */
+    fieldValue?: string;
+    /** Owner reply for an `unanswered-reviews` fix. */
+    reviewName?: string;
+    reviewReply?: string;
+    /** Post copy for a `low-review-velocity` fix (a GBP post to lift engagement). */
+    postSummary?: string;
+  };
 }

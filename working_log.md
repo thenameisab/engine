@@ -321,3 +321,14 @@
 - Dashboard: new "Local SEO" nav view — per-location visibility score + component bars (reuses eg- CSS), location picker + Run button; 409 (no profile) surfaced clearly. New pin icon.
 - Full turbo build green (21/21) + all test tasks green (local 14 added, api 101).
 - NOT DONE: live wrangler+Neon verification (DATABASE_URL unavailable in env) + migration 0013 apply. Needs to run before merge.
+
+## 2026-07-22 (C5 GBP Automation)
+- Phase-2 queue: A5/A6/B5 merged → C5 next. Branch feat/c5-gbp-automation off origin/main.
+- C5 is the executor for the 'gbp-api' DeployTarget + 'gbp' ActionType (both frozen in the contract since scaffold, never implemented) — it deploys the gbp actions B5 findings map to. No new package: extends @engine/deploy (executor) + @engine/actions (generator), mirroring C4.5 githubPr.
+- @engine/deploy/gbp.ts (11 tests): fetch-based, injectable — getGbpAccessToken (OAuth refresh-token exchange), deployGbpAction (dispatches GbpOperation: update-field PATCH v1 business-information, reply-review PUT v4, create-post POST v4), verifyGbpDeploy (pure). GbpOperation is the wire shape, serialized into diff.after so the executor is a pure fn of the Action; parse/serialize helpers.
+- @engine/actions/gbp.ts (8 tests): generateGbpAction — deterministic, ctx-owned (value to write comes from ctx.gbp: fieldValue/reviewReply/postSummary), op chosen from finding.issueType (incomplete-gbp-field→update-field, unanswered-reviews→reply-review, low-review-velocity→create-post). Wired into generateActions' synchronous dispatcher (removed the 'gbp' exclusion); emits nothing when target isn't gbp-api or no value supplied. Added @engine/deploy dep to @engine/actions (no cycle; deploy→core only).
+- apps/api: deploy transition handles gbp-api (exchange GBP_REFRESH_TOKEN+client for access token → deployGbpAction; 503 when unconfigured, like GITHUB_TOKEN; 502 on API failure). verify route dispatches gbp → verifyGbpDeploy. New env vars GBP_REFRESH_TOKEN/GBP_CLIENT_ID/GBP_CLIENT_SECRET.
+- Dashboard already renders gbp actions (actionTitle 'Update business profile', gbp-api target/effort labels) — no change needed.
+- Live-verified (wrangler + Neon): seeded a gbp action, approve OK, deploy→503 (GBP unconfigured, correct), verify→gbp matcher ran+matched (409 only from state machine refusing verify-before-deploy). Cleaned up. Live GBP API writes remain mock-tested (need owner-consented OAuth creds).
+- Full turbo build green (22/22) + all test tasks green (deploy 53 (+11), actions 56 (+8)).
+- FOLLOW-ON (noted): the propose route doesn't yet feed ctx.gbp, so auto-proposing a GBP fix end-to-end needs the ctx.gbp plumbing (owner-supplied values or an LLM review-reply/post draft). Generator is fully tested with ctx.gbp provided.

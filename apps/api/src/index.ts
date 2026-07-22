@@ -9,7 +9,7 @@ import {
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { runContentAudit } from '@engine/content';
 import { generateActions, generateContentAction, transition, defaultEnv, type ActionContext } from '@engine/actions';
-import { verifyHtmlDeploy, verifyRobotsDeploy, exportActionAsPr } from '@engine/deploy';
+import { verifyHtmlDeploy, verifyRobotsDeploy, verifyGbpDeploy, exportActionAsPr, getGbpAccessToken, deployGbpAction } from '@engine/deploy';
 import {
   verifyStripeSignature,
   mapStripeSubscriptionEvent,
@@ -115,6 +115,15 @@ interface Env extends AuthEnv {
   CORS_ORIGINS?: string;
   /** C4.5 GitHub PR export — token for the 'github-pr' DeployTarget's real API calls. */
   GITHUB_TOKEN?: string;
+  /**
+   * C5 GBP automation — OAuth for the 'gbp-api' DeployTarget's Business Profile
+   * writes. A refresh token (owner-consented, `business.manage` scope) exchanged
+   * for an access token at deploy time, plus the OAuth client. Unset until the
+   * GBP OAuth app + a consented location are configured; the deploy then 503s.
+   */
+  GBP_REFRESH_TOKEN?: string;
+  GBP_CLIENT_ID?: string;
+  GBP_CLIENT_SECRET?: string;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -1220,6 +1229,24 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
       }
     }
 
+    // C5: a 'gbp-api' target applies the fix by calling the Business Profile
+    // API synchronously as part of the deploy transition (like github-pr), not
+    // a separate push step. Needs an owner-consented OAuth refresh token +
+    // client; degrades to 503 when unconfigured, the same as github-pr.
+    if (to === 'deployed' && action.target.kind === 'gbp-api') {
+      const { GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET } = c.env;
+      if (!GBP_REFRESH_TOKEN || !GBP_CLIENT_ID || !GBP_CLIENT_SECRET) {
+        return c.json({ error: 'GBP automation is not configured (set GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET)' }, 503);
+      }
+      try {
+        const token = await getGbpAccessToken(GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET);
+        const res = await deployGbpAction(token, action.target.locationId, action);
+        detail = { ...detail, gbpOperation: res.operation, gbpTarget: res.target };
+      } catch (err) {
+        return c.json({ error: `GBP deploy failed: ${(err as Error).message}` }, 502);
+      }
+    }
+
     try {
       const next = transition(action, to, defaultEnv(), auditActor(c.get('user'), body.actor), detail);
       const saved = await saveActionTransition(db, next);
@@ -1243,7 +1270,7 @@ app.post('/projects/:projectId/actions/:actionId/rollback', actionTransitionHand
  * (@engine/deploy) is pure and integration-testable here.
  */
 app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
-  const body = await c.req.json<{ actor?: string; renderedHtml?: string; robotsTxt?: string }>();
+  const body = await c.req.json<{ actor?: string; renderedHtml?: string; robotsTxt?: string; gbpState?: string }>();
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
   const accessError = await projectAccessError(db, projectId, c.get('user'));
@@ -1252,9 +1279,11 @@ app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
   if (!action) return c.json({ error: 'action not found' }, 404);
 
   const matched =
-    action.type === 'robots'
-      ? verifyRobotsDeploy(body.robotsTxt ?? '', action)
-      : verifyHtmlDeploy(body.renderedHtml ?? '', action);
+    action.type === 'gbp'
+      ? verifyGbpDeploy(body.gbpState ?? '', action)
+      : action.type === 'robots'
+        ? verifyRobotsDeploy(body.robotsTxt ?? '', action)
+        : verifyHtmlDeploy(body.renderedHtml ?? '', action);
   if (!matched) {
     return c.json({ error: 'verification failed: deployed content does not match the proposed diff' }, 409);
   }

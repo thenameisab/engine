@@ -123,6 +123,9 @@ importers:
       '@engine/core':
         specifier: workspace:*
         version: link:../core
+      '@engine/deploy':
+        specifier: workspace:*
+        version: link:../deploy
     devDependencies:
       typescript:
         specifier: ^5.7.0

@@ -14,6 +14,7 @@ import { generateRobotsAction } from './robots.js';
 import { generateRedirectAction } from './redirect.js';
 import { generateHreflangAction } from './hreflang.js';
 import { generateInternalLinkAction } from './internalLink.js';
+import { generateGbpAction } from './gbp.js';
 
 /** Pull the blocked-crawler list out of a finding's evidence, if present. */
 function blockedFromEvidence(finding: Finding): string[] | undefined {
@@ -89,9 +90,18 @@ export function generateActions(finding: Finding, ctx: ActionContext, env: Build
         if (a) actions.push(a);
         break;
       }
-      // 'content' | 'gbp' are not generated here: 'content' is a costed LLM
-      // call behind its own route (generateContentAction); C5 'gbp' has no
-      // executor yet. The diagnosis layer still surfaces both findings.
+      case 'gbp': {
+        // C5: deterministic + ctx-owned (the value to write comes from
+        // ctx.gbp), so it belongs in this synchronous dispatcher — unlike the
+        // LLM-costed 'content' rewrite, which stays in its own opt-in route
+        // (generateContentAction). Emits nothing when the target isn't a GBP
+        // location or no value was supplied.
+        const a = generateGbpAction(finding, ctx, env);
+        if (a) actions.push(a);
+        break;
+      }
+      // 'content' is not generated here: it is a costed LLM call behind its own
+      // route (generateContentAction). The diagnosis layer still surfaces it.
       default:
         break;
     }

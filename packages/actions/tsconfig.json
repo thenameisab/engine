@@ -5,7 +5,7 @@
     "rootDir": "src",
     "lib": ["ES2022", "DOM"]
   },
-  "references": [{ "path": "../core" }],
+  "references": [{ "path": "../core" }, { "path": "../deploy" }],
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
 }
