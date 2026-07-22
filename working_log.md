@@ -321,3 +321,14 @@
 - Dashboard: new "Local SEO" nav view — per-location visibility score + component bars (reuses eg- CSS), location picker + Run button; 409 (no profile) surfaced clearly. New pin icon.
 - Full turbo build green (21/21) + all test tasks green (local 14 added, api 101).
 - NOT DONE: live wrangler+Neon verification (DATABASE_URL unavailable in env) + migration 0013 apply. Needs to run before merge.
+
+## 2026-07-22 (Live verification — A5 / A6 / B5)
+- DATABASE_URL provided; moved it out of the committed .dev.vars.example (restored placeholder) into gitignored apps/api/.dev.vars (AUTH_MODE=disabled for local). No secret committed. (Advise rotating the Neon password since it briefly sat in a tracked file on disk.)
+- Applied migrations 0011 (competitor_sets/gaps), 0012 (citation_opportunities), 0013 (local_profiles/audits) to Neon via `pnpm db:migrate` — recorded in schema_migrations.
+- wrangler dev + real Neon, seeded a 3-entity CRM category (Acme self weak, Globex/Initech strong):
+  - A5: add/list competitors, same-entity guard 400; competitor-audit → 10 findings, all 5 gap types ranked correctly (self's own keyword/prompt excluded); persisted GET biggest-first.
+  - A6: offsite-audit → g2.com/forbes.com as citation opportunities (authority 0.4, self absent), ownblog.com correctly selfPresent, capterra below floor; negative-mention cluster + profile-completeness findings; persisted GET.
+  - B5: no-profile 409 guard; PUT profile; local-audit → score 0.177 (gbp 0.4 / nap 0 / review 0.067), 6 findings incl. nap-inconsistency (source local → content C6.3 action); project GET weakest-first.
+  - Shared inventory confirmed: findings persisted with sources content (A5 gaps + A6), entity (A5 entity-gap), local (B5), coexisting with pre-existing technical findings — frozen Finding→Action contract holds.
+- Cleaned up all seeded rows afterward (23 findings, 2 competitor entities + cascade, all feature stores, reset Acme's arrays). Zero feature rows remain.
+- All three (#46 merged, #47 merged, #48 open) now live-verified. Full build + tests green.
