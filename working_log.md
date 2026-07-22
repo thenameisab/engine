@@ -314,3 +314,10 @@
 - Dashboard: new "Backlinks" nav view — entity picker + "Citation opportunities" ranked list (domain · cited×N · peers · authority%); new link icon + off- CSS.
 - Full turbo build green (21/21) + all test tasks green (34/34; backlink 13 added).
 - NOT DONE: live wrangler+Neon verification (DATABASE_URL unavailable in env) + migration 0012 apply. Needs to run before merge.
+## 2026-07-21 (B5 Local SEO Audit, v1.5)
+- Phase-2 queue: A5 merged (#46), A6 merging (#47) → B5 next. Branch feat/b5-local-seo-audit off origin/main (has A5; A6 in-flight, so B5 migration numbered 0013 to avoid colliding with A6's 0012).
+- New package `@engine/local` (pure, 14 tests): B5 v1.5 deterministic core over one location's profile facts (a location is an entity). gbpCompleteness (5 fields: categories/hours/attributes/photos≥3/description≥50 chars); napConsistency (Name/Address/Phone normalized — punctuation-insensitive, phone compared on last 10 digits so +91/0-prefix differences don't false-flag); reviewHealth (velocity saturating at 5 recent/90d + response rate + 1−negative-share, equal-weighted, injectable clock). blendedScore = 0.4 gbp + 0.35 nap + 0.25 review. runLocalAudit emits source='local' Findings (first real use of the 'local' vocabulary) → gbp actions (GBP field/review reply/GBP post = C5) and content action (NAP correction = C6.3); injectable clock/id.
+- apps/api: repositories/local.ts. Profile facts settable via PUT (deploy-target pattern) until GBP connector lands; run reads them, computes, persists. Routes GET/PUT local-profile, POST local-audit, GET /projects/:id/local-audit (weakest first). Migration 0013_local_profiles_and_audits (local_profiles jsonb input + local_audits score store). NOT applied to Neon.
+- Dashboard: new "Local SEO" nav view — per-location visibility score + component bars (reuses eg- CSS), location picker + Run button; 409 (no profile) surfaced clearly. New pin icon.
+- Full turbo build green (21/21) + all test tasks green (local 14 added, api 101).
+- NOT DONE: live wrangler+Neon verification (DATABASE_URL unavailable in env) + migration 0013 apply. Needs to run before merge.

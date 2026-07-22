@@ -26,6 +26,7 @@ import type {
   CopilotSummary,
   EntityStrength,
   GapType,
+  LocalVisibility,
   PulseData,
   ReadinessReport,
   ActionStatus,
@@ -220,6 +221,29 @@ export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCou
     `/projects/${getProjectId()}/entity-audit`,
     { method: 'POST', body: JSON.stringify({}) },
   );
+}
+
+/**
+ * B5 Local SEO Audit. GET the project's persisted local visibility scores
+ * (weakest first); GET/PUT a location's settable profile facts; POST re-runs
+ * the deterministic audit for a location, persisting local findings + score.
+ */
+export function fetchLocalVisibility(): Promise<LocalVisibility[]> {
+  return request<{ visibility: LocalVisibility[] }>(`/projects/${getProjectId()}/local-audit`).then((r) => r.visibility);
+}
+export function fetchLocalProfile(entityId: string): Promise<Record<string, unknown> | null> {
+  return request<{ profile: Record<string, unknown> | null }>(
+    `/projects/${getProjectId()}/entities/${entityId}/local-profile`,
+  ).then((r) => r.profile);
+}
+export function saveLocalProfile(entityId: string, profile: Record<string, unknown>): Promise<unknown> {
+  return request(`/projects/${getProjectId()}/entities/${entityId}/local-profile`, {
+    method: 'PUT',
+    body: JSON.stringify({ profile }),
+  });
+}
+export function runLocalAudit(entityId: string): Promise<{ entityId: string; findingsCount: number; visibility: LocalVisibility }> {
+  return request(`/projects/${getProjectId()}/entities/${entityId}/local-audit`, { method: 'POST', body: JSON.stringify({}) });
 }
 
 /**

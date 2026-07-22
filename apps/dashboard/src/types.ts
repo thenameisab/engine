@@ -255,6 +255,22 @@ export interface CitationOpportunity {
   updatedAt?: string;
 }
 
+/**
+ * B5 Local SEO Audit (v1.5) — one location's local visibility breakdown from
+ * `GET /projects/:id/local-audit` (weakest first) and
+ * `POST …/entities/:entityId/local-audit`. `score` and each component are 0–1;
+ * components say *why* a location scores low (thin GBP vs inconsistent NAP vs
+ * unhealthy reviews), which the view leads with.
+ */
+export interface LocalVisibility {
+  entityId: string;
+  canonicalName: string;
+  score: number;
+  components: { gbpCompleteness: number; napConsistency: number; reviewHealth: number };
+  reviewsConsidered: number;
+  updatedAt?: string;
+}
+
 /** M2.5 agency white-label — the branding a report/logo is rendered with. */
 export interface ApiAccountBranding {
   companyName?: string;
