@@ -25,6 +25,7 @@
     "@engine/diagnosis": "workspace:*",
     "@engine/entity-audit": "workspace:*",
     "@engine/keywords": "workspace:*",
+    "@engine/local": "workspace:*",
     "@engine/scoring": "workspace:*",
     "hono": "^4.6.0",
     "postgres": "^3.4.5"

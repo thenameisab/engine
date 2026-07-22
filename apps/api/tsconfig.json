@@ -51,6 +51,9 @@
       "path": "../../packages/keywords"
     },
     {
+      "path": "../../packages/local"
+    },
+    {
       "path": "../../packages/scoring"
     }
   ],

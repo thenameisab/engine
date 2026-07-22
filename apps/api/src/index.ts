@@ -41,6 +41,13 @@ import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
 import { runProjectEntityAudit, listEntityStrengths } from './repositories/entityAudit.js';
 import {
+  setLocalProfile,
+  getLocalProfile,
+  runProjectLocalAudit,
+  listLocalVisibility,
+  type ProfileInput,
+} from './repositories/local.js';
+import {
   addCompetitor,
   removeCompetitor,
   listCompetitors,
@@ -647,6 +654,71 @@ app.get('/projects/:projectId/entities/:selfEntityId/offsite-audit', async (c) =
   if (accessError) return c.json(accessError.body, accessError.status);
   const opportunities = await listCitationOpportunities(db, projectId, selfEntityId);
   return c.json({ opportunities });
+});
+
+/**
+ * B5 Local SEO Audit (v1.5) — a location is an entity. Until the GBP API
+ * connector lands, its profile facts (NAP, GBP fields, directory listings,
+ * reviews) are settable via PUT so the deterministic audit + the whole Fix
+ * Queue loop can run against real data now (the same pattern deploy-target
+ * used). The audit emits source:'local' findings into the shared inventory and
+ * persists the local visibility breakdown (migration 0013).
+ */
+
+/** Read a location's stored profile facts. */
+app.get('/projects/:projectId/entities/:entityId/local-profile', async (c) => {
+  const projectId = c.req.param('projectId');
+  const entityId = c.req.param('entityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const profile = await getLocalProfile(db, projectId, entityId);
+  return c.json({ profile });
+});
+
+/** Set/replace a location's profile facts. */
+app.put('/projects/:projectId/entities/:entityId/local-profile', async (c) => {
+  const projectId = c.req.param('projectId');
+  const entityId = c.req.param('entityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const body = await c.req.json<{ profile?: ProfileInput }>().catch(() => ({}) as { profile?: ProfileInput });
+  if (!body.profile || typeof body.profile !== 'object') return c.json({ error: 'profile is required' }, 400);
+  const ok = await setLocalProfile(db, projectId, entityId, body.profile);
+  if (!ok) return c.json({ error: 'entity not found in project' }, 404);
+  return c.json({ ok: true });
+});
+
+/** Run + persist a location's local audit. */
+app.post('/projects/:projectId/entities/:entityId/local-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const entityId = c.req.param('entityId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const result = await runProjectLocalAudit(db, projectId, entityId);
+  if (result === null) return c.json({ error: 'entity not found in project' }, 404);
+  if (result === 'no-profile') return c.json({ error: 'no local profile set for this entity' }, 409);
+  if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  return c.json({
+    entityId: result.entityId,
+    findingsCount: result.findings.length,
+    visibility: result.visibility,
+    findings: result.findings,
+  });
+});
+
+/** The project's persisted local visibility scores, weakest first. */
+app.get('/projects/:projectId/local-audit', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const visibility = await listLocalVisibility(db, projectId);
+  return c.json({ visibility });
 });
 
 /**

@@ -11,6 +11,7 @@ import { auditView } from './views/audit.js';
 import { entityGraphView } from './views/entityGraph.js';
 import { competitorsView } from './views/competitors.js';
 import { offsiteView } from './views/offsite.js';
+import { localView } from './views/local.js';
 import { settingsView } from './views/settings.js';
 import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
@@ -30,6 +31,7 @@ const ROUTES: Route[] = [
   { id: 'entity-graph', label: 'Entity Graph', iconMarkup: ICONS.entity, view: entityGraphView },
   { id: 'competitors', label: 'Competitors', iconMarkup: ICONS.versus, view: competitorsView },
   { id: 'offsite', label: 'Backlinks', iconMarkup: ICONS.link, view: offsiteView },
+  { id: 'local', label: 'Local SEO', iconMarkup: ICONS.pin, view: localView },
   { id: 'clients', label: 'Clients', iconMarkup: ICONS.clients, view: accountsView },
   { id: 'settings', label: 'Settings', iconMarkup: ICONS.gear, view: settingsView },
 ];
