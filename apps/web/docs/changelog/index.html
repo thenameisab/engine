@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Changelog — Engine docs</title>
+  <meta name="description" content="What's new in Engine, newest first — written in terms of what you can now do." />
+  <meta property="og:title" content="Changelog — Engine docs" />
+  <meta property="og:description" content="What's new in Engine, newest first — written in terms of what you can now do." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../docs.css" />
+  <script>
+    /* Applied before paint so a dark-mode reader never sees a light flash. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('engine-theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="doc-top">
+      <a class="wordmark" href="../../">Engine<span class="dot"></span></a>
+      <nav class="doc-nav" aria-label="Documentation">
+        <a class="doc-nav-link" href="../">Overview</a>
+        <a class="doc-nav-link" href="../features">Features</a>
+        <a class="doc-nav-link on" aria-current="page" href="../changelog">Changelog</a>
+        <a class="doc-nav-link" href="../roadmap">Roadmap</a>
+      </nav>
+      <button class="toggle" id="theme" type="button" aria-label="Toggle color theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/></svg>
+      </button>
+    </header>
+
+    <main class="doc-main">
+      <article class="prose">
+        <p class="kicker">Changelog</p>
+        <h1 class="doc-h1">What's new</h1>
+        <p class="doc-lede">Newest first. Written in terms of what you can now
+        do with Engine, not what we rearranged to get there.</p>
+        <hr class="rule" />
+<!--
+  PUBLIC product changelog. This is a customer-facing document.
+
+  It is deliberately NOT generated from the repo's CHANGELOG.md — that file is
+  the engineering log, and it names packages, databases, hosting, API routes,
+  migrations and PR numbers. None of that belongs on a page customers read.
+
+  When you ship something, write the entry here in terms of what a customer can
+  now do. Name capabilities, not components. The build refuses to publish if an
+  internal term slips in — see BANNED in build-docs.mjs.
+--><h2>2026-07-22 — Local visibility, measured and fixed</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Local visibility audit.</strong> If you have physical locations, Engine now scores
+them: Business Profile completeness, whether your name, address and phone
+agree everywhere they appear, and the state of your reviews. You get one local
+score with the parts that made it kept visible, and it feeds your overall
+visibility score.</li>
+<li><strong>One-click Business Profile fixes.</strong> The problems that audit finds can be
+fixed from Engine directly against your Google Business Profile — the same
+approve, apply, verify and undo flow as every other fix. A wrong phone number
+on three directories is now a queue item, not a to-do list.</li>
+</ul>
+<hr>
+<h2>2026-07-21 — Ask Engine a question, get a cited answer</h2>
+<h3>New</h3>
+<ul>
+<li><strong>The Copilot is generally available.</strong> Ask in plain language — &quot;why did we
+lose visibility in Bangalore last month?&quot; — and get an answer in under three
+seconds, with the evidence behind every claim and the ability to drill into
+any of it. Nothing is asserted without a source you can open.</li>
+<li><strong>Entity audit.</strong> AI engines and Google&#39;s Knowledge Graph reason about
+<em>businesses</em>, not pages. Engine now checks whether yours is described
+consistently across the web, whether your site correctly identifies who you
+are, and whether your Knowledge Panel is right — then fixes the gaps.</li>
+<li><strong>Competitor intelligence.</strong> See exactly where competitors beat you across
+both classic search and AI answers, in one comparison: keywords, citations,
+content, entities and links side by side.</li>
+<li><strong>Backlink and mention index.</strong> Links matter, but for AI answers so do
+unlinked mentions of your brand. Engine tracks both, and shows which sources
+the answer engines actually draw from — so you get a ranked list of places
+worth earning a mention.</li>
+</ul>
+<hr>
+<h2>2026-07-20 — Content problems become content fixes</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Extractability scoring.</strong> A page can rank and still never be quoted. Engine
+scores whether each page is written so an answer engine can lift a usable
+answer out of it, and checks it actually covers the topics it should.</li>
+<li><strong>Drafted rewrites.</strong> Pages that score badly get a proposed rewrite you can
+read, edit, approve and apply — the diagnosis and the fix are the same
+workflow, not two products.</li>
+<li><strong>Titles and descriptions at scale.</strong> Propose fixes for every page with a weak
+or missing title or description in one pass, rather than one at a time.</li>
+<li><strong>White-label for agencies.</strong> Run multiple clients under one roof, invite your
+team, and put your own brand on the reports you send.</li>
+</ul>
+<hr>
+<h2>2026-07-19 — International alternates</h2>
+<h3>New</h3>
+<ul>
+<li><strong>hreflang generation.</strong> If you serve several countries or languages, Engine
+now generates and deploys the tags that tell search engines which version
+belongs to whom.</li>
+</ul>
+<hr>
+<h2>2026-07-18 — Fixes reach more places</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Send fixes as a pull request.</strong> For teams who will not let anything write to
+production automatically, Engine can open a pull request against your own
+repository instead. Review it like any other change.</li>
+<li><strong>WordPress and Shopify plugins.</strong> Apply fixes directly in your CMS.</li>
+<li><strong>Redirect and canonical repair.</strong> Collapse redirect chains and resolve pages
+that disagree about their own canonical address.</li>
+<li><strong>Keyword and prompt research.</strong> Decide what to track — classic keywords and
+the prompts people actually type into AI engines — including vernacular,
+Indic-script and transliterated queries.</li>
+<li><strong>Self-serve checkout.</strong> Start a subscription without talking to us.</li>
+</ul>
+<hr>
+<h2>2026-07-17 — The audit gets real</h2>
+<h3>New</h3>
+<ul>
+<li><strong>The audit view shows your actual site.</strong> Findings from a real crawl,
+ordered by the difference fixing them is predicted to make, each one naming
+the problem and carrying the fix that resolves it.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li><strong>Findings could not say what was wrong.</strong> A stored finding kept its severity
+and its evidence but lost the statement of the problem itself, so the audit
+could tell you a page was badly broken without telling you how.</li>
+</ul>
+<hr>
+<h2>2026-07-16 — Sign in, and see live search data</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Accounts and sign-in</strong>, so your work persists and your data is yours alone.</li>
+<li><strong>The SERP Inspector</strong> shows live search results for any keyword you track —
+the first live external data in the product.</li>
+</ul>
+<hr>
+<h2>2026-07-15 — The Fix Queue</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Fixes deploy, verify themselves, and roll back.</strong> The core loop: Engine
+finds a problem, proposes a specific change, applies it once you approve,
+checks that it actually landed, and undoes it automatically if it did not.
+Every step is recorded, so you can always see what was changed and why.</li>
+<li><strong>The dashboard.</strong> Your visibility at a glance, and the queue of fixes waiting
+on you.</li>
+</ul>
+<hr>
+<h2>2026-07-14 — First light</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Visibility scoring across search and AI answers</strong>, reported as an honest
+range rather than a single false-precise number.</li>
+<li><strong>The technical audit</strong>, including whether AI crawlers are permitted to read
+your site at all — a question most audits never ask, and a surprising number
+of sites fail.</li>
+</ul>
+
+      </article>
+    </main>
+
+    <footer>
+      <span>Engine — AI visibility, measured and fixed.</span>
+      <span>© 2026 <span class="sep">·</span> Built for the answer engines.</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById('theme');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var dark = root.getAttribute('data-theme') === 'dark';
+        root.setAttribute('data-theme', dark ? 'light' : 'dark');
+        try { localStorage.setItem('engine-theme', dark ? 'light' : 'dark'); } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>

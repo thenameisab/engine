@@ -4,6 +4,10 @@
   "private": true,
   "description": "Engine marketing / pre-launch placeholder (Cloudflare Pages, static)",
   "scripts": {
+    "build": "node build-docs.mjs",
     "dev": "npx serve ."
+  },
+  "devDependencies": {
+    "marked": "^18.0.7"
   }
 }
