@@ -279,18 +279,11 @@ a { color: inherit; }
   transition: transform 220ms var(--ease-out-quint), border-color 220ms var(--ease-out);
 }
 .feature-card:hover { transform: translateY(-3px); border-color: var(--border-strong); }
-.feature-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.feature-card-top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+}
 .feature-card h3 { margin: 0; font-size: 15.5px; font-weight: 600; letter-spacing: -0.005em; }
 .feature-card p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.58; }
-.feature-id {
-  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
-  color: var(--accent);
-}
-.feature-meta {
-  margin-top: auto; padding-top: 10px;
-  font-family: var(--mono); font-size: 11px; color: var(--faint);
-  letter-spacing: 0.02em; line-height: 1.5;
-}
 
 .pill-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .pill, .badge {
@@ -300,16 +293,18 @@ a { color: inherit; }
   background: color-mix(in oklab, var(--surface) 60%, transparent);
   white-space: nowrap;
 }
-.badge-shipped {
+.badge { flex: none; }
+.badge-available {
   color: var(--good);
   border-color: color-mix(in oklab, var(--good) 34%, transparent);
   background: color-mix(in oklab, var(--good) 9%, transparent);
 }
-.badge-partial {
+.badge-early {
   color: var(--warn);
   border-color: color-mix(in oklab, var(--warn) 34%, transparent);
   background: color-mix(in oklab, var(--warn) 9%, transparent);
 }
+/* "Coming soon" stays neutral — it is not a warning. */
 
 .principles { margin-top: clamp(48px, 8vh, 80px); }
 

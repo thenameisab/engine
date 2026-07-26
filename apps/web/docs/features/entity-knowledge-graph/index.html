@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>B2 — Content &amp; Extractability Scoring — Engine docs</title>
-  <meta name="description" content="Whether an AI engine cites you depends largely on whether your page is extractable: answer-first, self-contained passages, real entity coverage, credible expertise signals." />
-  <meta property="og:title" content="B2 — Content &amp; Extractability Scoring — Engine docs" />
-  <meta property="og:description" content="Whether an AI engine cites you depends largely on whether your page is extractable: answer-first, self-contained passages, real entity coverage, credible expertise signals." />
+  <title>Entity &amp; Knowledge Graph — Engine docs</title>
+  <meta name="description" content="AI engines and Google's Knowledge Graph reason about businesses, not pages." />
+  <meta property="og:title" content="Entity &amp; Knowledge Graph — Engine docs" />
+  <meta property="og:description" content="AI engines and Google's Knowledge Graph reason about businesses, not pages." />
   <meta property="og:type" content="article" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -44,20 +44,19 @@
     <main class="doc-main">
       <article class="prose">
         <a class="back" href="../">← All features</a>
-        <p class="kicker">B2 · Pillar B</p>
-        <h1 class="doc-h1">Content &amp; Extractability Scoring</h1>
+        <p class="kicker">Diagnosis</p>
+        <h1 class="doc-h1">Entity &amp; Knowledge Graph</h1>
         <div class="pill-row">
-          <span class="badge badge-shipped">Shipped</span>
-          <span class="pill">v1.5</span>
+          <span class="badge badge-available">Available</span>
         </div>
-        <p class="doc-note">Extractability scorer v1 + entity coverage</p>
         <hr class="rule" />
-        <p class="doc-lede">Whether an AI engine cites you depends largely on whether your page is extractable: answer-first, self-contained passages, real entity coverage, credible expertise signals. B2 scores that, page by page, and hands the low scorers to the content rewrite executor rather than leaving you with a number and no next step.</p>
+        <p class="doc-lede">AI engines and Google's Knowledge Graph reason about businesses, not pages. Engine checks whether yours is described consistently everywhere it appears, whether your own site correctly identifies who you are, and whether your Knowledge Panel is accurate — then fixes the gaps. It is what lets search and AI be one picture instead of two.</p>
         <h2>What it does</h2>
         <ul>
-          <li>Extractability score per page</li>
-          <li>Entity and topic coverage checked against what the page should cover</li>
-          <li>Feeds AI-drafted rewrites through the normal Fix Queue</li>
+          <li>Checks your business is described consistently across the web</li>
+          <li>Verifies your own site identifies you correctly</li>
+          <li>Knowledge Panel presence and accuracy</li>
+          <li>A single strength score for how well the web agrees about you</li>
         </ul>
       </article>
     </main>

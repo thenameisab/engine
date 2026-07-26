@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Changelog — Engine docs</title>
-  <meta name="description" content="Everything shipped in Engine, newest first — what changed, what broke, and what it cost." />
+  <meta name="description" content="What's new in Engine, newest first — written in terms of what you can now do." />
   <meta property="og:title" content="Changelog — Engine docs" />
-  <meta property="og:description" content="Everything shipped in Engine, newest first — what changed, what broke, and what it cost." />
+  <meta property="og:description" content="What's new in Engine, newest first — written in terms of what you can now do." />
   <meta property="og:type" content="article" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -44,865 +44,133 @@
     <main class="doc-main">
       <article class="prose">
         <p class="kicker">Changelog</p>
-        <h1 class="doc-h1">Everything we shipped</h1>
-        <p class="doc-lede">Newest first, grouped by day and theme. Written to be
-        read — what changed, why it was wrong before, and what it now does.</p>
+        <h1 class="doc-h1">What's new</h1>
+        <p class="doc-lede">Newest first. Written in terms of what you can now
+        do with Engine, not what we rearranged to get there.</p>
         <hr class="rule" />
-<h2>2026-07-22 — Local visibility, end to end: audit it, then fix it (<code>packages/local</code>, <code>packages/deploy</code>)</h2>
-<p>The first pillar to ship its diagnosis and its executor on the same day — a local
-finding raised in the morning had a deploy target by the evening.</p>
-<h3>Added</h3>
+<!--
+  PUBLIC product changelog. This is a customer-facing document.
+
+  It is deliberately NOT generated from the repo's CHANGELOG.md — that file is
+  the engineering log, and it names packages, databases, hosting, API routes,
+  migrations and PR numbers. None of that belongs on a page customers read.
+
+  When you ship something, write the entry here in terms of what a customer can
+  now do. Name capabilities, not components. The build refuses to publish if an
+  internal term slips in — see BANNED in build-docs.mjs.
+--><h2>2026-07-22 — Local visibility, measured and fixed</h2>
+<h3>New</h3>
 <ul>
-<li><strong>B5 Local SEO Audit (v1.5).</strong> Google Business Profile completeness, NAP
-consistency across citation sources, and review health, reduced to a single
-local visibility score with the sub-scores kept visible. Emits <code>Finding</code>s
-through the same contract as every other Pillar B module, so local problems
-enter the Fix Queue rather than a separate report.
-(<code>packages/local</code>, migration <code>0013_local_profiles_and_audits</code>, PR #48)</li>
-<li><strong>C5 GBP Automation.</strong> The <code>gbp</code> deploy target executes those findings against
-the Google Business Profile API — the fourth execution surface after
-edge-worker, cms-plugin and github-pr. Same deploy → verify → rollback
-lifecycle; no special-cased local path.
-(<code>packages/deploy/src/gbp.ts</code>, <code>packages/actions/src/gbp.ts</code>, PR #49)</li>
+<li><strong>Local visibility audit.</strong> If you have physical locations, Engine now scores
+them: Business Profile completeness, whether your name, address and phone
+agree everywhere they appear, and the state of your reviews. You get one local
+score with the parts that made it kept visible, and it feeds your overall
+visibility score.</li>
+<li><strong>One-click Business Profile fixes.</strong> The problems that audit finds can be
+fixed from Engine directly against your Google Business Profile — the same
+approve, apply, verify and undo flow as every other fix. A wrong phone number
+on three directories is now a queue item, not a to-do list.</li>
 </ul>
 <hr>
-<h2>2026-07-21 — The entity model earns its keep (B3, A5, A6, Copilot GA)</h2>
-<p>Four merges that all lean on the same decision: one entity graph, not one graph
-per pillar. B3 audits the entity, A5 compares it to competitors&#39;, A6 measures
-who corroborates it, and the Copilot answers questions across all three.</p>
-<h3>Added</h3>
+<h2>2026-07-21 — Ask Engine a question, get a cited answer</h2>
+<h3>New</h3>
 <ul>
-<li><strong>B3 Entity &amp; Knowledge Graph Audit.</strong> Wikidata/<code>sameAs</code> consistency, on-site
-schema entity mapping, Knowledge Panel status and a cross-web corroboration
-score, combined into an entity strength score. This is the module that turns
-the entity-first data model from an architectural claim into a diagnosis.
-(<code>packages/entity-audit</code>, migration <code>0010_entity_graph_audits</code>, PR #45)</li>
-<li><strong>A5 Competitor Intelligence.</strong> SEO and GEO gap analysis over one shared entity
-model, so &quot;they outrank us&quot; and &quot;they get cited and we don&#39;t&quot; are two readings
-of the same comparison rather than two products.
-(<code>packages/competitor</code>, migration <code>0011_competitor_sets_and_gaps</code>, PR #46)</li>
-<li><strong>A6 Backlink &amp; Mention Index (v1.5).</strong> Citation-domain intelligence: which
-domains the answer engines actually draw from, scored into ranked
-opportunities instead of an undifferentiated backlink dump.
-(<code>packages/backlink</code>, migration <code>0012_citation_domain_intel</code>, PR #47)</li>
-<li><strong>M2.4 Copilot GA.</strong> A natural-language question returns a cited,
-drill-downable answer in under three seconds. Every claim carries its source;
-there is no ungrounded prose path. (PR #44)</li>
-<li><strong>M2.3 close-out.</strong> C3 internal-link actions, content rewrites executing
-against live targets, and generation wired into the dashboard. (PR #43)</li>
+<li><strong>The Copilot is generally available.</strong> Ask in plain language — &quot;why did we
+lose visibility in Bangalore last month?&quot; — and get an answer in under three
+seconds, with the evidence behind every claim and the ability to drill into
+any of it. Nothing is asserted without a source you can open.</li>
+<li><strong>Entity audit.</strong> AI engines and Google&#39;s Knowledge Graph reason about
+<em>businesses</em>, not pages. Engine now checks whether yours is described
+consistently across the web, whether your site correctly identifies who you
+are, and whether your Knowledge Panel is right — then fixes the gaps.</li>
+<li><strong>Competitor intelligence.</strong> See exactly where competitors beat you across
+both classic search and AI answers, in one comparison: keywords, citations,
+content, entities and links side by side.</li>
+<li><strong>Backlink and mention index.</strong> Links matter, but for AI answers so do
+unlinked mentions of your brand. Engine tracks both, and shows which sources
+the answer engines actually draw from — so you get a ranked list of places
+worth earning a mention.</li>
+</ul>
+<hr>
+<h2>2026-07-20 — Content problems become content fixes</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Extractability scoring.</strong> A page can rank and still never be quoted. Engine
+scores whether each page is written so an answer engine can lift a usable
+answer out of it, and checks it actually covers the topics it should.</li>
+<li><strong>Drafted rewrites.</strong> Pages that score badly get a proposed rewrite you can
+read, edit, approve and apply — the diagnosis and the fix are the same
+workflow, not two products.</li>
+<li><strong>Titles and descriptions at scale.</strong> Propose fixes for every page with a weak
+or missing title or description in one pass, rather than one at a time.</li>
+<li><strong>White-label for agencies.</strong> Run multiple clients under one roof, invite your
+team, and put your own brand on the reports you send.</li>
+</ul>
+<hr>
+<h2>2026-07-19 — International alternates</h2>
+<h3>New</h3>
+<ul>
+<li><strong>hreflang generation.</strong> If you serve several countries or languages, Engine
+now generates and deploys the tags that tell search engines which version
+belongs to whom.</li>
+</ul>
+<hr>
+<h2>2026-07-18 — Fixes reach more places</h2>
+<h3>New</h3>
+<ul>
+<li><strong>Send fixes as a pull request.</strong> For teams who will not let anything write to
+production automatically, Engine can open a pull request against your own
+repository instead. Review it like any other change.</li>
+<li><strong>WordPress and Shopify plugins.</strong> Apply fixes directly in your CMS.</li>
+<li><strong>Redirect and canonical repair.</strong> Collapse redirect chains and resolve pages
+that disagree about their own canonical address.</li>
+<li><strong>Keyword and prompt research.</strong> Decide what to track — classic keywords and
+the prompts people actually type into AI engines — including vernacular,
+Indic-script and transliterated queries.</li>
+<li><strong>Self-serve checkout.</strong> Start a subscription without talking to us.</li>
+</ul>
+<hr>
+<h2>2026-07-17 — The audit gets real</h2>
+<h3>New</h3>
+<ul>
+<li><strong>The audit view shows your actual site.</strong> Findings from a real crawl,
+ordered by the difference fixing them is predicted to make, each one naming
+the problem and carrying the fix that resolves it.</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-<li><strong>Pre-existing <code>/projects/:projectId/*</code> routes did not check ownership.</strong> The
-newer routes were gated; the older ones had been written before the check
-existed and were never retrofitted, so a valid JWT for one account could read
-another account&#39;s project. Ownership checks now applied uniformly. (PR #42)</li>
+<li><strong>Findings could not say what was wrong.</strong> A stored finding kept its severity
+and its evidence but lost the statement of the problem itself, so the audit
+could tell you a page was badly broken without telling you how.</li>
 </ul>
 <hr>
-<h2>2026-07-20 — Content diagnosis gets an executor, and Engine learns to be resold</h2>
-<h3>Added</h3>
+<h2>2026-07-16 — Sign in, and see live search data</h2>
+<h3>New</h3>
 <ul>
-<li><strong>M2.1 extractability scorer v1</strong> — the heuristic baseline for B2: can an
-answer engine actually lift a usable answer out of this page?
-(PR #38)</li>
-<li><strong>B2.1 entity/topic coverage</strong> wired into that scorer, so extractability is
-judged against what the page is <em>supposed</em> to cover, not in the abstract.
-(PR #39)</li>
-<li><strong>C3.1 AI-drafted content rewrites</strong> — the executor for B2&#39;s content findings.
-Drafts flow through the existing Fix Queue contract (deploy → verify →
-rollback), deliberately not through a parallel drafting tool. (PR #40)</li>
-<li><strong>C3.2 meta title/description fixes at scale</strong>, proposed directly from
-<code>/audit</code>. (PR #37)</li>
-<li><strong>M2.5 agency white-label</strong> — accounts, membership, branding and branded
-reports: the multi-tenant seam an agency needs to put its own name on Engine&#39;s
-output. (PR #41)</li>
+<li><strong>Accounts and sign-in</strong>, so your work persists and your data is yours alone.</li>
+<li><strong>The SERP Inspector</strong> shows live search results for any keyword you track —
+the first live external data in the product.</li>
 </ul>
 <hr>
-<h2>2026-07-19 — hreflang generation (C4.3)</h2>
-<h3>Added</h3>
+<h2>2026-07-15 — The Fix Queue</h2>
+<h3>New</h3>
 <ul>
-<li><strong>C4.3 hreflang generation</strong>, the last open technical-fix gap in M2.3.
-International alternates are generated and deployed like any other fix. (PR #36)</li>
+<li><strong>Fixes deploy, verify themselves, and roll back.</strong> The core loop: Engine
+finds a problem, proposes a specific change, applies it once you approve,
+checks that it actually landed, and undoes it automatically if it did not.
+Every step is recorded, so you can always see what was changed and why.</li>
+<li><strong>The dashboard.</strong> Your visibility at a glance, and the queue of fixes waiting
+on you.</li>
 </ul>
 <hr>
-<h2>2026-07-18 — Redirects, a fourth deploy target, and the Copilot&#39;s first real query</h2>
-<h3>Added</h3>
+<h2>2026-07-14 — First light</h2>
+<h3>New</h3>
 <ul>
-<li><strong>C4.1/C4.2 redirect fixes</strong> — collapse redirect chains and resolve canonical
-conflicts, the start of M2.3. (PR #34)</li>
-<li><strong>C4.5 GitHub PR export.</strong> The <code>github-pr</code> deploy target opens a pull request
-against the customer&#39;s own repository, for teams who will not accept an agent
-writing to production directly. Same lifecycle, different surface. (PR #35)</li>
-<li><strong>M2.2: the entity graph goes online</strong> — the Copilot answers a genuine
-cross-SEO/GEO query against it, the first time both worlds are read from one
-store in a user-facing path. (PR #33)</li>
-<li><strong>A4 keyword &amp; prompt research</strong> (MVP slice) — keywords and AI prompts treated
-as one demand surface. (<code>packages/keywords</code>, PR #28)</li>
-<li><strong>C2 WordPress + Shopify plugins</strong> for the <code>cms-plugin</code> deploy target. (PR #29)</li>
-<li><strong>Stripe Checkout</strong> — the missing other half of the billing webhook, which
-until now could record a subscription nobody could start. (PR #30)</li>
-</ul>
-<h3>Fixed</h3>
-<ul>
-<li><strong><code>GET /accounts/:accountId/plan</code> returned 500 on a non-uuid <code>accountId</code>.</strong> A
-malformed path parameter reached Postgres and failed there, surfacing a server
-error for what is a client mistake. Now a 400 that names the field. (PR #32)</li>
-</ul>
-<hr>
-<h2>2026-07-17 — The Audit view stops making things up (<code>GET /audit</code>, migration 0004)</h2>
-<h3>Fixed</h3>
-<ul>
-<li><strong>A persisted finding could not say what was wrong with it.</strong> <code>packages/diagnosis</code>
-used the issue type to pick the severity weight, the action templates and the
-fingerprint — then dropped it. It was absent from the <code>Finding</code> contract and
-from the <code>findings</code> table, so a stored finding carried a severity and an
-evidence blob and no statement of the problem. It could not be recovered
-afterwards: the fingerprint hashes it one-way, and inferring it back from
-<code>actionTemplates</code> is lossy — <code>schema-missing</code>/<code>schema-invalid</code> share one
-template, as do the two <code>meta-*</code> types, so inference would report distinct
-problems as the same one.</li>
-<li><strong>Findings were write-only.</strong> <code>/audit</code> persisted them and no endpoint could read
-them back — the same gap PR #23 closed for actions, one layer down. The
-dashboard&#39;s Audit view had no live source to read, which is why it still
-rendered <code>MOCK_AUDIT</code>: a health score of 72 and five invented findings
-(&quot;12-hop redirect chain on /pricing&quot;) for a site nobody had crawled. It was
-the last mock-only view in the product, and the only one that never even
-attempted a live call.</li>
-</ul>
-<h3>Added</h3>
-<ul>
-<li><strong><code>Finding.issueType</code></strong> (<code>packages/core</code>), set by <code>runAudit</code>, persisted by
-migration <code>0004</code>, returned by the API. Deliberately a <code>string</code>, not a union:
-each Pillar B source owns its own vocabulary and core cannot import from the
-packages that depend on it. Required, not optional — optional would let the
-gap return silently.</li>
-<li><strong><code>GET /projects/:id/audit</code></strong> — the read side of the audit: the finding
-inventory ordered by predicted impact, plus the newest run&#39;s health score.
-Reaches the project through <code>findings → entities</code>, the same two-hop join
-<code>listActionsByProject</code> uses and for the same reason.</li>
-<li><strong><code>audit_runs</code></strong> (migration <code>0004</code>) — the health score is normalized by pages
-audited, so it is a property of a <em>run</em>, and crawled pages are not persisted.
-It could not be recomputed from findings later, so <code>/audit</code> now records it.
-<code>GET /audit</code> returns <strong>null</strong> for a never-crawled project rather than a number
-that would read as a clean bill of health.</li>
-<li>The Audit view reads real Postgres and distinguishes its three states: an
-empty inventory, a project that has never been crawled, and an unreachable
-API. <code>MOCK_AUDIT</code> is deleted.</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-<li>Migration <code>0004</code> backfills existing findings as <code>issue_type = &#39;unknown&#39;</code> — they
-genuinely predate the column and cannot be recovered. This <strong>self-heals</strong>: the
-upsert now writes <code>issue_type</code>, so the next crawl that still finds the issue
-replaces <code>unknown</code> with the real type in place. Rows that never reappear were
-already stale, and the view says &quot;Issue type not recorded (pre-0004 finding)&quot;
-rather than inventing one.</li>
-<li>No <code>check</code> constraint on <code>issue_type</code>: pinning B1&#39;s list into the schema would
-mean a migration every time the rule engine learns a new check. The vocabulary
-is enforced in code, where it is defined.</li>
-</ul>
-<h3>Verified</h3>
-<ul>
-<li>Migration applied to live Neon (user-approved): 4 applied, 0 pending.</li>
-<li><strong>Self-healing proven, not asserted:</strong> reset this session&#39;s crawled findings to
-<code>unknown</code> to reproduce the post-backfill state, re-crawled, and confirmed they
-returned to their real types <strong>in place</strong> — 16 rows before, 16 after, no
-duplicates.</li>
-<li>Drove <code>engine-crawl</code> → gated <code>wrangler dev</code> → migrated Neon: a real 2-page
-crawl recorded an <code>audit_runs</code> row (health 35 across 2 pages, 3 findings) and
-persisted real issue types. <code>GET /audit</code> before any run returned
-<code>healthScore: null</code>, not 100. An unknown project returns an empty inventory
-with nulls, HTTP 200, not a 500.</li>
-<li>Browser-verified all three states against real Postgres, both themes, zero
-console errors: populated (health 35, <code>ai-crawler-blocked</code> rows carrying the
-crawl&#39;s real URLs, impact rescaled to the card&#39;s 0–10), never-crawled (&quot;No
-audit has run for this project yet&quot;), and unreachable (the 401 reported as
-itself instead of a fabricated 72).</li>
-</ul>
-<h3>Noted</h3>
-<ul>
-<li>Test files are excluded from <code>typecheck</code> in every package (<code>&quot;exclude&quot;: [&quot;src/**/*.test.ts&quot;]</code>), so making <code>issueType</code> required did <strong>not</strong> fail the
-build the way it should have — fixtures silently constructed Findings without
-it. They were fixed by hand; the exclusion is a standing gap.</li>
-</ul>
-<hr>
-<h2>2026-07-17 — The crawl runner could not reach its own API (<code>packages/crawler</code>)</h2>
-<h3>Fixed</h3>
-<ul>
-<li><strong>The B1.1 crawl runner had been unable to report a crawl since PR #21.</strong>
-Gating <code>/projects/*</code> behind <code>requireAuth</code> closed the API&#39;s open door, but
-<code>reportCrawlToApi</code> sends the crawl to <code>POST /projects/:id/audit</code> and had no
-credential to send — every run ended in <code>401 missing bearer token</code>. The
-crawler is the <em>only</em> path that puts real findings into a project, so the
-effect was that a deployed Engine could not acquire a finding at all: the
-chain was crawl → <strong>(401)</strong> → audit → findings → Fix Queue.</li>
-<li>The regression was invisible to CI because <code>report.test.ts</code> injects a mocked
-<code>fetchImpl</code> — it proved the reporter&#39;s shape and could not have observed a
-gate. This is the second time a mocked-<code>fetch</code> test hid a bug that only the
-real runtime shows (the connectors&#39; &quot;Illegal invocation&quot; was the first).</li>
-<li>The crawler now authenticates as a machine caller with the shared
-<code>INTERNAL_API_TOKEN</code>, read from <strong><code>ENGINE_API_TOKEN</code> in the environment, not a
-flag</strong> — argv is readable via <code>ps</code> and lands in shell history. The runner warns
-before it starts spending browser time when the token is absent, and a 401/403
-with no token sent now names the cause instead of surfacing a bare status.</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-<li><strong>The service principal is now <code>service:internal</code>, not <code>service:edge-worker</code>.</strong>
-A second machine caller (the crawl runner) now holds the same shared token, and
-a shared secret cannot say <em>which</em> machine is calling — so naming a specific
-service in the audit log asserted something never verified, the same flaw C1.8
-removed from the human path. A service that wants to be named still self-labels
-via <code>actor</code>; that is a self-report from inside the trust boundary, and the code
-now says so rather than implying it was authenticated.</li>
-</ul>
-<h3>Added</h3>
-<ul>
-<li><code>packages/crawler/README.md</code> — the runner had no docs, which is part of how it
-drifted out of sync with the auth gate it depends on. Documents the loop, the
-flags, the token, the mandatory politeness delay, and warns that
-<code>report.test.ts</code>&#39;s mocked fetch is not evidence about the live gate.</li>
-<li>4 reporter tests: the bearer header is sent; no header is fabricated when no
-token is given; a tokenless 401 explains itself; a rejected <em>real</em> token is not
-blamed on a missing one. Verified they <strong>fail</strong> on the reintroduced bug.</li>
-<li><code>.wrangler/</code> is gitignored — <code>wrangler dev</code> writes local state and a copy of the
-dev bindings there, and it was neither tracked nor ignored.</li>
-</ul>
-<h3>Verified</h3>
-<ul>
-<li>On the real gated runtime, not vitest: the actual <code>engine-crawl</code> binary against
-<code>wrangler dev</code> (<code>AUTH_MODE</code> enabled) and migrated Neon. Tokenless → <code>401</code>;
-wrong token → <code>403 malformed</code>; valid token → a real 2-page Playwright crawl
-persisted 3 findings with real uuids (correctly catching the site&#39;s <code>GPTBot</code>
-block). Re-runs returned <strong>identical uuids</strong> with <code>created_at</code> preserved — the
-fingerprint upsert holding. Closed the loop end to end: a crawl-produced
-finding generated a real robots diff (<code>GPTBot: Disallow: /</code> → <code>Allow: /</code>), and
-the audit trail recorded <code>service:internal</code> when unlabelled and
-<code>service:crawl-runner</code> when self-labelled.</li>
-</ul>
-<hr>
-<h2>2026-07-16 — Postgres migrations applied + a jsonb corruption bug (<code>packages/db</code>)</h2>
-<h3>Added</h3>
-<ul>
-<li><strong><code>packages/db</code> — the Postgres migration runner.</strong> <code>infra/migrations/</code> had never
-been applied to the Neon database: DB-backed routes failed with
-<code>relation &quot;actions&quot; does not exist</code>, which had been misread as an auth problem.
-There was no runner in the repo at all. <code>pnpm db:migrate</code> / <code>pnpm db:status</code>
-now apply and report the schema; both migrations are applied to Neon and all 8
-tables plus a <code>schema_migrations</code> ledger exist.</li>
-<li>Migrations are <strong>checksummed and immutable</strong> — editing one that already ran is
-drift and aborts, because the schema could no longer be re-derived from the
-tree. Out-of-order and DB-ahead-of-checkout also abort rather than guess, and a
-misnamed file is rejected rather than skipped: a migration that never runs is
-worse than one that fails loudly.</li>
-<li>All pending migrations run in <strong>one transaction</strong> under a <strong>transaction-scoped</strong>
-advisory lock. Neon&#39;s pooled endpoint is a transaction-mode pooler, where a
-session-scoped lock isn&#39;t reliably held by the backend that later releases it.
-The cost — <code>CREATE INDEX CONCURRENTLY</code> can&#39;t go through this runner — is
-documented; a half-applied schema is the worse failure to design against.</li>
-</ul>
-<h3>Fixed</h3>
-<ul>
-<li><strong>Silent jsonb data corruption in the Fix Queue</strong> (<code>repositories/actions.ts</code>).
-<code>${JSON.stringify(v)}::jsonb</code> double-encodes: the cast makes Postgres infer the
-parameter as jsonb, so the driver JSON-encodes the string we already encoded and
-the column stores a jsonb <em>string</em>. It reads back correctly through its own
-repository — so it looked fine, and no unit test with a fake driver would catch
-it — but <code>target-&gt;&gt;&#39;kind&#39;</code> is null, <code>jsonb_array_length(audit_log)</code> errors, and
-every jsonb predicate matches nothing. Any Fix Queue query filtering on
-<code>target</code>/<code>diff</code>/audit history would have silently returned nothing. Now bound
-through a documented <code>toJsonb()</code> helper; <code>actions</code> was the only site repo-wide.</li>
-</ul>
-<h3>Testing</h3>
-<ul>
-<li>15 unit tests on the pure migration planner (drift, out-of-order, duplicates,
-DB-ahead, filename rejection).</li>
-<li>A <strong>source-level</strong> guard test keeps the <code>::jsonb</code> idiom out. Scoped honestly:
-CI has no Postgres and the bug only misbehaves against a real one, so a
-behavioural test isn&#39;t available. Verified it fails on the reintroduced idiom.</li>
-<li>Verified on the <strong>real Workers runtime</strong> against migrated Neon: entity
-round-trip, <code>actions/generate</code> persistence, and an <code>approve</code> transition
-appending an audit entry under the verified identity.</li>
-</ul>
-<hr>
-<h2>2026-07-16 — The API auth gate: JWKS-verified JWTs (<code>packages/auth</code>)</h2>
-<h3>Security</h3>
-<ul>
-<li><strong><code>apps/api</code> was completely unauthenticated.</strong> Every <code>/projects/*</code> and
-<code>/accounts/*</code> route — including <code>/rank/poll</code> and <code>/ai/poll</code>, which spend real
-Serper/OpenAI credit per call, and every DB-backed route — was open to anyone
-who found the Worker URL. The dashboard&#39;s sign-in screen was a <em>client-side</em>
-gate only: cosmetic, and bypassed with a single <code>curl</code>. This closes it.</li>
-</ul>
-<h3>Added</h3>
-<ul>
-<li><strong><code>packages/auth</code></strong> — JWT verification against a JWKS on Web Crypto only, no
-SDK, so it runs identically on <code>workerd</code> and in Node/vitest.<ul>
-<li><code>jwt.ts</code> — <code>verifyJwt</code> (signature + <code>exp</code>/<code>nbf</code>/<code>iss</code>/<code>aud</code>, with clock
-skew leeway), <code>bearerToken</code>, <code>decodeJwtUnsafe</code>. Accepted algorithms are an
-<strong>allowlist</strong> (EdDSA/ES256/RS256) because <code>alg</code> comes from the
-attacker-controlled header — <code>alg: none</code> is rejected before a key is looked
-up. A token with no <code>exp</code> is rejected rather than treated as eternal.</li>
-<li><code>jwks.ts</code> — <code>createRemoteJwks</code> with TTL caching, <strong>key-rotation healing</strong>
-(an unknown <code>kid</code> triggers a refetch) that is <strong>rate-limited and
-single-flighted</strong>, so a flood of junk <code>kid</code>s can&#39;t turn every request into
-an outbound JWKS fetch.</li>
-<li><code>serviceToken.ts</code> — constant-time <code>verifyServiceToken</code> for machine callers.</li>
-<li><strong>25 unit tests</strong> against <strong>real generated Ed25519/RSA keypairs</strong> — real
-signatures, no mocks, no live account needed. Covers tampered payloads,
-<code>alg:none</code>, tokens signed by a foreign key that lie about a trusted <code>kid</code>,
-expiry boundaries, rotation, and the refetch rate limit.</li>
-</ul>
-</li>
-<li><strong><code>INTERNAL_API_TOKEN</code></strong> — a shared service token for the edge worker&#39;s C1.7
-auto-rollback call, which has no user session and so cannot present a JWT.
-Kept deliberately separate from the JWT path so the two trust sources never
-blur.</li>
-<li>Neon Auth registered in the <code>@engine/config</code> <code>INTEGRATIONS</code> registry, so
-readiness, <code>.dev.vars.example</code>, and the docs all derive from one definition.</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-<li><code>apps/api</code>: <code>requireAuth</code> on <code>/projects/*</code>, <code>/accounts/*</code>, and
-<code>/health/integrations</code>. <strong>Fails closed</strong> — an unset <code>AUTH_JWKS_URL</code> or an
-unreachable JWKS returns <code>503</code>, never &quot;allow&quot;. <code>AUTH_JWKS_URL</code> is public (it
-publishes verification keys, not signing keys), so it ships as a default var
-in <code>wrangler.toml</code>: a freshly deployed Worker is gated, not open. Left open
-by design: <code>/health</code> (liveness), <code>/billing/webhook</code> (Stripe can&#39;t hold a JWT;
-it has a stronger HMAC gate), <code>/oauth/gsc/callback</code> (a Google redirect).</li>
-<li><strong>Audit-log integrity (C1.8):</strong> Fix Queue transitions now record the
-<em>verified</em> identity as <code>actor</code> instead of the caller-supplied string. An
-audit trail you can write yourself into is not an audit trail. The edge
-worker&#39;s service principal may still label itself, since it reports <em>which</em>
-health check fired.</li>
-<li><code>apps/dashboard</code>: obtains a short-lived JWT from Neon Auth&#39;s <code>GET /token</code> and
-sends it as <code>Authorization: Bearer</code>. Cached <strong>in memory only</strong> — a bearer
-token for live API credit does not belong in localStorage — and refreshed a
-minute before expiry. &quot;No session&quot; is cached briefly too, so a dev-session
-user doesn&#39;t fire a wasted round-trip to Neon Auth on every API call.</li>
-<li><code>apps/workers</code>: presents <code>INTERNAL_API_TOKEN</code> on its rollback call, and now
-<strong>logs</strong> a failed auto-rollback instead of swallowing it — <code>fetch</code> doesn&#39;t
-throw on 4xx, so an auth failure here would otherwise have vanished silently,
-and a rollback that quietly didn&#39;t happen is the worst outcome this path has.</li>
-<li><code>docs/40-Integrations.md</code> v1.1: new Neon Auth section (gate design, what&#39;s
-gated and what isn&#39;t, trusted origins). Also corrected a stale &quot;Stack Auth&quot;
-reference — Neon Auth is Better Auth.</li>
-</ul>
-<h3>Verified</h3>
-<ul>
-<li><strong>On the real Workers runtime</strong> (<code>wrangler dev</code>), not just vitest — the same
-discipline that caught the connectors&#39; &quot;Illegal invocation&quot; bug. Drove the
-live Worker with genuinely signed tokens from a local JWKS server:
-unauthenticated <code>/rank/poll</code>, <code>/ai/poll</code>, <code>/entities</code>, <code>/pulse</code>, <code>/plan</code> all
-<code>401</code>; tampered → <code>403 bad-signature</code>; foreign-key-signed → <code>403 bad-signature</code>; <code>alg:none</code> → <code>403 unsupported-alg</code>; expired → <code>401 expired</code>;
-unknown kid → <code>403 unknown-key</code>. A valid token returns <strong>live Google results
-through Serper</strong>. This also proves Ed25519 <code>importKey</code>/<code>verify</code> work on
-<code>workerd</code>, which the Node tests cannot.</li>
-<li>Service token: correct value authenticated and reached the database; wrong
-value rejected. JWKS fetched <strong>twice across ~20 requests</strong> (the second being
-the designed unknown-kid rotation probe) — caching confirmed.</li>
-<li>Dashboard in-browser against the gated Worker: Pulse renders a live
-API-computed score, SERP Inspector returns live Google results
-(zapier.com #6), zero console errors — no regression from the token fetch now
-sitting in front of every request.</li>
-</ul>
-<h3>Known gaps</h3>
-<ul>
-<li>The Neon database is connected but <strong><code>infra/migrations/</code> has never been
-applied to it</strong> — DB-backed routes fail with <code>relation &quot;actions&quot; does not exist</code>. Surfaced by this work; pre-existing and unrelated to auth.</li>
-<li>The full Google sign-in → real JWT → API round-trip is unverified end-to-end:
-completing it needs the user&#39;s own Google consent. Every piece either side of
-it is verified (Neon Auth mints tokens for real sessions; the API verifies
-real signatures on <code>workerd</code>).</li>
-<li><code>AUTH_MODE=disabled</code> is set in local <code>.dev.vars</code> so the dashboard demo works
-without a Google sign-in. Local only — never on a deployed Worker.</li>
-</ul>
-<hr>
-<h2>2026-07-16 — Fix Cloudflare Pages deploy: clean output directory</h2>
-<h3>Fixed</h3>
-<ul>
-<li><strong><code>apps/dashboard</code> Cloudflare Pages build failed</strong>: <em>&quot;build output directory
-contains links to files that can&#39;t be accessed.&quot;</em> Pointing Pages at
-<code>apps/dashboard</code> meant it tried to upload <code>node_modules</code> too, which under a
-pnpm workspace is full of symlinks Pages can&#39;t resolve. Added
-<code>scripts/assembleSite.mjs</code>, run after <code>tsc</code> as part of <code>pnpm build</code>: copies
-just <code>index.html</code> + <code>styles.css</code> + the compiled <code>dist/*.js</code> into a clean,
-symlink-free <code>site/</code> directory (gitignored, rebuilt every deploy). <strong>Pages&#39;
-output directory should now be set to <code>apps/dashboard/site</code></strong>, not
-<code>apps/dashboard</code>. Verified the assembled <code>site/</code> contains zero symlinks and
-serves/renders correctly (animation, gate, zero console errors). Updated
-<code>apps/dashboard/README.md</code>&#39;s deploy section accordingly.</li>
-</ul>
-<h2>2026-07-16 — Cinematic auth gate (Neon Auth = Better Auth, SDK-free)</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Auth screen + login gate (<code>apps/dashboard/src/auth</code>)</strong> — the dashboard now
-opens on a sign-in screen and only mounts the app once authenticated; a
-sign-out control lives in the sidebar footer, showing the signed-in user.
-Wired to <strong>Neon Auth, which is Better Auth</strong> (not Stack), <strong>without the SDK</strong>
-so the dashboard stays bundler-free: <code>POST /sign-in/social</code> → redirect into
-Better Auth&#39;s Google OAuth (Neon&#39;s shared Google creds — no separate Google
-Cloud client) → cookie session; <code>GET /get-session</code> (with credentials) adopts
-it on return; <code>POST /sign-out</code> clears it. The Better Auth base URL is
-overridable via <code>window.ENGINE_AUTH_BASE</code>; the deployed origin must be added
-to Neon Auth&#39;s trusted origins for the OAuth callback. Verified against the
-live endpoint from the browser: <code>get-session</code> → 200 <code>null</code>, <code>sign-in/social</code>
-→ 200 with a real Google OAuth URL, CORS reflects the origin with credentials.
-A dev-session fallback keeps the app usable where a session can&#39;t be
-established (e.g. the sandboxed preview). Email magic-link attempts Better
-Auth&#39;s plugin, with the same fallback.</li>
-<li><strong>Wordless &quot;data → action&quot; background animation</strong> — a self-contained Canvas
-flow-field: scattered <em>data</em> particles resolve into coherent <em>streams</em> under
-a slowly-evolving vector field, and streams periodically culminate in a warm
-<em>execution</em> bloom (cool data → warm, deployed action). Motion trails + two
-depth layers give it a cinematic, camera-like drift; honors
-<code>prefers-reduced-motion</code> with a calm static frame. Pure 2D Canvas, no deps —
-runs in the app and the shareable preview alike.</li>
-<li>Verified the full cycle in-browser: sign-in → dashboard → sign-out → back to
-a fresh animated screen; zero console errors.</li>
-</ul>
-<h2>2026-07-16 — SERP Inspector goes live: first real Serper data in the product</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>SERP Inspector view (<code>apps/dashboard</code>)</strong> — the first genuinely <em>live</em>
-product feature, wired to the user&#39;s real Serper.dev key. Enter a keyword
-(+ optional your-domain, + country) → one live Google query surfaces: <strong>AI
-Overview presence</strong> (the GEO signal — &quot;is Google answering with AI?&quot;), the
-<strong>SERP features</strong> present (People Also Ask, etc.), <strong>your organic rank</strong>
-(computed from the real results, e.g. &quot;zapier.com ranks #6&quot;) with your row
-highlighted, and the <strong>competitor hosts</strong> ranking above you. Pure helpers
-(<code>hostname</code>/<code>normalizeDomain</code>/<code>domainRank</code>/<code>serpFeatureLabel</code>) are unit-tested
-(14 dashboard tests now).</li>
-<li><strong>CORS on <code>apps/api</code></strong> (<code>hono/cors</code>, <code>CORS_ORIGINS</code> env, <code>*</code> by default for
-pre-alpha) so the browser dashboard can call the Worker cross-origin.</li>
-<li><strong><code>nodejs_compat</code></strong> compatibility flag on <code>apps/api</code>&#39;s <code>wrangler.toml</code>,
-required by the <code>postgres</code> driver on the Workers runtime.</li>
-</ul>
-<h3>Fixed</h3>
-<ul>
-<li><strong>Connector <code>fetch</code> &quot;Illegal invocation&quot; on the Workers runtime</strong> — the
-Serper/OpenAI/Gemini connectors stored <code>globalThis.fetch</code> as an instance
-property and called it as a method, detaching its <code>this</code> and crashing every
-live call inside a Worker (500s). Now default to a module-scope wrapper.
-Caught by running <code>apps/api</code> live under <code>wrangler dev</code> — not by the
-fixture-mocked unit tests.</li>
-</ul>
-<h3>Verified live (end to end)</h3>
-<p>Ran <code>apps/api</code> under <code>wrangler dev</code> with the real <code>.dev.vars</code> Serper key and
-drove the dashboard against it in the browser: <code>/health/integrations</code> reports
-<code>serp: configured</code>; a real <code>/rank/poll</code> returns live Google results
-(HTTP 200); and the SERP Inspector renders them with a <code>LIVE</code> badge, the
-computed domain rank, and feature chips — <strong>zero console errors</strong>. First proof
-of the full stack: browser → CORS → Worker → Serper → Google → back.</p>
-<h2>2026-07-15 — Product dashboard (K): the real Pulse + Fix Queue SPA</h2>
-<h3>Added</h3>
-<ul>
-<li><strong><code>apps/dashboard</code></strong> — the product SPA the roadmap kept flagging as missing
-(distinct from <code>apps/web</code>, the marketing placeholder). No framework, no
-bundler: TypeScript compiled to browser ES modules, served static on
-Cloudflare Pages. Ports the design-system v2.0 visual language (flat/minimal,
-the confidence band as the one signature) from <code>docs/mockups/pulse.html</code> into
-a live, API-wired app. Five views behind a hash router + rail nav + theme
-toggle (light default, dark honored/toggleable):<ul>
-<li><strong>Pulse</strong> — Unified Visibility Score with its confidence-band range bar
-(a wider band visibly fills more track — uncertainty is legible), count-up,
-trend sparkline, channel decomposition (organic / AI Share-of-Model with
-±range / local), wins &amp; risks.</li>
-<li><strong>Fix Queue</strong> — the lifecycle kanban (proposed → approved → deployed →
-verified); card actions call the live transition endpoints and fall back to
-a local move (with a plain-spoken toast) when there&#39;s no live DB.</li>
-<li><strong>Audit</strong> — the B1 findings inventory (severity, predicted impact,
-auto-fixable), shaped exactly like <code>@engine/diagnosis</code>&#39;s output.</li>
-<li><strong>Integrations</strong> — reads <code>GET /health/integrations</code> <strong>live</strong> and shows,
-per external account, what&#39;s wired vs. missing (ties directly to the
-integration-readiness layer).</li>
-<li><strong>Settings</strong> — point the app at a running <code>apps/api</code> (base URL + project id,
-persisted in <code>localStorage</code>).</li>
-</ul>
-</li>
-<li><strong>Live-or-sample, honestly labelled.</strong> Every view tries the live API and
-falls back to built-in sample data, showing a <code>live</code>/<code>sample</code> badge. Two
-routes genuinely work live with no database — <code>/health/integrations</code> and
-<code>/projects/:id/pulse</code> (the A3 score math is pure) — and the client sends the
-exact <code>SurfaceScores</code> body + parses the real band. DB-backed views stay on
-sample until Postgres is wired.</li>
-<li><strong>10 unit tests</strong> on the pure presentation helpers (confidence-band bar
-geometry, sparkline path building, delta formatting, lifecycle transitions).
-Battle-tested in-browser: all five views render in light <strong>and</strong> dark, the
-Fix Queue lifecycle transition moves a card + updates its next action, zero
-console errors, no horizontal overflow.</li>
-</ul>
-<h2>2026-07-15 — Integration readiness: config layer, Serper SERP + OpenAI/Gemini adapters</h2>
-<h3>Added</h3>
-<ul>
-<li><strong><code>packages/config</code></strong> — one registry (<code>INTEGRATIONS</code>) as the single source of
-truth for every external account Engine depends on (Postgres/Neon, GSC OAuth,
-Stripe, Serper.dev SERP, OpenAI, Gemini): each carries its env vars,
-secret/required flags, purpose, account, and provisioning notes. Drives three
-things off that one definition so they can&#39;t drift: a pure readiness
-evaluator (<code>evaluateReadiness</code> → per-integration <code>configured</code>/<code>partial</code>/
-<code>missing</code> + an <code>mvpReady</code> roll-up), the <code>.dev.vars.example</code> generator, and
-the human docs. 8 unit tests.</li>
-<li><strong>Serper.dev SERP adapter (<code>packages/connectors</code>)</strong> — the first concrete
-<code>SerpConnector</code>. Chosen for the most generous free tier (2,500 credits) +
-prepaid billing (structurally can&#39;t bill-shock). Pure Serper-response→
-<code>SerpResult</code> mapping with SERP-feature detection incl. <strong>AI Overview
-presence</strong> (the GEO-critical chip), local pack, PAA. Extended the <code>vendor</code>
-union to <code>serper | dataforseo | serpapi</code> so switching later stays a small
-change. Google-only, prepaid, no SDK.</li>
-<li><strong>OpenAI + Google Gemini LLM adapters (<code>packages/connectors</code>)</strong> — both
-implement <code>LlmEngineConnector</code> with n-sampling (A2 n=3–5). Shared, pure
-citation extractor (<code>buildCitationEvent</code>): domain-target matches against
-cited source hosts, brand-name targets against answer text; sentiment/
-accuracy honestly left <code>null</code> pending the A2.5 judge. <strong>OpenAI</strong> is the
-primary (Chat Completions); <strong>Gemini</strong> is built for readiness with the Google
-Search grounding tool on by default, so it returns real source URIs.
-Added <code>citationTargets?</code> to <code>PromptQuery</code> (additive) so the caller supplies
-the entity&#39;s domains/names. A connector factory instantiates whichever
-providers have a key present, gracefully returning nothing when none do.
-27 connector unit tests (all fixture-based — no live keys).</li>
-<li><strong>Wired into <code>apps/api</code></strong>: <code>GET /health/integrations</code> (readiness, never
-echoes a secret), <code>POST /projects/:id/rank/poll</code> (live SERP via the
-configured connector, <code>503</code> when unwired), <code>POST /projects/:id/ai/poll</code>
-(polls every configured LLM engine, <code>503</code> when none). Extended the Worker
-<code>Env</code> bindings, documented every secret/var in <code>wrangler.toml</code>, and generated
-<code>apps/api/.dev.vars.example</code> from the registry. <code>.dev.vars</code> (real local
-secrets) is now gitignored; the <code>.example</code> is committed.</li>
-<li><strong><code>docs/40-Integrations.md</code></strong> — every external account: what/why, provisioning
-steps, env vars, cost/free-tier posture, and the decisions (SERP = Serper.dev
-to start; LLM = OpenAI primary + Gemini readiness). Cross-linked from the docs
-index and Architecture (which now names Serper as the pre-alpha SERP start).</li>
-</ul>
-<h3>Known gaps</h3>
-<p>Every adapter is fixture-tested and typechecks, but none has been run against a
-live third-party account in this environment (same posture as the OAuth/Stripe
-scaffolding): the SERP/LLM polls need real keys, and the GSC OAuth + Stripe
-paths still need their accounts. <code>GET /health/integrations</code> reports exactly
-which of these are wired at any moment.</p>
-<h2>2026-07-15 — Real crawler (B1.1): Playwright feeds the diagnosis engine live</h2>
-<h3>Added</h3>
-<ul>
-<li><strong><code>packages/crawler</code></strong> — the B1.1 Playwright crawler that was the one piece
-of the diagnosis pipeline still synthetic-input-only. Unlike M1.4–M1.7,
-this needed no external account (no Google/Stripe dependency), so it&#39;s
-fully built <em>and</em> integration-tested against real Chromium, not just
-smoke-scripted. <code>robots.ts</code> (robots.txt parser — per-user-agent groups,
-longest-match-wins with <code>$</code>-anchoring, feeds B1.6&#39;s
-GPTBot/ClaudeBot/PerplexityBot/Google-Extended verdicts), <code>sitemap.ts</code>
-(sitemap + sitemap-index fetch/parse, <code>Sitemap:</code> directive extraction from
-robots.txt), <code>structuredData.ts</code> (JSON-LD extraction incl. <code>@graph</code>
-flattening with <code>@context</code> inheritance, validation against required
-schema.org properties per type), <code>vitals.ts</code> (lab Core Web Vitals via real
-<code>PerformanceObserver</code> LCP/CLS entries, plus a synthetic-click INP proxy —
-documented approximation, same idea as Lighthouse&#39;s lab TBT), <code>browser.ts</code>
-(Chromium lifecycle), <code>crawlPage.ts</code> (orchestrates one URL into a full
-<code>CrawledPage</code> matching <code>@engine/diagnosis</code>&#39;s contract exactly — status,
-redirect chain via <code>redirectedFrom()</code>, canonical/indexability, noindex
-source resolution across header/meta/robots, hreflang, structured data, AI
-crawler access, CWV), <code>crawlSite.ts</code> (multi-URL orchestration: explicit
-seed list or same-origin BFS discovery, a budget cap defaulting to the
-spec&#39;s 100k/project, and a politeness delay between requests — discovered
-links are filtered through robots.txt before ever being queued), <code>report.ts</code><ul>
-<li><code>cli.ts</code> (<code>engine-crawl</code> — a standalone runner process, since a Cloudflare
-Worker can&#39;t launch a browser; crawls a site then POSTs the pages to the
-already-existing <code>POST /projects/:id/audit</code>, which was built in M1.3
-specifically to take <code>CrawledPage[]</code> from an out-of-band crawler).</li>
-</ul>
-</li>
-<li><strong>28 tests, all against a real local HTTP server + real headless Chromium</strong>
-— no mocked browser, no <code>page.setContent</code> shortcuts. A tiny test-only
-<code>node:http</code> server serves real HTTP responses (status codes, redirects,
-headers, robots.txt, sitemap.xml) so <code>crawlPage</code>/<code>crawlSite</code> exercise
-genuine network behavior. Caught 4 real bugs this way before they shipped:
-a <code>@graph</code> validator falsely failing on inherited <code>@context</code>, a relative
-<code>Sitemap:</code> directive not resolved against origin, a missing charset header
-mangling non-ASCII page titles, and a wrong test expectation in
-<code>normalizeUrl</code>.</li>
-<li>Added a <code>playwright install --with-deps chromium</code> step to
-<code>.github/workflows/ci.yml</code> ahead of <code>turbo run typecheck/build/test</code>.</li>
-</ul>
-<h3>Known gaps</h3>
-<p>None specific to this package — it needs no external account and every code
-path (robots parsing, sitemap resolution, structured-data validation, CWV
-capture, redirect/noindex/hreflang extraction, BFS discovery + robots
-filtering + budget cap) is exercised against a real browser and a real HTTP
-server in CI. The only thing still out-of-band is Postgres persistence on
-the <code>apps/api</code> side of <code>/projects/:id/audit</code>, which is the same standing gap
-as M1.4–M1.7 (no live Postgres in this environment), not a crawler gap.</p>
-<h2>2026-07-15 — Fix Queue goes live: deploy, automatic rollback, onboarding &amp; billing scaffolding</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Edge-worker deploy target (<code>packages/deploy</code>, <code>apps/workers</code>)</strong> — the
-executable half of the C2/C3.2/C4.4 deploy targets. Pure HTML/robots.txt
-transforms (<code>applySchemaDiff</code>/<code>applyMetaDiff</code>/<code>applyHtmlActions</code> — insert-
-or-replace JSON-LD, <code>&lt;title&gt;</code>, meta description, HTML-escaped;
-<code>applyRobotsActions</code> — latest deployed action wins) plus <code>verifyHtmlDeploy</code>/
-<code>verifyRobotsDeploy</code> to confirm a diff actually landed before the Fix Queue
-moves an action to <code>verified</code>. <code>apps/workers</code> is the real Cloudflare Worker:
-reverse-proxies a customer origin and rewrites the response with every
-live <code>deployed</code>/<code>verified</code> action for the project, read straight from
-Postgres per request — deploy/rollback are pure DB status flips, no
-separate push to the worker. Added a <code>field: &#39;title&#39; | &#39;description&#39;</code>
-discriminator to <code>@engine/core</code>&#39;s <code>Diff</code> type so a deploy target knows
-which element a meta action targets. Wired the Fix Queue lifecycle into
-<code>apps/api</code>: <code>POST /projects/:id/actions/{approve,deploy,rollback,verify}</code>.
-12 new unit tests. (PR #13)</li>
-<li><strong>Automatic rollback (C1.7, <code>packages/deploy/src/health.ts</code>)</strong> — every
-transform the edge worker serves is now health-checked before going out:
-origin 5xx, a page-shrunk-below-50%-of-original heuristic (catches a
-mangled transform), and JSON-LD re-validation for HTML; non-empty +
-well-formed checks for robots.txt. A failing check makes the worker fail
-safe — serve the untransformed origin response, never a broken fix — and
-fires a background rollback call to the API with the failure reason
-recorded on the action&#39;s audit log (<code>actor: &#39;system:edge-worker-health- check&#39;</code>). Extended the transition endpoints to accept an optional <code>detail</code>
-object so the reason lands in the immutable audit log. 9 new unit tests.
-(PR #14)</li>
-<li><strong>Onboarding + billing backend scaffolding (M1.6/M1.7)</strong> — both need real
-external accounts (a Google Cloud OAuth client for GSC, a Stripe account)
-that can&#39;t be provisioned in this environment, so this is the
-fully-testable backend slice behind env-var seams. <code>@engine/core</code> gained
-<code>OnboardingProgress</code> (set-once E1–E3 milestone timestamps + <code>durationMs</code>
-for KPI math) and a <code>Subscription</code>/<code>PlanTier</code>/<code>UsageCounters</code> billing read
-model. New <strong><code>packages/billing</code></strong> package: Stripe webhook signature
-verification reimplemented on Web Crypto (no Stripe SDK, portable to
-Workers <em>and</em> Node — unit-tested against signatures computed independently
-via <code>node:crypto</code> as a cross-check, not just self-consistency),
-<code>PLAN_LIMITS</code>/<code>isOverLimit</code> (G1/G5 — only Starter&#39;s caps are blueprint-
-pinned), and a pure <code>customer.subscription.*</code> event mapper. 15 new unit
-tests — the one piece of M1.6/M1.7 that&#39;s genuinely fully tested, since
-signature verification is just crypto. <code>infra/migrations/postgres/ 0002_onboarding_billing.sql</code> added <code>onboarding_progress</code> and
-<code>subscriptions</code> tables. New <code>apps/api</code> endpoints: onboarding checklist +
-E2/E3 KPI reporting, a pure GSC OAuth connect-URL builder plus the
-callback token-exchange (code-complete, not live-tested against a real
-Google client), a signature-gated <code>POST /billing/webhook</code>, and
-<code>GET /accounts/:id/plan</code>. The existing <code>/audit</code>, <code>/actions/generate</code>, and
-deploy endpoints now mark onboarding milestones automatically as a side
-effect of normal use. (PR #15)</li>
-</ul>
-<h3>Known gaps (flagged in each PR, not yet exercised)</h3>
-<p>No live Postgres or Cloudflare deploy access in this environment: the
-Fix Queue&#39;s DB round-trip, the edge worker&#39;s live HTTP request, the GSC
-OAuth token exchange, and real Stripe webhook traffic are all typechecked
-and logically verified via scratch smoke scripts, but not integration-tested
-against real infra.</p>
-<h2>2026-07-15 — Pre-launch site + Fix Queue execution layer</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Action generation (<code>packages/actions</code>)</strong> — the executable half of the
-<code>Finding → Action</code> moat contract. Three deterministic generators (schema.org
-JSON-LD, meta title/description, robots.txt AI-crawler policy) turn a
-diagnosis <code>Finding</code> into a <code>proposed</code> <code>Action</code> with a concrete before/after
-diff. Added the Fix Queue lifecycle state machine
-(<code>proposed → approved → deployed → verified → rolled_back</code>) with an
-append-only audit log and illegal-transition guards. <code>POST /projects/:id/actions/generate</code> in <code>apps/api</code>. 18 unit tests.
-(PR #10)</li>
-<li><strong>Pre-launch landing page (<code>apps/web</code>)</strong> — Cloudflare Pages placeholder
-frontend. Hero direction: &quot;Living Confidence Band&quot; — a Unified Visibility
-score resolving out of uncertainty into an honest range, restating the
-product thesis as the page&#39;s own centerpiece. Instrument Serif tagline,
-light/dark theme toggle (<strong>light is the default</strong>), Emil-grade motion (WAAPI
-count-up, per-word reveal, spring cursor parallax, dot-grid canvas
-background), full <code>prefers-reduced-motion</code> support. Embedded Tally waitlist
-form. (PR #11)</li>
-<li><strong>Scrolling manifesto</strong> on the landing page — a &quot;blog article in a landing
-page&quot; living between the confidence readout and the waitlist. Four
-movements: the shift from search to AI answers, the dishonesty of a
-single-number score, why execution (not measurement) is the moat, and what
-Engine builds. Three custom, library-free, theme-aware graphs: an SVG
-zero-click line chart, a canvas &quot;samples → honest confidence band&quot;
-visualization, and an SVG Measure→Diagnose→Fix→Verify loop diagram.
-Scroll-reveal via IntersectionObserver, CSS-only scroll-progress hairline.
-(PR #12)</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-<li>Landing page defaults to <strong>light mode</strong>; dark remains available via the
-persisted toggle. (PR #12)</li>
-</ul>
-<h3>Process / infra</h3>
-<ul>
-<li>Diagnosed a Cloudflare deploy-secrets question (<code>CLOUDFLARE_API_TOKEN</code> /
-<code>CLOUDFLARE_ACCOUNT_ID</code> as GitHub Actions secrets vs. <code>DATABASE_URL</code> as a
-Cloudflare Worker secret) and a Workers-vs-Pages architecture discussion,
-landing on: <strong>Pages for the frontend, multiple Workers for backend
-services</strong>, matching <code>docs/20-Architecture.md</code>&#39;s existing <code>apps/{web,api, workers,mcp}</code> scaffold. User connected the <code>apps/web</code> Pages project to the
-GitHub repo (git-integrated deploys).</li>
-<li>Recorded standing project facts to memory: Neon Postgres region is <strong>AWS
-ap-southeast-1 (Singapore)</strong>; identity runs on <strong>Neon Auth</strong> (Stack
-Auth-based, synced into Postgres via <code>neon_auth.users_sync</code>) — no
-hand-rolled user/password table going forward.</li>
-</ul>
-<h2>2026-07-14 — Diagnosis engine (M1.3)</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Diagnosis package (<code>packages/diagnosis</code>)</strong> — the B1 technical-audit rule
-engine, pure and deterministic. Seven detectors covering B1.2–B1.6 and B1.9:
-missing/invalid schema, missing meta title/description, blocked AI crawlers
-(GPTBot/ClaudeBot/PerplexityBot/Google-Extended — the GEO-native check),
-redirect chains, canonical conflicts, missing hreflang, poor Core Web
-Vitals, unexpected noindex, and sitemap gaps. Enforces the spec §7 contract:
-every issue type carries ≥1 executable <code>ActionTemplate</code> or a documented
-non-executable reason. Added severity × page-value impact scoring and a
-one-number technical health score. <code>POST /projects/:id/audit</code> in
-<code>apps/api</code>. 21 unit tests.
-(PR #9)</li>
-</ul>
-<h2>2026-07-14 — Design pivot: flat, minimal aesthetic</h2>
-<h3>Changed</h3>
-<ul>
-<li><strong>Redesigned from Liquid Glass to a flat, minimal aesthetic</strong> (Linear/
-Notion/GitHub register) across <code>docs/30-Design-System.md</code> (now v2.0) and
-the live <code>docs/mockups/pulse.html</code> mockup. Removed all backdrop-blur,
-translucency, ambient color washes, and materialize choreography. Introduced
-a true-neutral gray ramp, hairline-border structure, one rationed accent, a
-tighter fixed type scale, sentence-case labels, and state-only motion. The
-confidence band survived as the one deliberate emphasis, rendered flat.
-Battle-tested in-browser across light/dark themes and mobile.
-(PR #8)</li>
-</ul>
-<h3>Removed</h3>
-<ul>
-<li><strong>Deleted the ECC Claude Code plugin</strong> (its cost-tracker/GateGuard hooks
-were blocking the build) — full removal of the plugin, its marketplace
-registration, caches, and logs. First preserved the one asset worth keeping
-— the iOS 26 Liquid Glass design skill — verbatim into
-<code>docs/design/liquid-glass-design.md</code> before deleting.
-(PR #6)</li>
-</ul>
-<h2>2026-07-14 — Visibility MVP (M1.2)</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Scoring package (<code>packages/scoring</code>)</strong> — the A3 Unified Visibility Score
-domain logic, pure and deterministic. <code>organic.ts</code> (CTR-curve volume-
-weighted organic share-of-voice), <code>ai.ts</code> (Share-of-Model band aggregated
-from A2 citation measurements, preserving band width), <code>local.ts</code>
-(local-pack SoV), <code>unified.ts</code> (channel-mix-weighted blend that propagates
-only the AI band width up, so the headline score is always a
-number-with-a-range). Established the repo&#39;s testing foundation: vitest, 15
-unit tests, <code>turbo run test</code> wired into CI. <code>POST /projects/:id/pulse</code> in
-<code>apps/api</code>. (PR #4)</li>
-<li><strong>n-sampling → confidence-band infrastructure</strong> (A2.6/A2.7, &quot;the trust
-signature&quot;) — <code>wilsonInterval</code> (Wilson score interval, correct for small n,
-never collapses at 0/n successes), <code>citationBandFromSamples</code>,
-<code>buildCitationMeasurement</code>, and <code>reconcileBands</code> (API↔consumer
-reconciliation, inverse-width weighted, never understates uncertainty). 10
-more unit tests. Lost in the ECC plugin removal and recovered onto a fresh
-branch off <code>main</code>. (PR #5,
-recovered as PR #7)</li>
-</ul>
-<h2>2026-07-14 — Data spine + CI (M1.1)</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>CI workflow</strong> (<code>.github/workflows/ci.yml</code>) — <code>pnpm install --frozen-lockfile</code> → <code>turbo run typecheck</code> → <code>turbo run build</code> on every push
-to <code>main</code> and every PR. (PR #3)</li>
-<li><strong>Data spine schemas + minimal API</strong> —
-<code>infra/migrations/postgres/0001_init.sql</code> (accounts/projects/entities/
-keyword_configs/findings/actions, mirroring <code>packages/core</code>&#39;s types) and
-<code>infra/migrations/clickhouse/0001_init.sql</code> (serp_positions,
-citation_events, plus a daily confidence-band rollup materialized view).
-Scaffolded <code>apps/api</code> (Hono on Cloudflare Workers): DB client factory,
-entities repository, <code>GET/POST /projects/:id/entities</code>.
-(PR #2)</li>
-</ul>
-<h2>2026-07-14 — Foundation: entity model + connectors</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Monorepo scaffold</strong> per <code>docs/20-Architecture.md</code> §2.1 — pnpm workspaces +
-Turborepo, <code>apps/{web,api,workers,mcp}</code>, <code>packages/{core,connectors,ui, scoring}</code>, <code>plugins/{wordpress,shopify}</code>, <code>infra/</code>. Pinned <code>pnpm@9.15.0</code> via
-corepack.</li>
-<li><strong><code>packages/core</code></strong> — the entity-first data model (<code>Entity</code>) and the
-<strong><code>Finding → Action</code> contract</strong> (<code>Finding</code>, <code>Action</code>, <code>DeployTarget</code>,
-<code>Diff</code>, <code>AuditEntry</code>) — frozen in Phase 1 as the moat contract so the
-execution layer (Pillar C) is integration work, not redesign. Also
-<code>CitationMeasurement</code>, the confidence-band honesty type for AI visibility.</li>
-<li><strong><code>packages/connectors</code></strong> — SERP/LLM-engine adapter interfaces. <code>serp.ts</code>
-(<code>SerpConnector</code>/<code>SerpQuery</code>/<code>SerpResult</code>, multi-geo/device/language,
-SERP-feature chips incl. AI Overview presence). <code>llmEngine.ts</code>
-(<code>LlmEngineConnector</code>/<code>PromptQuery</code>/<code>LlmAnswerResult</code>, adapter-per-engine
-for the 5 MVP engines, n=3–5 sampling, citation/sentiment/accuracy per
-sample). (PR #1)</li>
-</ul>
-<h2>2026-07-14 — Product strategy, specs, architecture, design (pre-code)</h2>
-<h3>Added</h3>
-<ul>
-<li><strong>Product docs (<code>docs/</code>).</strong> Master PRD (full feature catalogue, Pillars
-A–D + platform wrapper), 3-phase Roadmap (MVP → Depth → Platform, with
-milestones and exit criteria), Architecture (four-layer system, entity-first
-model, the <code>Finding → Action</code> contract), plus 11 per-feature reference
-specs (A1–A6, B1–B5).</li>
-<li><strong>Design language v1.</strong> Liquid Glass material system —
-<code>docs/30-Design-System.md</code> v1 and a live interactive Pulse hero mockup
-(<code>docs/mockups/pulse.html</code>) with an animated Unified Visibility Score,
-confidence band, trend chart, Fix Queue kanban, ⌘K copilot, light+dark
-themes. (Superseded by the flat/minimal redesign on 2026-07-14, later the
-same day — see above.)</li>
-<li><strong>Repo setup.</strong> Initialized git, pushed to a private GitHub repo
-(<code>thenameisab/engine</code>), root <code>README.md</code>, <code>.gitignore</code>.
-(<a href="https://github.com/thenameisab/engine/commit/1bcaf0a">PR, initial commit</a>)</li>
-</ul>
-<hr>
-<h2>Roadmap status (for context)</h2>
-<p>Per <code>docs/10-Roadmap.md</code>, Phase 1 (MVP) milestones:</p>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>Milestone</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>M1.1</td>
-<td>Data spine live</td>
-<td>✅ Done</td>
-</tr>
-<tr>
-<td>M1.2</td>
-<td>Visibility MVP (A1+A2+A3 with confidence bands)</td>
-<td>✅ Scoring done; live A1/A2 ingestion still pending</td>
-</tr>
-<tr>
-<td>M1.3</td>
-<td>Diagnosis MVP (B1 → scored Findings)</td>
-<td>✅ Done — rule engine + real B1.1 Playwright crawler both live</td>
-</tr>
-<tr>
-<td>M1.4</td>
-<td>First fix deployed (proposed→approved→deployed→verified via plugin/worker)</td>
-<td>✅ Built and smoke-tested end to end (<code>packages/deploy</code>, <code>apps/workers</code>); not yet exercised against a live Postgres + real Cloudflare deploy</td>
-</tr>
-<tr>
-<td>M1.5</td>
-<td>Rollback proven</td>
-<td>✅ Automatic rollback (C1.7) built and staged-tested; same live-infra caveat as M1.4</td>
-</tr>
-<tr>
-<td>M1.6</td>
-<td>Self-serve onboarding</td>
-<td>🟡 KPI tracking + GSC OAuth scaffolding built; blocked on a real Google Cloud OAuth client + the product SPA (onboarding wizard UI)</td>
-</tr>
-<tr>
-<td>M1.7</td>
-<td>Billing live</td>
-<td>🟡 Webhook sync + plan/usage logic built and fully unit-tested; blocked on a real Stripe account</td>
-</tr>
-</tbody></table>
-<p>Phase 2 (Depth) modules have run ahead of the Phase 1 close-out: M2.1–M2.5 are
-merged, and the v1.5 pillar work (B3, B5, A5, A6, C5) landed 2026-07-21/22. The
-schema blocker called out here previously is resolved — the Neon migrations were
-applied on 2026-07-16 and <code>infra/migrations/postgres/</code> now runs through <code>0013</code>.</p>
-<p><strong>Still outstanding:</strong></p>
-<ul>
-<li><strong>Live A1/A2 ingestion.</strong> Interfaces and adapters exist; both need paid
-third-party accounts (a SERP data provider for A1, per-engine LLM API access
-for A2) before real data flows.</li>
-<li><strong>M1.6 / M1.7 to &quot;live&quot;.</strong> Onboarding and billing are built and unit-tested but
-need a real Google Cloud OAuth client and a real Stripe account.</li>
-<li><strong>Execution against real infrastructure.</strong> The four deploy targets
-(edge-worker, cms-plugin, github-pr, gbp) are staged-tested; the deploy →
-verify → rollback loop has not yet run against a customer&#39;s production surface.</li>
-<li><strong><code>apps/web</code></strong> remains the pre-launch marketing site plus this documentation
-section; the product SPA lives in <code>apps/dashboard</code>.</li>
+<li><strong>Visibility scoring across search and AI answers</strong>, reported as an honest
+range rather than a single false-precise number.</li>
+<li><strong>The technical audit</strong>, including whether AI crawlers are permitted to read
+your site at all — a question most audits never ask, and a surprising number
+of sites fail.</li>
 </ul>
 
       </article>

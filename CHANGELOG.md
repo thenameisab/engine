@@ -108,7 +108,7 @@ who corroborates it, and the Copilot answers questions across all three.
 - **C2 WordPress + Shopify plugins** for the `cms-plugin` deploy target. (PR #29)
 - **Stripe Checkout** — the missing other half of the billing webhook, which
   until now could record a subscription nobody could start. (PR #30)
-- <!--internal--> **X0 — Profound Agents teardown**, closing the Phase 2 C-layer design gate.
+- **X0 — Profound Agents teardown**, closing the Phase 2 C-layer design gate.
   (`docs/50-X0-Profound-Teardown.md`, PR #31)
 
 ### Fixed
@@ -788,7 +788,7 @@ against real infra.
 ## 2026-07-14 — Product strategy, specs, architecture, design (pre-code)
 
 ### Added
-- <!--internal--> **Strategy.** Reviewed the initial product blueprint; researched
+- **Strategy.** Reviewed the initial product blueprint; researched
   competitors (Profound, Peec AI, Ahrefs, Semrush); wrote a competitor note
   arguing measurement is a crowded funded race and the Fix Queue (execution)
   is the real wedge.

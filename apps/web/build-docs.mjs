@@ -1,17 +1,30 @@
 /**
- * Builds the public documentation section at /docs from the markdown that
- * already exists in the repo, so there is one source of truth.
+ * Builds the public documentation section at /docs.
  *
- *   CHANGELOG.md              -> /docs/changelog
- *   docs/feature-specs/*.md   -> /docs/features + /docs/features/<id>
- *   (authored below)          -> /docs, /docs/roadmap
+ * This is a CUSTOMER-FACING artifact. It describes what the product does, in
+ * the customer's terms. It does not describe how the product is built.
  *
- * Deliberately NOT published: docs/00-Master-PRD.md, docs/10-Roadmap.md,
- * docs/50-X0-Profound-Teardown.md and the design/integration docs. They carry
- * competitive analysis, moat reasoning, team sizing and provisioning detail
- * that is internal. The feature specs are filtered too — only the title, the
- * pillar/phase line, the problem statement and the scope are lifted; "Moat
- * weight", PRD cross-references and the implementation sections are dropped.
+ * Nothing internal is published — not the architecture, not the stack, not the
+ * repository layout, not competitive analysis, not the internal roadmap. That
+ * rules out publishing the repo's own documents wholesale, so the public copy
+ * is authored here and in apps/web/content/:
+ *
+ *   apps/web/content/changelog.md  -> /docs/changelog   (product changelog)
+ *   COPY below                     -> /docs/features    (+ one page per feature)
+ *   authored below                 -> /docs, /docs/roadmap
+ *
+ * Explicitly NOT sources: CHANGELOG.md (the engineering log — it names
+ * packages, the database, hosting, API routes, migrations and PR numbers),
+ * docs/00-Master-PRD.md, docs/10-Roadmap.md, docs/20-Architecture.md,
+ * docs/30-Design-System.md, docs/40-Integrations.md,
+ * docs/50-X0-Profound-Teardown.md, and the prose of docs/feature-specs/*.md.
+ *
+ * Only the pillar is read from the feature specs, so a new feature cannot go
+ * missing from the index. Everything a reader sees is written here on purpose.
+ *
+ * The build FAILS if a term from BANNED reaches the output. Adding a feature
+ * means writing its public copy — there is no path that leaks internals by
+ * default.
  *
  * Run: pnpm --filter @engine/web build
  */
@@ -26,75 +39,136 @@ const ROOT = join(WEB, '..', '..');
 const OUT = join(WEB, 'docs');
 
 /* ————————————————————————————————————————————————
-   Shipped status. Drives the badge in the feature index; kept here rather
-   than in the specs because the specs describe intent, not what is merged.
+   Availability, in customer terms. "Early access" rather than a component
+   name or an internal blocker — a reader wants to know if they can use it,
+   not which supplier contract or package is outstanding.
    ———————————————————————————————————————————————— */
 const STATUS = {
-  A1: ['partial', 'Scoring live; awaiting a SERP data provider for live ingestion'],
-  A2: ['partial', 'Adapters live; awaiting per-engine LLM API access'],
-  A3: ['shipped', 'Unified Visibility Score with confidence bands'],
-  A4: ['shipped', 'MVP slice — packages/keywords'],
-  A5: ['shipped', 'packages/competitor'],
-  A6: ['shipped', 'packages/backlink'],
-  B1: ['shipped', 'Rule engine + Playwright crawler'],
-  B2: ['shipped', 'Extractability scorer v1 + entity coverage'],
-  B3: ['shipped', 'packages/entity-audit'],
-  B4: ['planned', 'Phase 3'],
-  B5: ['shipped', 'packages/local'],
+  A1: 'early',
+  A2: 'early',
+  A3: 'available',
+  A4: 'available',
+  A5: 'available',
+  A6: 'available',
+  B1: 'available',
+  B2: 'available',
+  B3: 'available',
+  B4: 'soon',
+  B5: 'available',
 };
 
-const STATUS_LABEL = { shipped: 'Shipped', partial: 'Partial', planned: 'Planned' };
+const STATUS_LABEL = {
+  available: 'Available',
+  early: 'Early access',
+  soon: 'Coming soon',
+};
 
 /* ————————————————————————————————————————————————
-   Public copy. Authored here rather than lifted from the specs: the spec
-   prose is written for us, and names competitors, moat reasoning and wedge
-   strategy on nearly every feature. Only the title, pillar and phase are read
-   from the spec files, so the index cannot drift out of sync with them.
+   Leak guard. If any of these reach the rendered pages the build fails.
+   Covers the repository layout, the stack, internal contracts, supplier
+   names and competitive analysis.
+   ———————————————————————————————————————————————— */
+const BANNED = [
+  // repo + internals
+  /\bpackages\//i, /\bapps\/(api|dashboard|web|workers)\b/i, /\bmigration\b/i,
+  /\bPR #\d+/i, /\bmonorepo\b/i, /\bendpoint\b/i, /\b(GET|POST|PATCH|PUT|DELETE) \//,
+  // stack + infrastructure
+  /\bplaywright\b/i, /\bpostgres\b/i, /\bneon\b/i, /\bcloudflare\b/i, /\bwrangler\b/i,
+  /\bjsonb\b/i, /\bJWKS\b/i, /\bJWT\b/i, /\bclickhouse\b/i, /\bqdrant\b/i,
+  /\bvitest\b/i, /\bturborepo\b/i, /\bcloudflare workers\b/i, /\bschema\.org\b/i,
+  // internal contract + architecture vocabulary. "Fix Queue" is deliberately
+  // absent — it is a surface the customer sees by that name in the product.
+  /Finding\s*(→|->)\s*Action/i, /\bentity-first\b/i,
+  /\bedge-worker\b/i, /\bcms-plugin\b/i, /\bgithub-pr\b/i, /\bdeploy target\b/i,
+  // suppliers (naming an answer engine we measure is fine; naming a vendor is not)
+  /\bserper\b/i, /\bopenai\b/i, /\bstripe\b/i,
+  // competitive analysis + internal strategy
+  /\bprofound\b/i, /\bpeec\b/i, /\bahrefs\b/i, /\bsemrush\b/i,
+  /\bmoat\b/i, /\bincumbent/i, /\bwedge\b/i, /\btable stakes\b/i, /\bteardown\b/i,
+  /\bphase [123]\b/i,
+];
+
+/** Strip tags and entities so the guard reads what a visitor reads. */
+function visibleText(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+const leaks = [];
+function checkForLeaks(route, html) {
+  const text = visibleText(html);
+  for (const re of BANNED) {
+    const hit = text.match(re);
+    if (hit) leaks.push(`  /docs/${route} — "${hit[0]}" (${re})`);
+  }
+}
+
+/* ————————————————————————————————————————————————
+   Public copy. Authored here rather than lifted from the specs: the spec prose
+   is written for us, and names competitors and internal strategy on nearly
+   every feature. Write for someone deciding whether Engine solves their
+   problem — capabilities and outcomes, never components.
    ———————————————————————————————————————————————— */
 const COPY = {
   A1: {
-    problem: `Knowing where you rank in Google — across every market, device and language you care about, and the moment it moves. Rank tracking is not the interesting part of Engine, and it is not meant to be: it is the organic half of your Unified Visibility Score, and one of the main things that trips a diagnosis. It has to be correct, fast and cheap rather than clever.`,
-    does: ['Daily rank positions by market, device and language', 'Movement detection that triggers a diagnosis, not just an alert', 'Feeds the organic half of the Unified Visibility Score'],
+    title: 'Rank Tracking',
+    problem: `Knowing where you rank in Google — across every market, device and language you care about, and the moment it moves. Rank tracking is not the interesting part of Engine, and it is not meant to be: it is the search half of your visibility score, and one of the main things that sets off a diagnosis. It has to be correct and fast rather than clever.`,
+    does: ['Daily rank positions by market, device and language', 'Movement that starts a diagnosis, not just an alert', 'Feeds the search half of your visibility score'],
   },
   A2: {
+    title: 'AI Answer Visibility',
     problem: `Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover. You need to know whether you appear in those answers, how accurately you are described, and how your share compares to everyone else. Engine reports this as a confidence band from repeated sampling, never as a single false-precise number, because one query to one model on one day is not a measurement.`,
-    does: ['Polls the major answer engines on your prompt set', 'Reports presence and share as a range, with the sampling behind it', 'Checks how accurately you are described, not just whether you appear', 'The highest-signal trigger into the Fix Queue'],
+    does: ['Asks the major answer engines your questions, repeatedly', 'Reports presence and share as a range, with the sampling behind it', 'Checks how accurately you are described, not just whether you appear', 'The strongest signal for what to fix next'],
   },
   A3: {
-    problem: `Rank tracking, AI visibility and local each answer a fragment of one question: how discoverable are you? The Unified Visibility Score blends organic, AI and local into a single measure, weighted by your own traffic mix rather than a generic average. One number, then depth — and the number carries its confidence band with it.`,
-    does: ['One blended score across organic, AI and local', 'Weighted by your actual traffic mix', 'Confidence bands throughout — the range is the answer', 'Drill down from the score to the finding that moved it'],
+    title: 'Unified Visibility Score',
+    problem: `Rank tracking, AI visibility and local each answer a fragment of one question: how discoverable are you? Your visibility score blends search, AI and local into a single measure, weighted by your own traffic mix rather than a generic average. One number, then depth — and the number carries its confidence range with it.`,
+    does: ['One blended score across search, AI and local', 'Weighted by your actual traffic mix', 'A range, not a false-precise number', 'Drill from the score down to what moved it'],
   },
   A4: {
+    title: 'Keyword & Prompt Research',
     problem: `Before you can track anything you have to decide what to track — both classic keywords and the prompts people actually type into AI engines. This is the on-ramp: it populates rank tracking and the prompt bank behind AI visibility. Prompts are treated as first-class research objects, and the research covers vernacular, Indic-script and transliterated queries rather than assuming English.`,
     does: ['Keyword research and AI prompt research in one place', 'Vernacular, Indic-script and transliterated coverage', 'Populates the tracked keyword set and the prompt bank directly'],
   },
   A5: {
-    problem: `Visibility is relative — the useful question is where competitors beat you, and why. Because Engine holds one entity model rather than a separate SEO store and GEO store, the gap analysis spans keywords, citations, content, entities and backlinks at once. "They outrank us" and "they get cited and we do not" become two readings of the same comparison.`,
-    does: ['Unified SEO + GEO gap analysis on one entity model', 'Keyword, citation, content, entity and backlink gaps side by side', 'Gaps become ranked, executable actions'],
+    title: 'Competitor Intelligence',
+    problem: `Visibility is relative — the useful question is where competitors beat you, and why. Engine compares search and AI answers together rather than in two separate reports, spanning keywords, citations, content and links at once. "They outrank us" and "they get cited and we do not" become two readings of the same comparison.`,
+    does: ['Search and AI gaps in a single comparison', 'Keyword, citation, content and link gaps side by side', 'Every gap comes with the fix that closes it'],
   },
   A6: {
+    title: 'Backlinks & Brand Mentions',
     problem: `For AI visibility, unlinked brand mentions carry more signal than backlinks — but most tooling indexes links and ignores mentions. Engine tracks both, and scores which domains the answer engines actually draw from, so you get a ranked list of places worth earning a mention rather than an undifferentiated backlink export.`,
     does: ['Backlinks and unlinked brand mentions in one index', 'Citation-domain intelligence: which sources the engines actually cite', 'Ranked, specific opportunities rather than a raw domain dump'],
   },
   B1: {
-    problem: `Crawl the site, find what is technically wrong, and — the part that matters — emit findings that can actually be executed. Alongside standard technical SEO auditing it runs an AI-crawler access audit: whether GPTBot, ClaudeBot and PerplexityBot are even permitted to read you, which is a question classic auditors do not ask and a surprising number of sites fail.`,
-    does: ['Playwright crawl of the live site', 'Standard technical SEO checks, scored by predicted impact', 'AI-crawler access audit (GPTBot, ClaudeBot, PerplexityBot)', 'Every finding carries the action that would fix it'],
+    title: 'Technical Audit',
+    problem: `Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings. Alongside the standard technical checks it asks whether AI crawlers like GPTBot, ClaudeBot and PerplexityBot are even permitted to read you at all. Most audits never ask, and a surprising number of sites are quietly blocking them.`,
+    does: ['Reads your live site, rendered, the way a visitor sees it', 'Standard technical checks, ordered by the difference fixing them makes', 'Whether AI crawlers are allowed to read you', 'Every problem carries the fix that resolves it'],
   },
   B2: {
-    problem: `Whether an AI engine cites you depends largely on whether your page is extractable: answer-first, self-contained passages, real entity coverage, credible expertise signals. B2 scores that, page by page, and hands the low scorers to the content rewrite executor rather than leaving you with a number and no next step.`,
-    does: ['Extractability score per page', 'Entity and topic coverage checked against what the page should cover', 'Feeds AI-drafted rewrites through the normal Fix Queue'],
+    title: 'Content & Extractability',
+    problem: `Whether an AI engine quotes you depends largely on whether your page is easy to lift an answer out of: answers up front, passages that stand on their own, real coverage of the subject, credible signs of expertise. Engine scores that page by page — and then drafts the rewrite, rather than leaving you with a number and no next step.`,
+    does: ['An extractability score for every page', 'Checks the page actually covers what it claims to be about', 'Low scorers become drafted rewrites you can review and approve'],
   },
   B3: {
-    problem: `AI engines and Google's Knowledge Graph reason over entities, not URLs. B3 checks whether your entity is consistent, corroborated and correctly mapped across the web — Wikidata and sameAs consistency, on-site schema, Knowledge Panel status — and turns the gaps into schema and knowledge-graph fixes. This is the module that makes "SEO and GEO are one world" concrete rather than a slogan.`,
-    does: ['Resolves your entity to a canonical ID and audits sameAs consistency', 'Verifies on-site schema identifies the entity correctly', 'Knowledge Panel presence and accuracy', 'A cross-web corroboration score, rolled into entity strength'],
+    title: 'Entity & Knowledge Graph',
+    problem: `AI engines and Google's Knowledge Graph reason about businesses, not pages. Engine checks whether yours is described consistently everywhere it appears, whether your own site correctly identifies who you are, and whether your Knowledge Panel is accurate — then fixes the gaps. It is what lets search and AI be one picture instead of two.`,
+    does: ['Checks your business is described consistently across the web', 'Verifies your own site identifies you correctly', 'Knowledge Panel presence and accuracy', 'A single strength score for how well the web agrees about you'],
   },
   B4: {
-    problem: `Large sites need to know how crawlers — including AI bots — actually spend crawl budget, and which pages are never reached at all. Log-file analysis is a long-standing enterprise SEO capability; the addition here is treating AI bot traffic as a first-class dimension of it.`,
-    does: ['Crawl budget analysis from raw server logs', 'AI bot traffic broken out separately', 'Orphaned and never-crawled page detection'],
+    title: 'Crawl Analysis',
+    problem: `Large sites need to know how crawlers — including AI bots — actually spend their time, and which pages are never reached at all. This is a long-standing capability for big sites; the addition here is treating AI bot traffic as a first-class part of it.`,
+    does: ['See how crawl attention is actually spent across your site', 'AI bot traffic broken out separately', 'Find pages that are never reached at all'],
   },
   B5: {
-    problem: `For anything with a physical presence, local visibility is not a side report — it is a large share of how you are found. B5 audits Google Business Profile health, NAP consistency across citation sources, and review health, then feeds local share of voice into the Unified Visibility Score. It pairs directly with GBP automation, so a local finding is one click from being fixed.`,
-    does: ['Google Business Profile completeness and accuracy', 'NAP consistency across citation sources', 'Review health as a scored input', 'Findings execute against the Business Profile API'],
+    title: 'Local Visibility',
+    problem: `For anything with a physical presence, local visibility is not a side report — it is a large share of how you are found. Engine checks your Google Business Profile, whether your name, address and phone agree everywhere they appear, and the state of your reviews, then folds local into your overall visibility score. Findings can be fixed on your Business Profile directly.`,
+    does: ['Google Business Profile completeness and accuracy', 'Whether your name, address and phone agree everywhere', 'Review health as a scored input', 'Fixes applied to your Business Profile in one step'],
   },
 };
 
@@ -191,73 +265,31 @@ function esc(s) {
 }
 
 function write(route, html) {
+  checkForLeaks(route, html);
   const dir = join(OUT, route);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.html'), html);
   console.log('  /docs' + (route ? '/' + route : ''));
 }
 
-/* ————————————————————————————————————————————————
-   Markdown -> HTML
-   ———————————————————————————————————————————————— */
-
-/**
- * The repo is private, so PR links would 404 for a reader. Keep the reference
- * (it is useful provenance) and drop the dead href.
- */
-function neutralizePrivateLinks(md) {
-  return md
-    .replace(/\[([^\]]*PR #\d+[^\]]*)\]\(https:\/\/github\.com\/[^)]+\)/g, '$1')
-    .replace(/\[([^\]]+)\]\((?:\.\.\/)*(?:docs\/)?[\w./-]+\.md(?:#[\w-]*)?\)/g, '$1');
-}
-
-/**
- * Drop bullets marked internal in the source. A bullet written as
- * `- <!--internal--> …` is kept in CHANGELOG.md but never published — the
- * repo's own history should stay complete while the public page omits
- * competitive analysis. Continuation lines (indented under the bullet) go too.
- */
-function stripInternal(md) {
-  const lines = md.split('\n');
-  const out = [];
-  let dropping = false;
-  for (const line of lines) {
-    if (/^\s*[-*]\s*<!--\s*internal\s*-->/.test(line)) { dropping = true; continue; }
-    if (dropping) {
-      // Continuations are indented; anything at column zero ends the bullet.
-      if (/^\s+\S/.test(line) || line.trim() === '') continue;
-      dropping = false;
-      out.push('');  // the blank line we swallowed, so the next block still separates
-    }
-    out.push(line);
-  }
-  return out.join('\n');
-}
-
-function md2html(md) {
-  return marked.parse(stripInternal(neutralizePrivateLinks(md)));
-}
+const md2html = (md) => marked.parse(md);
 
 /* ————————————————————————————————————————————————
    Pages
    ———————————————————————————————————————————————— */
 
 function buildChangelog() {
-  const raw = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
-  // Drop the H1 and the file preamble — the page header already says all of
-  // this, and the preamble points at internal docs. Content starts at the
-  // first `---` rule.
-  const md = raw.slice(raw.indexOf('\n---\n') + 5).trim();
+  const md = readFileSync(join(WEB, 'content', 'changelog.md'), 'utf8');
   write('changelog', shell({
     title: 'Changelog',
-    description: 'Everything shipped in Engine, newest first — what changed, what broke, and what it cost.',
+    description: "What's new in Engine, newest first — written in terms of what you can now do.",
     active: '/docs/changelog',
     depth: 1,
     body: `      <article class="prose">
         <p class="kicker">Changelog</p>
-        <h1 class="doc-h1">Everything we shipped</h1>
-        <p class="doc-lede">Newest first, grouped by day and theme. Written to be
-        read — what changed, why it was wrong before, and what it now does.</p>
+        <h1 class="doc-h1">What's new</h1>
+        <p class="doc-lede">Newest first. Written in terms of what you can now
+        do with Engine, not what we rearranged to get there.</p>
         <hr class="rule" />
 ${md2html(md)}
       </article>`,
@@ -270,22 +302,22 @@ function readSpecs() {
     .filter((f) => /^[AB]\d-.*\.md$/.test(f))
     .sort()
     .map((file) => {
+      // Only the pillar is read from the spec — enough that a new feature
+      // cannot silently go missing from this index. Titles are public copy:
+      // the spec headings carry internal naming ("Unified Share of Voice
+      // (Unified Visibility Score) · Reference Spec").
       const raw = readFileSync(join(dir, file), 'utf8');
       const id = file.slice(0, 2);
-      const h1 = (raw.match(/^# (.+)$/m) || [, id])[1]
-        .replace(/\s*·\s*Reference Spec\s*$/, '');
-      const meta = raw.match(/^\*\*Pillar:\*\*\s*([AB])\s*·\s*\*\*Phase:\*\*\s*([^·]+)·/m);
-      const [status, statusNote] = STATUS[id] || ['planned', ''];
+      const meta = raw.match(/^\*\*Pillar:\*\*\s*([AB])\s*·/m);
       const copy = COPY[id];
       if (!copy) throw new Error(`No public copy authored for ${id} (${file})`);
       return {
         id,
-        slug: file.replace(/\.md$/, ''),
-        title: h1.replace(/^[AB]\d\s*—\s*/, ''),
+        // Drop the internal module code from the URL too — /docs/features/A1-…
+        // publishes our taxonomy, not a name the reader knows.
+        slug: file.replace(/^[AB]\d-/, '').replace(/\.md$/, ''),
         pillar: meta ? meta[1] : '?',
-        phase: meta ? meta[2].trim() : '',
-        status,
-        statusNote,
+        status: STATUS[id] || 'soon',
         ...copy,
       };
     });
@@ -293,20 +325,18 @@ function readSpecs() {
 
 function buildFeatures(specs) {
   const pillars = {
-    A: ['Pillar A — Visibility', 'Measure where you stand across search results and AI answers, as an honest range.'],
-    B: ['Pillar B — Diagnosis', 'Find what is holding you back, and turn every finding into something executable.'],
+    A: ['Visibility', 'Where you stand across search results and AI answers — as an honest range, never a false-precise number.'],
+    B: ['Diagnosis', 'What is holding you back, and the specific change that resolves it.'],
   };
 
   const groups = Object.entries(pillars).map(([key, [name, blurb]]) => {
     const cards = specs.filter((s) => s.pillar === key).map((s) => `
           <a class="feature-card" href="${s.slug}/">
             <div class="feature-card-top">
-              <span class="feature-id">${s.id}</span>
+              <h3>${esc(s.title)}</h3>
               <span class="badge badge-${s.status}">${STATUS_LABEL[s.status]}</span>
             </div>
-            <h3>${esc(s.title)}</h3>
             <p>${esc(firstSentence(s.problem))}</p>
-            <span class="feature-meta">${esc(s.phase)}${s.statusNote ? ' · ' + esc(s.statusNote) : ''}</span>
           </a>`).join('');
     return `
         <section class="pillar">
@@ -319,34 +349,32 @@ function buildFeatures(specs) {
 
   write('features', shell({
     title: 'Features',
-    description: 'Every Engine module across visibility and diagnosis — what it does, what is in scope, and whether it has shipped.',
+    description: 'Everything Engine does across visibility and diagnosis — what each part is for, and whether you can use it today.',
     active: '/docs/features',
     depth: 1,
     body: `      <div class="prose">
         <p class="kicker">Features</p>
         <h1 class="doc-h1">What Engine does</h1>
-        <p class="doc-lede">Engine is built in pillars. Everything in Visibility
-        exists to feed Diagnosis, and every diagnosis is written to become an
-        executable fix — that contract was frozen on day one.</p>
+        <p class="doc-lede">Two halves. Measurement exists to feed diagnosis, and
+        every diagnosis is written so it can become a change you actually ship —
+        never a report that leaves the work to you.</p>
       </div>
 ${groups}`,
   }));
 
   for (const s of specs) {
     write(join('features', s.slug), shell({
-      title: `${s.id} — ${s.title}`,
+      title: s.title,
       description: firstSentence(s.problem),
       active: '/docs/features',
       depth: 2,
       body: `      <article class="prose">
         <a class="back" href="../">← All features</a>
-        <p class="kicker">${s.id} · Pillar ${s.pillar}</p>
+        <p class="kicker">${s.pillar === 'A' ? 'Visibility' : 'Diagnosis'}</p>
         <h1 class="doc-h1">${esc(s.title)}</h1>
         <div class="pill-row">
           <span class="badge badge-${s.status}">${STATUS_LABEL[s.status]}</span>
-          <span class="pill">${esc(s.phase)}</span>
         </div>
-        ${s.statusNote ? `<p class="doc-note">${esc(s.statusNote)}</p>` : ''}
         <hr class="rule" />
         <p class="doc-lede">${esc(s.problem)}</p>
         <h2>What it does</h2>
@@ -370,49 +398,42 @@ function firstSentence(md) {
 }
 
 const ROADMAP_MD = `
-Engine ships in three phases. This is the public version — the internal roadmap
-carries the sequencing arguments behind it.
+What you can use today, what we are working on, and what is further out. Dates
+are deliberately absent — we would rather tell you what is true than commit to
+a quarter.
 
-## Phase 1 — MVP · prove the loop
+## Available today
 
-Demonstrate the whole loop on a narrow slice: see a problem, fix it, verify it
-moved. Not breadth — proof. Rank tracking, AI answer polling, the Unified
-Visibility Score with confidence bands, the technical audit, and the first
-deployable fixes.
+Visibility scoring across search and AI answers, reported as a range. The
+technical audit, including whether AI crawlers can read you. Content
+extractability and drafted rewrites. Entity checks against how the web
+describes you. Competitor comparison. Links and brand mentions. Local
+visibility. And the fixes for all of it — reviewed by you, applied by Engine,
+verified afterwards, undone automatically if they do not land.
 
-**Status:** the measurement and diagnosis spine is live. Live A1/A2 ingestion is
-waiting on third-party data access, and onboarding and billing are built but not
-yet switched on against real accounts.
+## In progress
 
-## Phase 2 — Depth · light up execution
+Broader live coverage of the answer engines, and deeper history behind every
+number so trends get more useful the longer you run it. Self-serve signup is
+being opened up gradually — Engine is in private beta today.
 
-Deepen visibility and diagnosis, and turn the Fix Queue into the product's
-centre of gravity: content rewrites, meta and redirect fixes at scale, hreflang,
-internal links, GitHub PR export, Google Business Profile automation, the entity
-Copilot, and agency white-label.
+## Further out
 
-**Status:** largely merged. The v1.5 pillars — entity and knowledge graph audit,
-competitor intelligence, the backlink and mention index, and local SEO — all
-landed in July 2026.
+Crawl analysis for very large sites, more answer engines as they matter, and
+the controls larger teams need: approvals, roles, and reporting across many
+sites at once.
 
-## Phase 3 — Platform · enterprise and agent-native
+## What we are not building
 
-Log file analysis, a proprietary mention index, more answer engines, and the
-enterprise surface around all of it.
-
-**Status:** not started.
-
-## What we will not do
-
-Measurement polish for its own sake. Measuring AI visibility is table stakes;
-the part that is hard, and the part we are building, is executing the fix into
-your production surface and being able to roll it back.
+A better report. Plenty of tools will tell you what is wrong with your site;
+the hard part, and the only part worth our time, is making the change and
+being able to take it back.
 `;
 
 function buildRoadmap() {
   write('roadmap', shell({
     title: 'Roadmap',
-    description: 'How Engine is phased — what is live now, what is next, and what we have deliberately chosen not to build.',
+    description: 'What you can use today, what is in progress, and what we have deliberately chosen not to build.',
     active: '/docs/roadmap',
     depth: 1,
     body: `      <article class="prose">
@@ -424,55 +445,55 @@ ${md2html(ROADMAP_MD)}
 }
 
 function buildIndex(specs) {
-  const shipped = specs.filter((s) => s.status === 'shipped').length;
+  const available = specs.filter((s) => s.status === 'available').length;
   write('', shell({
     title: 'Documentation',
-    description: 'Engine documentation — features, changelog and roadmap for the AI visibility platform that fixes what it finds.',
+    description: 'Engine documentation — how the product works, what is new, and where it is going.',
     active: '/docs',
     depth: 1,
     body: `      <div class="prose">
         <p class="kicker">Documentation</p>
         <h1 class="doc-h1">Engine, documented</h1>
-        <p class="doc-lede">The AI visibility platform that fixes what it finds.
-        Unified SEO, GEO and local visibility, with an agentic Fix Queue that
-        deploys, verifies and rolls back changes in your own CMS, code or
-        Business Profile.</p>
+        <p class="doc-lede">Engine measures how visible you are across AI answers
+        and search — as an honest range, never a false-precise score — then makes
+        the changes that move it, in your own site, CMS or Business Profile.</p>
       </div>
 
       <div class="card-grid">
         <a class="card" href="features/">
           <h3>Features →</h3>
-          <p>Every module across visibility and diagnosis — what it does, what is
-          in scope, and whether it has shipped.</p>
-          <span class="card-meta">${shipped} of ${specs.length} shipped</span>
+          <p>Everything Engine does across measurement and diagnosis, and whether
+          you can use it today.</p>
+          <span class="card-meta">${available} available now</span>
         </a>
         <a class="card" href="changelog/">
-          <h3>Changelog →</h3>
-          <p>Everything shipped, newest first. What changed, why it was wrong
-          before, and what it now does.</p>
+          <h3>What's new →</h3>
+          <p>Newest first, written in terms of what you can now do.</p>
           <span class="card-meta">Updated continuously</span>
         </a>
         <a class="card" href="roadmap/">
           <h3>Roadmap →</h3>
-          <p>The three phases, what is live now, and what we have deliberately
+          <p>What is available today, what is in progress, and what we have
           chosen not to build.</p>
-          <span class="card-meta">Phase 2 in progress</span>
+          <span class="card-meta">Private beta</span>
         </a>
       </div>
 
       <section class="prose principles">
         <hr class="rule" />
-        <h2>Two decisions that shape everything</h2>
-        <p><b>The entity-first data model.</b> Answer engines and Google's
-        Knowledge Graph reason over entities, not URLs. Engine stores one entity
-        graph, so "how do we rank" and "who gets cited" are two readings of the
-        same model rather than two products bolted together.</p>
-        <p><b>The Finding → Action contract.</b> Every diagnosis has to name an
-        executable fix. It was frozen before the execution layer existed, which
-        is why a local SEO finding and a redirect chain reach production through
-        the same deploy → verify → rollback path.</p>
-        <p class="doc-note">Neither can be retrofitted, which is the whole reason
-        they came first.</p>
+        <h2>How Engine works</h2>
+        <p><b>It measures honestly.</b> Ask one AI engine one question on one day
+        and you have an anecdote, not a measurement. Engine samples repeatedly
+        and reports a range, so you can see how certain the number actually is.
+        A confident answer and a shaky one never look the same.</p>
+        <p><b>It treats you as a business, not a list of pages.</b> AI engines and
+        Google's Knowledge Graph reason about who you are. So "how do we rank"
+        and "who gets cited" are two views of one picture, rather than two tools
+        you have to reconcile yourself.</p>
+        <p><b>It finishes the job.</b> Every problem Engine reports comes with the
+        specific change that resolves it. You approve it, Engine applies it,
+        checks that it landed, and takes it back automatically if it did not —
+        with a record of everything that changed.</p>
       </section>`,
   }));
 }
@@ -491,4 +512,17 @@ buildIndex(specs);
 buildFeatures(specs);
 buildChangelog();
 buildRoadmap();
-console.log(`Done — ${specs.length} feature pages.`);
+
+if (leaks.length) {
+  console.error(
+    `\nRefusing to publish — ${leaks.length} internal term(s) reached the public docs:\n` +
+    leaks.join('\n') +
+    `\n\n/docs is customer-facing. Describe the capability, not the implementation.\n` +
+    `If a term is genuinely part of the product's own vocabulary, remove it from\n` +
+    `BANNED in build-docs.mjs deliberately — do not work around this check.\n`
+  );
+  rmSync(OUT, { recursive: true, force: true });
+  process.exit(1);
+}
+
+console.log(`Done — ${specs.length} feature pages, no internal terms published.`);

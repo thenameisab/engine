@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>A2 — AI Visibility (GEO) — Engine docs</title>
-  <meta name="description" content="Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover." />
-  <meta property="og:title" content="A2 — AI Visibility (GEO) — Engine docs" />
-  <meta property="og:description" content="Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover." />
+  <title>Technical Audit — Engine docs</title>
+  <meta name="description" content="Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings." />
+  <meta property="og:title" content="Technical Audit — Engine docs" />
+  <meta property="og:description" content="Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings." />
   <meta property="og:type" content="article" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -44,21 +44,19 @@
     <main class="doc-main">
       <article class="prose">
         <a class="back" href="../">← All features</a>
-        <p class="kicker">A2 · Pillar A</p>
-        <h1 class="doc-h1">AI Visibility (GEO)</h1>
+        <p class="kicker">Diagnosis</p>
+        <h1 class="doc-h1">Technical Audit</h1>
         <div class="pill-row">
-          <span class="badge badge-partial">Partial</span>
-          <span class="pill">MVP</span>
+          <span class="badge badge-available">Available</span>
         </div>
-        <p class="doc-note">Adapters live; awaiting per-engine LLM API access</p>
         <hr class="rule" />
-        <p class="doc-lede">Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover. You need to know whether you appear in those answers, how accurately you are described, and how your share compares to everyone else. Engine reports this as a confidence band from repeated sampling, never as a single false-precise number, because one query to one model on one day is not a measurement.</p>
+        <p class="doc-lede">Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings. Alongside the standard technical checks it asks whether AI crawlers like GPTBot, ClaudeBot and PerplexityBot are even permitted to read you at all. Most audits never ask, and a surprising number of sites are quietly blocking them.</p>
         <h2>What it does</h2>
         <ul>
-          <li>Polls the major answer engines on your prompt set</li>
-          <li>Reports presence and share as a range, with the sampling behind it</li>
-          <li>Checks how accurately you are described, not just whether you appear</li>
-          <li>The highest-signal trigger into the Fix Queue</li>
+          <li>Reads your live site, rendered, the way a visitor sees it</li>
+          <li>Standard technical checks, ordered by the difference fixing them makes</li>
+          <li>Whether AI crawlers are allowed to read you</li>
+          <li>Every problem carries the fix that resolves it</li>
         </ul>
       </article>
     </main>

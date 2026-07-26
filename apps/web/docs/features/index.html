@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Features — Engine docs</title>
-  <meta name="description" content="Every Engine module across visibility and diagnosis — what it does, what is in scope, and whether it has shipped." />
+  <meta name="description" content="Everything Engine does across visibility and diagnosis — what each part is for, and whether you can use it today." />
   <meta property="og:title" content="Features — Engine docs" />
-  <meta property="og:description" content="Every Engine module across visibility and diagnosis — what it does, what is in scope, and whether it has shipped." />
+  <meta property="og:description" content="Everything Engine does across visibility and diagnosis — what each part is for, and whether you can use it today." />
   <meta property="og:type" content="article" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -45,119 +45,97 @@
       <div class="prose">
         <p class="kicker">Features</p>
         <h1 class="doc-h1">What Engine does</h1>
-        <p class="doc-lede">Engine is built in pillars. Everything in Visibility
-        exists to feed Diagnosis, and every diagnosis is written to become an
-        executable fix — that contract was frozen on day one.</p>
+        <p class="doc-lede">Two halves. Measurement exists to feed diagnosis, and
+        every diagnosis is written so it can become a change you actually ship —
+        never a report that leaves the work to you.</p>
       </div>
 
         <section class="pillar">
-          <h2 class="pillar-h">Pillar A — Visibility</h2>
-          <p class="pillar-blurb">Measure where you stand across search results and AI answers, as an honest range.</p>
+          <h2 class="pillar-h">Visibility</h2>
+          <p class="pillar-blurb">Where you stand across search results and AI answers — as an honest range, never a false-precise number.</p>
           <div class="feature-grid">
-          <a class="feature-card" href="A1-rank-tracking/">
+          <a class="feature-card" href="rank-tracking/">
             <div class="feature-card-top">
-              <span class="feature-id">A1</span>
-              <span class="badge badge-partial">Partial</span>
+              <h3>Rank Tracking</h3>
+              <span class="badge badge-early">Early access</span>
             </div>
-            <h3>Rank Tracking</h3>
             <p>Knowing where you rank in Google — across every market, device and language you care about, and the moment it moves.</p>
-            <span class="feature-meta">MVP · Scoring live; awaiting a SERP data provider for live ingestion</span>
           </a>
-          <a class="feature-card" href="A2-ai-visibility-geo/">
+          <a class="feature-card" href="ai-visibility-geo/">
             <div class="feature-card-top">
-              <span class="feature-id">A2</span>
-              <span class="badge badge-partial">Partial</span>
+              <h3>AI Answer Visibility</h3>
+              <span class="badge badge-early">Early access</span>
             </div>
-            <h3>AI Visibility (GEO)</h3>
             <p>Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover.</p>
-            <span class="feature-meta">MVP · Adapters live; awaiting per-engine LLM API access</span>
           </a>
-          <a class="feature-card" href="A3-unified-share-of-voice/">
+          <a class="feature-card" href="unified-share-of-voice/">
             <div class="feature-card-top">
-              <span class="feature-id">A3</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Unified Visibility Score</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Unified Share of Voice (Unified Visibility Score)</h3>
             <p>Rank tracking, AI visibility and local each answer a fragment of one question: how discoverable are you?</p>
-            <span class="feature-meta">MVP · Unified Visibility Score with confidence bands</span>
           </a>
-          <a class="feature-card" href="A4-keyword-prompt-research/">
+          <a class="feature-card" href="keyword-prompt-research/">
             <div class="feature-card-top">
-              <span class="feature-id">A4</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Keyword &amp; Prompt Research</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Keyword &amp; Prompt Research</h3>
             <p>Before you can track anything you have to decide what to track — both classic keywords and the prompts people actually type into AI engines.</p>
-            <span class="feature-meta">MVP · MVP slice — packages/keywords</span>
           </a>
-          <a class="feature-card" href="A5-competitor-intelligence/">
+          <a class="feature-card" href="competitor-intelligence/">
             <div class="feature-card-top">
-              <span class="feature-id">A5</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Competitor Intelligence</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Competitor Intelligence</h3>
             <p>Visibility is relative — the useful question is where competitors beat you, and why.</p>
-            <span class="feature-meta">v1.5 · packages/competitor</span>
           </a>
-          <a class="feature-card" href="A6-backlink-mention-index/">
+          <a class="feature-card" href="backlink-mention-index/">
             <div class="feature-card-top">
-              <span class="feature-id">A6</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Backlinks &amp; Brand Mentions</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Backlink &amp; Mention Index</h3>
             <p>For AI visibility, unlinked brand mentions carry more signal than backlinks — but most tooling indexes links and ignores mentions.</p>
-            <span class="feature-meta">v1.5 (license) → v2 (proprietary index) · packages/backlink</span>
           </a>
           </div>
         </section>
         <section class="pillar">
-          <h2 class="pillar-h">Pillar B — Diagnosis</h2>
-          <p class="pillar-blurb">Find what is holding you back, and turn every finding into something executable.</p>
+          <h2 class="pillar-h">Diagnosis</h2>
+          <p class="pillar-blurb">What is holding you back, and the specific change that resolves it.</p>
           <div class="feature-grid">
-          <a class="feature-card" href="B1-technical-audit/">
+          <a class="feature-card" href="technical-audit/">
             <div class="feature-card-top">
-              <span class="feature-id">B1</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Technical Audit</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Technical Audit</h3>
-            <p>Crawl the site, find what is technically wrong, and — the part that matters — emit findings that can actually be executed.</p>
-            <span class="feature-meta">MVP · Rule engine + Playwright crawler</span>
+            <p>Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings.</p>
           </a>
-          <a class="feature-card" href="B2-content-extractability/">
+          <a class="feature-card" href="content-extractability/">
             <div class="feature-card-top">
-              <span class="feature-id">B2</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Content &amp; Extractability</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Content &amp; Extractability Scoring</h3>
-            <p>Whether an AI engine cites you depends largely on whether your page is extractable: answer-first, self-contained passages, real entity coverage, credible expertise signals.</p>
-            <span class="feature-meta">v1.5 · Extractability scorer v1 + entity coverage</span>
+            <p>Whether an AI engine quotes you depends largely on whether your page is easy to lift an answer out of: answers up front, passages that stand on their own, real coverage of the subject, credible signs of expertise.</p>
           </a>
-          <a class="feature-card" href="B3-entity-knowledge-graph/">
+          <a class="feature-card" href="entity-knowledge-graph/">
             <div class="feature-card-top">
-              <span class="feature-id">B3</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Entity &amp; Knowledge Graph</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Entity &amp; Knowledge Graph Audit</h3>
-            <p>AI engines and Google's Knowledge Graph reason over entities, not URLs.</p>
-            <span class="feature-meta">v1.5 · packages/entity-audit</span>
+            <p>AI engines and Google's Knowledge Graph reason about businesses, not pages.</p>
           </a>
-          <a class="feature-card" href="B4-log-file-analysis/">
+          <a class="feature-card" href="log-file-analysis/">
             <div class="feature-card-top">
-              <span class="feature-id">B4</span>
-              <span class="badge badge-planned">Planned</span>
+              <h3>Crawl Analysis</h3>
+              <span class="badge badge-soon">Coming soon</span>
             </div>
-            <h3>Log File Analysis</h3>
-            <p>Large sites need to know how crawlers — including AI bots — actually spend crawl budget, and which pages are never reached at all.</p>
-            <span class="feature-meta">v2 (enterprise) · Phase 3</span>
+            <p>Large sites need to know how crawlers — including AI bots — actually spend their time, and which pages are never reached at all.</p>
           </a>
-          <a class="feature-card" href="B5-local-seo-audit/">
+          <a class="feature-card" href="local-seo-audit/">
             <div class="feature-card-top">
-              <span class="feature-id">B5</span>
-              <span class="badge badge-shipped">Shipped</span>
+              <h3>Local Visibility</h3>
+              <span class="badge badge-available">Available</span>
             </div>
-            <h3>Local SEO Audit</h3>
             <p>For anything with a physical presence, local visibility is not a side report — it is a large share of how you are found.</p>
-            <span class="feature-meta">v1.5 · packages/local</span>
           </a>
           </div>
         </section>
