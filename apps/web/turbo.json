@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "inputs": ["build-docs.mjs", "docs.css", "../../CHANGELOG.md", "../../docs/feature-specs/*.md"],
+      "outputs": ["docs/**"]
+    }
+  }
+}

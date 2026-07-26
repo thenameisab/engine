@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>B4 — Log File Analysis — Engine docs</title>
+  <meta name="description" content="Large sites need to know how crawlers — including AI bots — actually spend crawl budget, and which pages are never reached at all." />
+  <meta property="og:title" content="B4 — Log File Analysis — Engine docs" />
+  <meta property="og:description" content="Large sites need to know how crawlers — including AI bots — actually spend crawl budget, and which pages are never reached at all." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../docs.css" />
+  <script>
+    /* Applied before paint so a dark-mode reader never sees a light flash. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('engine-theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="doc-top">
+      <a class="wordmark" href="../../../">Engine<span class="dot"></span></a>
+      <nav class="doc-nav" aria-label="Documentation">
+        <a class="doc-nav-link" href="../../">Overview</a>
+        <a class="doc-nav-link on" aria-current="page" href="../../features">Features</a>
+        <a class="doc-nav-link" href="../../changelog">Changelog</a>
+        <a class="doc-nav-link" href="../../roadmap">Roadmap</a>
+      </nav>
+      <button class="toggle" id="theme" type="button" aria-label="Toggle color theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/></svg>
+      </button>
+    </header>
+
+    <main class="doc-main">
+      <article class="prose">
+        <a class="back" href="../">← All features</a>
+        <p class="kicker">B4 · Pillar B</p>
+        <h1 class="doc-h1">Log File Analysis</h1>
+        <div class="pill-row">
+          <span class="badge badge-planned">Planned</span>
+          <span class="pill">v2 (enterprise)</span>
+        </div>
+        <p class="doc-note">Phase 3</p>
+        <hr class="rule" />
+        <p class="doc-lede">Large sites need to know how crawlers — including AI bots — actually spend crawl budget, and which pages are never reached at all. Log-file analysis is a long-standing enterprise SEO capability; the addition here is treating AI bot traffic as a first-class dimension of it.</p>
+        <h2>What it does</h2>
+        <ul>
+          <li>Crawl budget analysis from raw server logs</li>
+          <li>AI bot traffic broken out separately</li>
+          <li>Orphaned and never-crawled page detection</li>
+        </ul>
+      </article>
+    </main>
+
+    <footer>
+      <span>Engine — AI visibility, measured and fixed.</span>
+      <span>© 2026 <span class="sep">·</span> Built for the answer engines.</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById('theme');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var dark = root.getAttribute('data-theme') === 'dark';
+        root.setAttribute('data-theme', dark ? 'light' : 'dark');
+        try { localStorage.setItem('engine-theme', dark ? 'light' : 'dark'); } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>

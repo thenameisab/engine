@@ -10,6 +10,114 @@ versions.
 
 ---
 
+## 2026-07-22 — Local visibility, end to end: audit it, then fix it (`packages/local`, `packages/deploy`)
+
+The first pillar to ship its diagnosis and its executor on the same day — a local
+finding raised in the morning had a deploy target by the evening.
+
+### Added
+- **B5 Local SEO Audit (v1.5).** Google Business Profile completeness, NAP
+  consistency across citation sources, and review health, reduced to a single
+  local visibility score with the sub-scores kept visible. Emits `Finding`s
+  through the same contract as every other Pillar B module, so local problems
+  enter the Fix Queue rather than a separate report.
+  (`packages/local`, migration `0013_local_profiles_and_audits`, PR #48)
+- **C5 GBP Automation.** The `gbp` deploy target executes those findings against
+  the Google Business Profile API — the fourth execution surface after
+  edge-worker, cms-plugin and github-pr. Same deploy → verify → rollback
+  lifecycle; no special-cased local path.
+  (`packages/deploy/src/gbp.ts`, `packages/actions/src/gbp.ts`, PR #49)
+
+---
+
+## 2026-07-21 — The entity model earns its keep (B3, A5, A6, Copilot GA)
+
+Four merges that all lean on the same decision: one entity graph, not one graph
+per pillar. B3 audits the entity, A5 compares it to competitors', A6 measures
+who corroborates it, and the Copilot answers questions across all three.
+
+### Added
+- **B3 Entity & Knowledge Graph Audit.** Wikidata/`sameAs` consistency, on-site
+  schema entity mapping, Knowledge Panel status and a cross-web corroboration
+  score, combined into an entity strength score. This is the module that turns
+  the entity-first data model from an architectural claim into a diagnosis.
+  (`packages/entity-audit`, migration `0010_entity_graph_audits`, PR #45)
+- **A5 Competitor Intelligence.** SEO and GEO gap analysis over one shared entity
+  model, so "they outrank us" and "they get cited and we don't" are two readings
+  of the same comparison rather than two products.
+  (`packages/competitor`, migration `0011_competitor_sets_and_gaps`, PR #46)
+- **A6 Backlink & Mention Index (v1.5).** Citation-domain intelligence: which
+  domains the answer engines actually draw from, scored into ranked
+  opportunities instead of an undifferentiated backlink dump.
+  (`packages/backlink`, migration `0012_citation_domain_intel`, PR #47)
+- **M2.4 Copilot GA.** A natural-language question returns a cited,
+  drill-downable answer in under three seconds. Every claim carries its source;
+  there is no ungrounded prose path. (PR #44)
+- **M2.3 close-out.** C3 internal-link actions, content rewrites executing
+  against live targets, and generation wired into the dashboard. (PR #43)
+
+### Fixed
+- **Pre-existing `/projects/:projectId/*` routes did not check ownership.** The
+  newer routes were gated; the older ones had been written before the check
+  existed and were never retrofitted, so a valid JWT for one account could read
+  another account's project. Ownership checks now applied uniformly. (PR #42)
+
+---
+
+## 2026-07-20 — Content diagnosis gets an executor, and Engine learns to be resold
+
+### Added
+- **M2.1 extractability scorer v1** — the heuristic baseline for B2: can an
+  answer engine actually lift a usable answer out of this page?
+  (PR #38)
+- **B2.1 entity/topic coverage** wired into that scorer, so extractability is
+  judged against what the page is *supposed* to cover, not in the abstract.
+  (PR #39)
+- **C3.1 AI-drafted content rewrites** — the executor for B2's content findings.
+  Drafts flow through the existing Fix Queue contract (deploy → verify →
+  rollback), deliberately not through a parallel drafting tool. (PR #40)
+- **C3.2 meta title/description fixes at scale**, proposed directly from
+  `/audit`. (PR #37)
+- **M2.5 agency white-label** — accounts, membership, branding and branded
+  reports: the multi-tenant seam an agency needs to put its own name on Engine's
+  output. (PR #41)
+
+---
+
+## 2026-07-19 — hreflang generation (C4.3)
+
+### Added
+- **C4.3 hreflang generation**, the last open technical-fix gap in M2.3.
+  International alternates are generated and deployed like any other fix. (PR #36)
+
+---
+
+## 2026-07-18 — Redirects, a fourth deploy target, and the Copilot's first real query
+
+### Added
+- **C4.1/C4.2 redirect fixes** — collapse redirect chains and resolve canonical
+  conflicts, the start of M2.3. (PR #34)
+- **C4.5 GitHub PR export.** The `github-pr` deploy target opens a pull request
+  against the customer's own repository, for teams who will not accept an agent
+  writing to production directly. Same lifecycle, different surface. (PR #35)
+- **M2.2: the entity graph goes online** — the Copilot answers a genuine
+  cross-SEO/GEO query against it, the first time both worlds are read from one
+  store in a user-facing path. (PR #33)
+- **A4 keyword & prompt research** (MVP slice) — keywords and AI prompts treated
+  as one demand surface. (`packages/keywords`, PR #28)
+- **C2 WordPress + Shopify plugins** for the `cms-plugin` deploy target. (PR #29)
+- **Stripe Checkout** — the missing other half of the billing webhook, which
+  until now could record a subscription nobody could start. (PR #30)
+- <!--internal--> **X0 — Profound Agents teardown**, closing the Phase 2 C-layer design gate.
+  (`docs/50-X0-Profound-Teardown.md`, PR #31)
+
+### Fixed
+- **`GET /accounts/:accountId/plan` returned 500 on a non-uuid `accountId`.** A
+  malformed path parameter reached Postgres and failed there, surfacing a server
+  error for what is a client mistake. Now a 400 that names the field. (PR #32)
+
+---
+
 ## 2026-07-17 — The Audit view stops making things up (`GET /audit`, migration 0004)
 
 ### Fixed
@@ -680,7 +788,7 @@ against real infra.
 ## 2026-07-14 — Product strategy, specs, architecture, design (pre-code)
 
 ### Added
-- **Strategy.** Reviewed the initial product blueprint; researched
+- <!--internal--> **Strategy.** Reviewed the initial product blueprint; researched
   competitors (Profound, Peec AI, Ahrefs, Semrush); wrote a competitor note
   arguing measurement is a crowded funded race and the Fix Queue (execution)
   is the real wedge.
@@ -715,18 +823,19 @@ Per [`docs/10-Roadmap.md`](docs/10-Roadmap.md), Phase 1 (MVP) milestones:
 | M1.6 | Self-serve onboarding | 🟡 KPI tracking + GSC OAuth scaffolding built; blocked on a real Google Cloud OAuth client + the product SPA (onboarding wizard UI) |
 | M1.7 | Billing live | 🟡 Webhook sync + plan/usage logic built and fully unit-tested; blocked on a real Stripe account |
 
-**Next up, and now the clearest blocker:** the Neon Postgres migrations in
-`infra/migrations/` have never been applied to the live database, so every
-DB-backed route fails with `relation "actions" does not exist`. The database
-URL is wired and reachable — the schema simply isn't there. Applying it is what
-turns the Fix Queue, onboarding and billing routes from "typechecked" into
-"actually working", and needs no new external account.
+Phase 2 (Depth) modules have run ahead of the Phase 1 close-out: M2.1–M2.5 are
+merged, and the v1.5 pillar work (B3, B5, A5, A6, C5) landed 2026-07-21/22. The
+schema blocker called out here previously is resolved — the Neon migrations were
+applied on 2026-07-16 and `infra/migrations/postgres/` now runs through `0013`.
 
-Also outstanding: A1/A2 connector runtimes (interfaces exist, no live
-ingestion yet — both need a paid third-party API account: a SERP data
-provider for A1, per-engine LLM API access for A2), the product app
-(`apps/web` today is the pre-launch marketing placeholder, not the
-dashboard — no onboarding wizard or billing UI exists yet even though the
-backend does), X0 competitor teardown research track, and provisioning the
-two external accounts (Google Cloud OAuth client, Stripe) needed to take
-M1.6/M1.7 from scaffolded to live.
+**Still outstanding:**
+- **Live A1/A2 ingestion.** Interfaces and adapters exist; both need paid
+  third-party accounts (a SERP data provider for A1, per-engine LLM API access
+  for A2) before real data flows.
+- **M1.6 / M1.7 to "live".** Onboarding and billing are built and unit-tested but
+  need a real Google Cloud OAuth client and a real Stripe account.
+- **Execution against real infrastructure.** The four deploy targets
+  (edge-worker, cms-plugin, github-pr, gbp) are staged-tested; the deploy →
+  verify → rollback loop has not yet run against a customer's production surface.
+- **`apps/web`** remains the pre-launch marketing site plus this documentation
+  section; the product SPA lives in `apps/dashboard`.

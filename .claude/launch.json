@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "apps/api"],
       "port": 8787
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "serve", "apps/web", "-l", "4321"],
+      "port": 4321
     }
   ]
 }

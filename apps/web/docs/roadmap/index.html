@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Roadmap — Engine docs</title>
+  <meta name="description" content="How Engine is phased — what is live now, what is next, and what we have deliberately chosen not to build." />
+  <meta property="og:title" content="Roadmap — Engine docs" />
+  <meta property="og:description" content="How Engine is phased — what is live now, what is next, and what we have deliberately chosen not to build." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../docs.css" />
+  <script>
+    /* Applied before paint so a dark-mode reader never sees a light flash. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('engine-theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="doc-top">
+      <a class="wordmark" href="../../">Engine<span class="dot"></span></a>
+      <nav class="doc-nav" aria-label="Documentation">
+        <a class="doc-nav-link" href="../">Overview</a>
+        <a class="doc-nav-link" href="../features">Features</a>
+        <a class="doc-nav-link" href="../changelog">Changelog</a>
+        <a class="doc-nav-link on" aria-current="page" href="../roadmap">Roadmap</a>
+      </nav>
+      <button class="toggle" id="theme" type="button" aria-label="Toggle color theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/></svg>
+      </button>
+    </header>
+
+    <main class="doc-main">
+      <article class="prose">
+        <p class="kicker">Roadmap</p>
+        <h1 class="doc-h1">Where this is going</h1>
+<p>Engine ships in three phases. This is the public version — the internal roadmap
+carries the sequencing arguments behind it.</p>
+<h2>Phase 1 — MVP · prove the loop</h2>
+<p>Demonstrate the whole loop on a narrow slice: see a problem, fix it, verify it
+moved. Not breadth — proof. Rank tracking, AI answer polling, the Unified
+Visibility Score with confidence bands, the technical audit, and the first
+deployable fixes.</p>
+<p><strong>Status:</strong> the measurement and diagnosis spine is live. Live A1/A2 ingestion is
+waiting on third-party data access, and onboarding and billing are built but not
+yet switched on against real accounts.</p>
+<h2>Phase 2 — Depth · light up execution</h2>
+<p>Deepen visibility and diagnosis, and turn the Fix Queue into the product&#39;s
+centre of gravity: content rewrites, meta and redirect fixes at scale, hreflang,
+internal links, GitHub PR export, Google Business Profile automation, the entity
+Copilot, and agency white-label.</p>
+<p><strong>Status:</strong> largely merged. The v1.5 pillars — entity and knowledge graph audit,
+competitor intelligence, the backlink and mention index, and local SEO — all
+landed in July 2026.</p>
+<h2>Phase 3 — Platform · enterprise and agent-native</h2>
+<p>Log file analysis, a proprietary mention index, more answer engines, and the
+enterprise surface around all of it.</p>
+<p><strong>Status:</strong> not started.</p>
+<h2>What we will not do</h2>
+<p>Measurement polish for its own sake. Measuring AI visibility is table stakes;
+the part that is hard, and the part we are building, is executing the fix into
+your production surface and being able to roll it back.</p>
+
+      </article>
+    </main>
+
+    <footer>
+      <span>Engine — AI visibility, measured and fixed.</span>
+      <span>© 2026 <span class="sep">·</span> Built for the answer engines.</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById('theme');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var dark = root.getAttribute('data-theme') === 'dark';
+        root.setAttribute('data-theme', dark ? 'light' : 'dark');
+        try { localStorage.setItem('engine-theme', dark ? 'light' : 'dark'); } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>
