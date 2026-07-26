@@ -32,6 +32,37 @@ pnpm --filter @engine/web build && npx serve apps/web/site -l 4321
 
 Then open `http://localhost:4321/docs/changelog`.
 
+## Which hostname serves what
+
+The **root** hostname must serve this app, not the dashboard. Someone arriving
+at the domain should land on the site and be able to read the docs — a login
+screen at the front door hides everything the product has to say for itself,
+and makes the documentation unreachable for anyone without an account.
+
+| Hostname | Serves | Output directory |
+|---|---|---|
+| the root domain | landing page + `/docs` | `apps/web/site` |
+| the app hostname | the product | `apps/dashboard/site` |
+
+Today the root (`engine-7vv.pages.dev`) still serves the dashboard, which is
+why the docs 404 there. Fixing it is a Cloudflare dashboard change, not a code
+change: repoint that project's build output at `apps/web/site`, and give the
+dashboard a project of its own.
+
+### `app.<something>.pages.dev` does not exist
+
+A Pages project gets exactly one `pages.dev` hostname. Subdomains under it
+resolve only as *branch previews* — `app.engine-7vv.pages.dev` would require a
+git branch literally named `app`, serving production from a preview deploy that
+rebuilds on every push and is excluded from search. A real `app.` subdomain
+needs a custom domain: point `example.com` at this project and
+`app.example.com` at the dashboard project, both as custom domains in Pages.
+
+Until that is settled the login button in `index.html` points at
+`https://engine-app.pages.dev/`. **That hostname does not exist yet** — create
+the dashboard's project under that name, or update the one `href` in
+`index.html` (marked `APP URL`) to whatever you choose.
+
 ## Deploy (Cloudflare Pages)
 
 This app needs **its own Pages project**, separate from the dashboard.
