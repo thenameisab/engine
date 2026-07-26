@@ -3,8 +3,15 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "inputs": ["build-docs.mjs", "docs.css", "../../CHANGELOG.md", "../../docs/feature-specs/*.md"],
-      "outputs": ["docs/**"]
+      "inputs": [
+        "build-docs.mjs",
+        "assemble-site.mjs",
+        "docs.css",
+        "index.html",
+        "content/*.md",
+        "../../docs/feature-specs/*.md"
+      ],
+      "outputs": ["docs/**", "site/**"]
     }
   }
 }

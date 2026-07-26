@@ -14,6 +14,7 @@ Thumbs.db
 node_modules/
 dist/
 apps/dashboard/site/
+apps/web/site/
 .turbo/
 *.tsbuildinfo
 .env
