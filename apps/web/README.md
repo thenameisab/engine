@@ -42,33 +42,57 @@ Then open `http://localhost:4321/docs/changelog`.
 docs, standalone). That is useful for working on this package alone, but it is
 **not** what ships.
 
-### `app.<something>.pages.dev` does not exist
+### Why the product is at a path, not a subdomain
 
 A Pages project gets exactly one `pages.dev` hostname. Subdomains under it
 resolve only as *branch previews* — `app.engine-7vv.pages.dev` would require a
 git branch literally named `app`, serving production from a preview deploy that
-rebuilds on every push and is excluded from search. A real `app.` subdomain
-needs a custom domain: point `example.com` at this project and
-`app.example.com` at the dashboard project, both as custom domains in Pages.
+rebuilds on every push and is excluded from search. So on `pages.dev` there is
+no honest way to split the product onto its own hostname; `/app` is the one
+that works today, and it needs no DNS.
 
-Until that is settled the login button in `index.html` points at
-`https://engine-app.pages.dev/`. **That hostname does not exist yet** — create
-the dashboard's project under that name, or update the one `href` in
-`index.html` (marked `APP URL`) to whatever you choose.
+If you later want `app.example.com`, that needs a **custom domain**: point
+`example.com` and `app.example.com` at Pages. Moving the product to its own
+hostname then means changing two things — the `APP URL` link in `index.html`,
+and the OAuth callback allowlist (see below).
 
 ## Deploy (Cloudflare Pages)
 
 There is **one** Pages project (`engine-7vv`). It builds `apps/dashboard`, and
-`apps/dashboard/scripts/assembleSite.mjs` mounts these docs into its output at
-`site/docs`. Nothing here needs a project of its own.
+`apps/dashboard/scripts/assembleSite.mjs` assembles the whole public surface
+into its output. Nothing here needs a project of its own.
 
 - Build output directory: **`apps/dashboard/site`**
+
+| URL | Serves | Source |
+|---|---|---|
+| `/` | landing page | `apps/web/index.html` |
+| `/docs` | public docs | `apps/web/docs` (generated) |
+| `/app` | the product | `apps/dashboard` |
+
+The landing page and docs sit at the root because they are what a visitor and a
+crawler should find at the domain — a login screen at the front door hides
+everything the product has to say for itself. The dashboard can live under
+`/app` because it is **hash-routed** (`location.hash`, see
+`apps/dashboard/src/shell.ts`), so in-app routes are `/app/#/pulse` and no
+server-side SPA fallback is involved, and because its asset paths are relative
+(`./styles.css`, `./dist/app.js`) so they resolve under `/app` unchanged.
+
+The "Log in" link in `index.html` points at `/app/` — same origin, so there is
+no second hostname to create.
 
 Do not point an output directory at `apps/web` or `apps/dashboard` themselves.
 They contain `node_modules`, and pnpm's workspace symlinks make Pages fail with
 *"build output directory contains links to files that can't be accessed"*. Both
 `assemble-site.mjs` and `assembleSite.mjs` exist to avoid that, and both
 hard-fail if a symlink survives into the output.
+
+### OAuth callback URL
+
+`apps/dashboard/src/auth/neonAuth.ts` sends `callbackURL: location.href`, so
+the callback follows wherever the app is served from. Moving the product from
+`/` to `/app` changed it to `https://engine-7vv.pages.dev/app/`, which must be
+allowlisted in Neon Auth or Google sign-in fails on redirect back.
 
 ### Why the SPA catch-all is not a problem
 
