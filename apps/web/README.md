@@ -3,8 +3,11 @@
 The public site: the pre-launch landing page (`index.html`) and the
 customer-facing documentation at `/docs`.
 
-This is **not** the product app — that is `apps/dashboard`, a separate
-Cloudflare Pages project.
+This is **not** the product app — that is `apps/dashboard`.
+
+This package is not deployed on its own. It is **build input**: the dashboard's
+build generates `docs/**` from here and mounts it at `/docs` in the single
+Pages project that actually ships. See "Deploy" below.
 
 ## Build
 
@@ -26,59 +29,92 @@ Two steps:
 
 ## Local preview
 
+To preview what actually deploys — dashboard at `/`, docs at `/docs` — build
+the dashboard, since that is the build that assembles both:
+
 ```bash
-pnpm --filter @engine/web build && npx serve apps/web/site -l 4321
+pnpm --filter @engine/dashboard build && npx serve apps/dashboard/site -l 4321
 ```
 
 Then open `http://localhost:4321/docs/changelog`.
 
-## Which hostname serves what
+`pnpm --filter @engine/web build` also produces `apps/web/site` (landing page +
+docs, standalone). That is useful for working on this package alone, but it is
+**not** what ships.
 
-The **root** hostname must serve this app, not the dashboard. Someone arriving
-at the domain should land on the site and be able to read the docs — a login
-screen at the front door hides everything the product has to say for itself,
-and makes the documentation unreachable for anyone without an account.
-
-| Hostname | Serves | Output directory |
-|---|---|---|
-| the root domain | landing page + `/docs` | `apps/web/site` |
-| the app hostname | the product | `apps/dashboard/site` |
-
-Today the root (`engine-7vv.pages.dev`) still serves the dashboard, which is
-why the docs 404 there. Fixing it is a Cloudflare dashboard change, not a code
-change: repoint that project's build output at `apps/web/site`, and give the
-dashboard a project of its own.
-
-### `app.<something>.pages.dev` does not exist
+### Why the product is at a path, not a subdomain
 
 A Pages project gets exactly one `pages.dev` hostname. Subdomains under it
 resolve only as *branch previews* — `app.engine-7vv.pages.dev` would require a
 git branch literally named `app`, serving production from a preview deploy that
-rebuilds on every push and is excluded from search. A real `app.` subdomain
-needs a custom domain: point `example.com` at this project and
-`app.example.com` at the dashboard project, both as custom domains in Pages.
+rebuilds on every push and is excluded from search. So on `pages.dev` there is
+no honest way to split the product onto its own hostname; `/app` is the one
+that works today, and it needs no DNS.
 
-Until that is settled the login button in `index.html` points at
-`https://engine-app.pages.dev/`. **That hostname does not exist yet** — create
-the dashboard's project under that name, or update the one `href` in
-`index.html` (marked `APP URL`) to whatever you choose.
+If you later want `app.example.com`, that needs a **custom domain**: point
+`example.com` and `app.example.com` at Pages. Moving the product to its own
+hostname then means changing two things — the `APP URL` link in `index.html`,
+and the OAuth callback allowlist (see below).
 
 ## Deploy (Cloudflare Pages)
 
-This app needs **its own Pages project**, separate from the dashboard.
+There is **one** Pages project (`engine-7vv`). It builds `apps/dashboard`, and
+`apps/dashboard/scripts/assembleSite.mjs` assembles the whole public surface
+into its output. Nothing here needs a project of its own.
 
-- Build command: `pnpm install --frozen-lockfile && pnpm --filter @engine/web build`
-- Build output directory: **`apps/web/site`**
+- Build output directory: **`apps/dashboard/site`**
 
-Do not point the output directory at `apps/web` itself. It contains
-`node_modules`, and pnpm's workspace symlinks make Pages fail with *"build
-output directory contains links to files that can't be accessed"* — the same
-failure `apps/dashboard` hit. `assemble-site.mjs` exists to avoid it.
+| URL | Serves | Source |
+|---|---|---|
+| `/` | landing page | `apps/web/index.html` |
+| `/docs` | public docs | `apps/web/docs` (generated) |
+| `/app` | the product | `apps/dashboard` |
 
-### Do not serve /docs from the dashboard project
+The landing page and docs sit at the root because they are what a visitor and a
+crawler should find at the domain — a login screen at the front door hides
+everything the product has to say for itself. The dashboard can live under
+`/app` because it is **hash-routed** (`location.hash`, see
+`apps/dashboard/src/shell.ts`), so in-app routes are `/app/#/pulse` and no
+server-side SPA fallback is involved, and because its asset paths are relative
+(`./styles.css`, `./dist/app.js`) so they resolve under `/app` unchanged.
 
-The dashboard is a single-page app: its Pages project serves `index.html` for
-every path, so a request for `/docs/changelog` returns the app shell, the
-router finds no matching route, and the visitor gets a blank screen. The
-dashboard is also `noindex`, which would hide the documentation from search —
-for a product about being findable, that is the wrong outcome.
+The "Log in" link in `index.html` points at `/app/` — same origin, so there is
+no second hostname to create.
+
+Do not point an output directory at `apps/web` or `apps/dashboard` themselves.
+They contain `node_modules`, and pnpm's workspace symlinks make Pages fail with
+*"build output directory contains links to files that can't be accessed"*. Both
+`assemble-site.mjs` and `assembleSite.mjs` exist to avoid that, and both
+hard-fail if a symlink survives into the output.
+
+### OAuth callback URL
+
+`apps/dashboard/src/auth/neonAuth.ts` sends `callbackURL: location.href`, so
+the callback follows wherever the app is served from. Moving the product from
+`/` to `/app` changed it to `https://engine-7vv.pages.dev/app/`, which must be
+allowlisted in Neon Auth or Google sign-in fails on redirect back.
+
+### Why the SPA catch-all is not a problem
+
+The dashboard serves `index.html` for unmatched paths, which is what made
+`/docs/*` return a blank shell before the docs were mounted. Real static files
+win over that fallback, so once `site/docs/**` exists the docs are served
+directly. `assembleSite.mjs` asserts every expected route is present for
+exactly this reason: if the docs silently stop being copied, the failure mode
+is not a 404 but a blank page that looks fine to monitoring.
+
+`noindex` lives on the dashboard's own `index.html`, not on the generated docs
+pages, so mounting the docs here does not hide them from search.
+
+### What must never be published here
+
+The constraint is about **content**, not about which project serves it.
+Customer-facing docs belong on the public site. Internal documentation — the
+repository layout, the stack, infrastructure, suppliers, competitive analysis,
+the internal roadmap, `docs/00-Master-PRD.md` and friends — must never reach a
+public URL, whichever project is doing the serving.
+
+That rule is enforced in code, not by convention: `build-docs.mjs` fails the
+build if a banned internal term reaches the rendered output, and authors every
+public page from copy written on purpose rather than republishing repo
+documents wholesale. Read its header comment before adding anything to `/docs`.

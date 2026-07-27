@@ -24,6 +24,7 @@
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 
   --z-bg: 0; --z-content: 10; --z-nav: 20;
 }
@@ -308,6 +309,141 @@ a { color: inherit; }
 
 .principles { margin-top: clamp(48px, 8vh, 80px); }
 
+/* ———————— architecture diagram ———————— */
+.arch { margin-top: clamp(40px, 6vh, 60px); }
+.arch-flow { list-style: none; margin: 0; padding: 0; }
+
+.arch-stage {
+  padding: 26px 0 30px;
+  transition: opacity 640ms var(--ease-out), transform 640ms var(--ease-out);
+}
+html.js-arch .arch-stage:not(.in-view) { opacity: 0; transform: translateY(16px); }
+
+.arch-stage-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+.arch-stage-index {
+  font-family: var(--mono); font-size: 11px; color: var(--faint);
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px;
+  flex: none;
+}
+.arch-stage-title {
+  font-family: var(--serif); font-weight: 400;
+  font-size: clamp(1.3rem, 2.8vw, 1.7rem); letter-spacing: -0.01em;
+  margin: 0;
+}
+.arch-stage-blurb { margin: 6px 0 0; color: var(--muted); font-size: 14px; max-width: 58ch; flex-basis: 100%; }
+
+.arch-nodes { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }
+.arch-nodes--single { grid-template-columns: minmax(0, 340px); justify-content: center; }
+
+.arch-node-btn {
+  all: unset; box-sizing: border-box; cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  border: 1px solid var(--border); border-radius: 14px;
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  padding: 16px 18px;
+  transition: transform 220ms var(--ease-out-quint), border-color 220ms var(--ease-out);
+}
+.arch-node-btn:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+.arch-node-btn:active { transform: scale(0.99); }
+.arch-node-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.arch-node-name { font-weight: 600; font-size: 14.5px; letter-spacing: -0.005em; }
+.arch-node-teaser { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
+.arch-node-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.arch-node-cta { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+
+.arch-node-icon { flex: none; width: 15px; height: 15px; position: relative; }
+.arch-node-icon::before, .arch-node-icon::after {
+  content: ""; position: absolute; background: var(--muted); border-radius: 1px;
+  transition: transform 220ms var(--ease-out), opacity 220ms var(--ease-out);
+}
+.arch-node-icon::before { top: 7px; left: 0; width: 15px; height: 1.5px; }
+.arch-node-icon::after { top: 0; left: 7px; width: 1.5px; height: 15px; }
+.arch-node-btn[aria-expanded="true"] .arch-node-icon::after { opacity: 0; transform: rotate(90deg); }
+
+.arch-detail {
+  display: grid; grid-template-rows: 1fr; overflow: hidden;
+  transition: grid-template-rows 260ms var(--ease-out);
+}
+html.js-arch .arch-detail { grid-template-rows: 0fr; }
+html.js-arch .arch-detail.is-open { grid-template-rows: 1fr; }
+.arch-detail-inner { min-height: 0; padding: 12px 2px 4px; }
+.arch-detail-inner p { margin: 0 0 10px; font-size: 13.5px; color: var(--muted); line-height: 1.62; }
+.arch-detail-link { font-family: var(--mono); font-size: 12px; color: var(--accent); text-decoration: none; }
+.arch-detail-link:hover { text-decoration: underline; }
+
+/* decorative range indicator under the score node — "a range, not a point" */
+.arch-range { position: relative; height: 6px; width: 100%; max-width: 220px; margin-top: 4px; }
+.arch-range-track { position: absolute; inset: 0; border-radius: 999px; background: var(--surface-2); }
+.arch-range-band {
+  position: absolute; top: 0; bottom: 0; left: 37%; width: 24%; border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.arch-range-marker { position: absolute; top: -3px; left: 47%; width: 2px; height: 12px; background: var(--accent); border-radius: 1px; }
+html.js-arch .in-view .arch-range-band { animation: arch-range-breathe 3.6s var(--ease-in-out) infinite; }
+@keyframes arch-range-breathe {
+  0%, 100% { left: 35%; width: 22%; }
+  50% { left: 41%; width: 27%; }
+}
+
+/* connectors between stages — a collector line, not literal wiring */
+.arch-connector { display: flex; flex-direction: column; align-items: center; height: 58px; position: relative; }
+.arch-connector-bar {
+  width: min(70%, 520px); height: 1px; background: var(--border-strong);
+  transform: scaleX(0); transition: transform 700ms var(--ease-out);
+}
+.arch-connector.in-view .arch-connector-bar { transform: scaleX(1); }
+.arch-connector-stem {
+  width: 1px; flex: 1; background: var(--border-strong);
+  transform-origin: top; transform: scaleY(0); transition: transform 700ms var(--ease-out) 150ms;
+}
+.arch-connector.in-view .arch-connector-stem { transform: scaleY(1); }
+.arch-connector-arrow {
+  width: 6px; height: 6px; margin-top: -4px;
+  border-right: 1.5px solid var(--border-strong); border-bottom: 1.5px solid var(--border-strong);
+  transform: rotate(45deg); opacity: 0; transition: opacity 300ms var(--ease-out) 780ms;
+}
+.arch-connector.in-view .arch-connector-arrow { opacity: 1; }
+.arch-connector-dot {
+  position: absolute; top: 0; left: calc(50% - 2px); width: 4px; height: 4px;
+  border-radius: 50%; background: var(--accent); opacity: 0;
+}
+html.js-arch .arch-connector.in-view .arch-connector-dot { animation: arch-flow 2.6s var(--ease-in-out) infinite; }
+.arch-connector-dot--b { animation-delay: 1.3s !important; }
+@keyframes arch-flow {
+  0% { opacity: 0; top: 4px; }
+  12% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; top: 100%; }
+}
+
+/* the fix chain — a sequence, not a grid */
+.arch-chain { display: flex; align-items: stretch; flex-wrap: wrap; gap: 14px 8px; }
+.arch-chain-step {
+  flex: 1 1 150px; min-width: 140px;
+  border: 1px solid var(--border); border-radius: 14px;
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  padding: 16px 16px 18px;
+}
+.arch-chain-step h3 { margin: 8px 0 6px; font-size: 14.5px; font-weight: 600; letter-spacing: -0.005em; }
+.arch-chain-step p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
+.arch-chain-num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; font-family: var(--mono); font-size: 11px;
+  color: var(--accent); background: var(--accent-wash);
+}
+.arch-chain-step--good .arch-chain-num { color: var(--good); background: color-mix(in oklab, var(--good) 14%, transparent); }
+.arch-chain-step--warn .arch-chain-num { color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, transparent); }
+.arch-chain-arrow {
+  align-self: center; flex: none; color: var(--faint); font-family: var(--mono);
+  font-size: 14px; padding: 0 2px;
+}
+.arch-chain-branch { flex: 1 1 150px; min-width: 140px; display: flex; flex-direction: column; gap: 10px; }
+.arch-chain-branch .arch-chain-step { flex: none; }
+
+.arch-dest-note { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+.arch-dest-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.arch-dest-row .pill { font-size: 12.5px; padding: 7px 14px; color: var(--text); }
+
 footer {
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; flex-wrap: wrap;
@@ -321,6 +457,9 @@ footer .sep { color: var(--border-strong); }
   .doc-nav { order: 3; margin-left: 0; width: 100%; }
   .doc-nav-link { padding: 6px 9px; font-size: 13px; }
   .toggle { margin-left: auto; }
+  .arch-chain { flex-direction: column; }
+  .arch-chain-arrow { align-self: center; transform: rotate(90deg); }
+  .arch-chain-branch { flex-direction: row; flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -331,4 +470,8 @@ footer .sep { color: var(--border-strong); }
     transition-duration: 120ms !important;
   }
   .doc-main { opacity: 1 !important; transform: none !important; }
+  .arch-stage, .arch-connector-bar, .arch-connector-stem, .arch-connector-arrow {
+    opacity: 1 !important; transform: none !important;
+  }
+  .arch-connector-dot { display: none !important; }
 }

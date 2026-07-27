@@ -10,7 +10,7 @@
     {
       "name": "web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "serve", "apps/web", "-l", "4321"],
+      "runtimeArgs": ["-y", "serve", "apps/dashboard/site", "-l", "4321"],
       "port": 4321
     }
   ]

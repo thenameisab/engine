@@ -178,6 +178,7 @@ const COPY = {
 
 const NAV = [
   ['/docs', 'Overview'],
+  ['/docs/architecture', 'Architecture'],
   ['/docs/features', 'Features'],
   ['/docs/changelog', 'Changelog'],
   ['/docs/roadmap', 'Roadmap'],
@@ -386,6 +387,209 @@ ${s.does.map((d) => `          <li>${esc(d)}</li>`).join('\n')}
   }
 }
 
+/* ————————————————————————————————————————————————
+   Architecture — a conceptual, customer-facing view of how the pieces
+   connect (measure -> score -> diagnose -> fix -> where it lands). This is
+   deliberately NOT the technical architecture: no stack, no infra, no repo
+   layout — the leak guard above still runs on this page like every other.
+   ———————————————————————————————————————————————— */
+function buildArchitecture(specs) {
+  const byId = Object.fromEntries(specs.map((s) => [s.id, s]));
+  const sources = ['A1', 'A2', 'A4', 'A5', 'A6'].map((id) => byId[id]);
+  const score = byId.A3;
+  const diagnose = ['B1', 'B2', 'B3', 'B4', 'B5'].map((id) => byId[id]);
+
+  const archNode = (s, extra = '') => `
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-${s.id}">
+              <span class="arch-node-top">
+                <span class="arch-node-name">${esc(s.title)}</span>
+                <span class="badge badge-${s.status}">${STATUS_LABEL[s.status]}</span>
+              </span>
+              <p class="arch-node-teaser">${esc(firstSentence(s.problem))}</p>${extra}
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-${s.id}">
+              <div class="arch-detail-inner">
+                <p>${esc(s.problem)}</p>
+                <a class="arch-detail-link" href="../features/${s.slug}/">See this feature →</a>
+              </div>
+            </div>
+          </li>`;
+
+  const connector = () => `
+          <li class="arch-connector" aria-hidden="true">
+            <span class="arch-connector-bar"></span>
+            <span class="arch-connector-stem"></span>
+            <span class="arch-connector-arrow"></span>
+            <span class="arch-connector-dot"></span>
+            <span class="arch-connector-dot arch-connector-dot--b"></span>
+          </li>`;
+
+  const rangeVisual = `
+              <div class="arch-range" aria-hidden="true">
+                <span class="arch-range-track"></span>
+                <span class="arch-range-band"></span>
+                <span class="arch-range-marker"></span>
+              </div>`;
+
+  const body = `      <div class="prose">
+        <p class="kicker">Architecture</p>
+        <h1 class="doc-h1">How the pieces connect</h1>
+        <p class="doc-lede">Engine is one pipeline, not a pile of separate
+        tools. Everything it measures feeds one score; everything that score
+        cannot explain becomes a diagnosis; every diagnosis carries the fix
+        that resolves it, applied and verified in place. Click any step for
+        detail.</p>
+      </div>
+
+      <section class="arch" aria-label="How Engine's measurement, diagnosis and fix pipeline connects">
+        <ol class="arch-flow">
+          <li class="arch-stage" data-stage="measure">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">01</span>
+              <h2 class="arch-stage-title">Measure</h2>
+              <p class="arch-stage-blurb">Search, AI answers, competitors and
+              the web's mentions of you — sampled repeatedly, never asked
+              once.</p>
+            </div>
+            <ul class="arch-nodes">${sources.map((s) => archNode(s)).join('')}
+            </ul>
+          </li>
+${connector()}
+          <li class="arch-stage" data-stage="score">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">02</span>
+              <h2 class="arch-stage-title">Score</h2>
+              <p class="arch-stage-blurb">One blended number, weighted by your
+              own traffic mix, reported as a range rather than a
+              false-precise figure.</p>
+            </div>
+            <ul class="arch-nodes arch-nodes--single">${archNode(score, rangeVisual)}
+            </ul>
+          </li>
+${connector()}
+          <li class="arch-stage" data-stage="diagnose">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">03</span>
+              <h2 class="arch-stage-title">Diagnose</h2>
+              <p class="arch-stage-blurb">When the score moves, or on its own
+              schedule, Engine checks why — technically, on the page, across
+              the web, and locally.</p>
+            </div>
+            <ul class="arch-nodes">${diagnose.map((s) => archNode(s)).join('')}
+            </ul>
+          </li>
+${connector()}
+          <li class="arch-stage" data-stage="fix">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">04</span>
+              <h2 class="arch-stage-title">Fix</h2>
+              <p class="arch-stage-blurb">Every finding becomes a change you
+              can approve — applied, checked, and reversed automatically if
+              it does not land.</p>
+            </div>
+            <div class="arch-chain">
+              <div class="arch-chain-step">
+                <span class="arch-chain-num">1</span>
+                <h3>Fix Queue</h3>
+                <p>Every problem becomes a specific, reviewable change —
+                never a report you are left to act on alone.</p>
+              </div>
+              <span class="arch-chain-arrow" aria-hidden="true">→</span>
+              <div class="arch-chain-step">
+                <span class="arch-chain-num">2</span>
+                <h3>Apply</h3>
+                <p>You approve it once. Engine makes the change directly, in
+                your site, your CMS or your Business Profile.</p>
+              </div>
+              <span class="arch-chain-arrow" aria-hidden="true">→</span>
+              <div class="arch-chain-step">
+                <span class="arch-chain-num">3</span>
+                <h3>Verify</h3>
+                <p>Engine checks the fix actually landed — not just that it
+                was sent.</p>
+              </div>
+              <span class="arch-chain-arrow" aria-hidden="true">→</span>
+              <div class="arch-chain-branch">
+                <div class="arch-chain-step arch-chain-step--good">
+                  <span class="arch-chain-num">✓</span>
+                  <h3>Landed</h3>
+                  <p>Confirmed live, with a record of the change.</p>
+                </div>
+                <div class="arch-chain-step arch-chain-step--warn">
+                  <span class="arch-chain-num">↺</span>
+                  <h3>Rolled back</h3>
+                  <p>If it does not land clean, Engine reverses it — no
+                  manual cleanup.</p>
+                </div>
+              </div>
+            </div>
+          </li>
+${connector()}
+          <li class="arch-stage" data-stage="destination">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">05</span>
+              <h2 class="arch-stage-title">Where it lands</h2>
+              <p class="arch-stage-blurb">No new place to manage. Changes
+              land where you already work.</p>
+            </div>
+            <p class="arch-dest-note">Every applied fix goes straight to the
+            surface it belongs on:</p>
+            <div class="arch-dest-row">
+              <span class="pill">Your site</span>
+              <span class="pill">Your CMS</span>
+              <span class="pill">Your Business Profile</span>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <script>
+      (function () {
+        var root = document.documentElement;
+        root.classList.add('js-arch');
+
+        var io = 'IntersectionObserver' in window ? new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('in-view');
+              io.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.2, rootMargin: '0px 0px -8% 0px' }) : null;
+
+        document.querySelectorAll('.arch-stage, .arch-connector').forEach(function (el) {
+          if (io) io.observe(el); else el.classList.add('in-view');
+        });
+
+        document.querySelectorAll('.arch-node-btn').forEach(function (btn) {
+          var detail = document.getElementById(btn.getAttribute('aria-controls'));
+          if (!detail) return;
+          detail.setAttribute('inert', '');
+          btn.addEventListener('click', function () {
+            var open = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!open));
+            detail.classList.toggle('is-open', !open);
+            if (open) detail.setAttribute('inert', '');
+            else detail.removeAttribute('inert');
+          });
+        });
+      })();
+      </script>`;
+
+  write('architecture', shell({
+    title: 'Architecture',
+    description: "How Engine's measurement, scoring, diagnosis and fix pipeline connects — from what it reads to what it changes and where.",
+    active: '/docs/architecture',
+    depth: 1,
+    body,
+  }));
+}
+
 function firstSentence(md) {
   const plain = md
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')  // links -> their text
@@ -509,6 +713,7 @@ writeFileSync(join(OUT, 'docs.css'), readFileSync(join(WEB, 'docs.css'), 'utf8')
 
 const specs = readSpecs();
 buildIndex(specs);
+buildArchitecture(specs);
 buildFeatures(specs);
 buildChangelog();
 buildRoadmap();
