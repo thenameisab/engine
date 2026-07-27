@@ -3,8 +3,11 @@
 The public site: the pre-launch landing page (`index.html`) and the
 customer-facing documentation at `/docs`.
 
-This is **not** the product app — that is `apps/dashboard`, a separate
-Cloudflare Pages project.
+This is **not** the product app — that is `apps/dashboard`.
+
+This package is not deployed on its own. It is **build input**: the dashboard's
+build generates `docs/**` from here and mounts it at `/docs` in the single
+Pages project that actually ships. See "Deploy" below.
 
 ## Build
 
@@ -26,28 +29,18 @@ Two steps:
 
 ## Local preview
 
+To preview what actually deploys — dashboard at `/`, docs at `/docs` — build
+the dashboard, since that is the build that assembles both:
+
 ```bash
-pnpm --filter @engine/web build && npx serve apps/web/site -l 4321
+pnpm --filter @engine/dashboard build && npx serve apps/dashboard/site -l 4321
 ```
 
 Then open `http://localhost:4321/docs/changelog`.
 
-## Which hostname serves what
-
-The **root** hostname must serve this app, not the dashboard. Someone arriving
-at the domain should land on the site and be able to read the docs — a login
-screen at the front door hides everything the product has to say for itself,
-and makes the documentation unreachable for anyone without an account.
-
-| Hostname | Serves | Output directory |
-|---|---|---|
-| the root domain | landing page + `/docs` | `apps/web/site` |
-| the app hostname | the product | `apps/dashboard/site` |
-
-Today the root (`engine-7vv.pages.dev`) still serves the dashboard, which is
-why the docs 404 there. Fixing it is a Cloudflare dashboard change, not a code
-change: repoint that project's build output at `apps/web/site`, and give the
-dashboard a project of its own.
+`pnpm --filter @engine/web build` also produces `apps/web/site` (landing page +
+docs, standalone). That is useful for working on this package alone, but it is
+**not** what ships.
 
 ### `app.<something>.pages.dev` does not exist
 
@@ -65,20 +58,39 @@ the dashboard's project under that name, or update the one `href` in
 
 ## Deploy (Cloudflare Pages)
 
-This app needs **its own Pages project**, separate from the dashboard.
+There is **one** Pages project (`engine-7vv`). It builds `apps/dashboard`, and
+`apps/dashboard/scripts/assembleSite.mjs` mounts these docs into its output at
+`site/docs`. Nothing here needs a project of its own.
 
-- Build command: `pnpm install --frozen-lockfile && pnpm --filter @engine/web build`
-- Build output directory: **`apps/web/site`**
+- Build output directory: **`apps/dashboard/site`**
 
-Do not point the output directory at `apps/web` itself. It contains
-`node_modules`, and pnpm's workspace symlinks make Pages fail with *"build
-output directory contains links to files that can't be accessed"* — the same
-failure `apps/dashboard` hit. `assemble-site.mjs` exists to avoid it.
+Do not point an output directory at `apps/web` or `apps/dashboard` themselves.
+They contain `node_modules`, and pnpm's workspace symlinks make Pages fail with
+*"build output directory contains links to files that can't be accessed"*. Both
+`assemble-site.mjs` and `assembleSite.mjs` exist to avoid that, and both
+hard-fail if a symlink survives into the output.
 
-### Do not serve /docs from the dashboard project
+### Why the SPA catch-all is not a problem
 
-The dashboard is a single-page app: its Pages project serves `index.html` for
-every path, so a request for `/docs/changelog` returns the app shell, the
-router finds no matching route, and the visitor gets a blank screen. The
-dashboard is also `noindex`, which would hide the documentation from search —
-for a product about being findable, that is the wrong outcome.
+The dashboard serves `index.html` for unmatched paths, which is what made
+`/docs/*` return a blank shell before the docs were mounted. Real static files
+win over that fallback, so once `site/docs/**` exists the docs are served
+directly. `assembleSite.mjs` asserts every expected route is present for
+exactly this reason: if the docs silently stop being copied, the failure mode
+is not a 404 but a blank page that looks fine to monitoring.
+
+`noindex` lives on the dashboard's own `index.html`, not on the generated docs
+pages, so mounting the docs here does not hide them from search.
+
+### What must never be published here
+
+The constraint is about **content**, not about which project serves it.
+Customer-facing docs belong on the public site. Internal documentation — the
+repository layout, the stack, infrastructure, suppliers, competitive analysis,
+the internal roadmap, `docs/00-Master-PRD.md` and friends — must never reach a
+public URL, whichever project is doing the serving.
+
+That rule is enforced in code, not by convention: `build-docs.mjs` fails the
+build if a banned internal term reaches the rendered output, and authors every
+public page from copy written on purpose rather than republishing repo
+documents wholesale. Read its header comment before adding anything to `/docs`.
