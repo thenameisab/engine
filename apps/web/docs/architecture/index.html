@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Architecture — Engine docs</title>
+  <meta name="description" content="How Engine's measurement, scoring, diagnosis and fix pipeline connects — from what it reads to what it changes and where." />
+  <meta property="og:title" content="Architecture — Engine docs" />
+  <meta property="og:description" content="How Engine's measurement, scoring, diagnosis and fix pipeline connects — from what it reads to what it changes and where." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../docs.css" />
+  <script>
+    /* Applied before paint so a dark-mode reader never sees a light flash. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('engine-theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="doc-top">
+      <a class="wordmark" href="../../">Engine<span class="dot"></span></a>
+      <nav class="doc-nav" aria-label="Documentation">
+        <a class="doc-nav-link" href="../">Overview</a>
+        <a class="doc-nav-link on" aria-current="page" href="../architecture">Architecture</a>
+        <a class="doc-nav-link" href="../features">Features</a>
+        <a class="doc-nav-link" href="../changelog">Changelog</a>
+        <a class="doc-nav-link" href="../roadmap">Roadmap</a>
+      </nav>
+      <button class="toggle" id="theme" type="button" aria-label="Toggle color theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/></svg>
+      </button>
+    </header>
+
+    <main class="doc-main">
+      <div class="prose">
+        <p class="kicker">Architecture</p>
+        <h1 class="doc-h1">How the pieces connect</h1>
+        <p class="doc-lede">Engine is one pipeline, not a pile of separate
+        tools. Everything it measures feeds one score; everything that score
+        cannot explain becomes a diagnosis; every diagnosis carries the fix
+        that resolves it, applied and verified in place. Click any step for
+        detail.</p>
+      </div>
+
+      <section class="arch" aria-label="How Engine's measurement, diagnosis and fix pipeline connects">
+        <ol class="arch-flow">
+          <li class="arch-stage" data-stage="measure">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">01</span>
+              <h2 class="arch-stage-title">Measure</h2>
+              <p class="arch-stage-blurb">Search, AI answers, competitors and
+              the web's mentions of you — sampled repeatedly, never asked
+              once.</p>
+            </div>
+            <ul class="arch-nodes">
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-A1">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Rank Tracking</span>
+                <span class="badge badge-early">Early access</span>
+              </span>
+              <p class="arch-node-teaser">Knowing where you rank in Google — across every market, device and language you care about, and the moment it moves.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-A1">
+              <div class="arch-detail-inner">
+                <p>Knowing where you rank in Google — across every market, device and language you care about, and the moment it moves. Rank tracking is not the interesting part of Engine, and it is not meant to be: it is the search half of your visibility score, and one of the main things that sets off a diagnosis. It has to be correct and fast rather than clever.</p>
+                <a class="arch-detail-link" href="../features/rank-tracking/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-A2">
+              <span class="arch-node-top">
+                <span class="arch-node-name">AI Answer Visibility</span>
+                <span class="badge badge-early">Early access</span>
+              </span>
+              <p class="arch-node-teaser">Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-A2">
+              <div class="arch-detail-inner">
+                <p>Answer engines — ChatGPT, Perplexity, Gemini, Copilot, Google AI Overviews — increasingly decide what people discover. You need to know whether you appear in those answers, how accurately you are described, and how your share compares to everyone else. Engine reports this as a confidence band from repeated sampling, never as a single false-precise number, because one query to one model on one day is not a measurement.</p>
+                <a class="arch-detail-link" href="../features/ai-visibility-geo/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-A4">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Keyword &amp; Prompt Research</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">Before you can track anything you have to decide what to track — both classic keywords and the prompts people actually type into AI engines.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-A4">
+              <div class="arch-detail-inner">
+                <p>Before you can track anything you have to decide what to track — both classic keywords and the prompts people actually type into AI engines. This is the on-ramp: it populates rank tracking and the prompt bank behind AI visibility. Prompts are treated as first-class research objects, and the research covers vernacular, Indic-script and transliterated queries rather than assuming English.</p>
+                <a class="arch-detail-link" href="../features/keyword-prompt-research/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-A5">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Competitor Intelligence</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">Visibility is relative — the useful question is where competitors beat you, and why.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-A5">
+              <div class="arch-detail-inner">
+                <p>Visibility is relative — the useful question is where competitors beat you, and why. Engine compares search and AI answers together rather than in two separate reports, spanning keywords, citations, content and links at once. &quot;They outrank us&quot; and &quot;they get cited and we do not&quot; become two readings of the same comparison.</p>
+                <a class="arch-detail-link" href="../features/competitor-intelligence/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-A6">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Backlinks &amp; Brand Mentions</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">For AI visibility, unlinked brand mentions carry more signal than backlinks — but most tooling indexes links and ignores mentions.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-A6">
+              <div class="arch-detail-inner">
+                <p>For AI visibility, unlinked brand mentions carry more signal than backlinks — but most tooling indexes links and ignores mentions. Engine tracks both, and scores which domains the answer engines actually draw from, so you get a ranked list of places worth earning a mention rather than an undifferentiated backlink export.</p>
+                <a class="arch-detail-link" href="../features/backlink-mention-index/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+            </ul>
+          </li>
+
+          <li class="arch-connector" aria-hidden="true">
+            <span class="arch-connector-bar"></span>
+            <span class="arch-connector-stem"></span>
+            <span class="arch-connector-arrow"></span>
+            <span class="arch-connector-dot"></span>
+            <span class="arch-connector-dot arch-connector-dot--b"></span>
+          </li>
+          <li class="arch-stage" data-stage="score">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">02</span>
+              <h2 class="arch-stage-title">Score</h2>
+              <p class="arch-stage-blurb">One blended number, weighted by your
+              own traffic mix, reported as a range rather than a
+              false-precise figure.</p>
+            </div>
+            <ul class="arch-nodes arch-nodes--single">
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-A3">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Unified Visibility Score</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">Rank tracking, AI visibility and local each answer a fragment of one question: how discoverable are you?</p>
+              <div class="arch-range" aria-hidden="true">
+                <span class="arch-range-track"></span>
+                <span class="arch-range-band"></span>
+                <span class="arch-range-marker"></span>
+              </div>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-A3">
+              <div class="arch-detail-inner">
+                <p>Rank tracking, AI visibility and local each answer a fragment of one question: how discoverable are you? Your visibility score blends search, AI and local into a single measure, weighted by your own traffic mix rather than a generic average. One number, then depth — and the number carries its confidence range with it.</p>
+                <a class="arch-detail-link" href="../features/unified-share-of-voice/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+            </ul>
+          </li>
+
+          <li class="arch-connector" aria-hidden="true">
+            <span class="arch-connector-bar"></span>
+            <span class="arch-connector-stem"></span>
+            <span class="arch-connector-arrow"></span>
+            <span class="arch-connector-dot"></span>
+            <span class="arch-connector-dot arch-connector-dot--b"></span>
+          </li>
+          <li class="arch-stage" data-stage="diagnose">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">03</span>
+              <h2 class="arch-stage-title">Diagnose</h2>
+              <p class="arch-stage-blurb">When the score moves, or on its own
+              schedule, Engine checks why — technically, on the page, across
+              the web, and locally.</p>
+            </div>
+            <ul class="arch-nodes">
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-B1">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Technical Audit</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-B1">
+              <div class="arch-detail-inner">
+                <p>Engine reads your site the way a browser does, finds what is technically wrong, and — the part that matters — gives you problems that can actually be fixed rather than a list of warnings. Alongside the standard technical checks it asks whether AI crawlers like GPTBot, ClaudeBot and PerplexityBot are even permitted to read you at all. Most audits never ask, and a surprising number of sites are quietly blocking them.</p>
+                <a class="arch-detail-link" href="../features/technical-audit/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-B2">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Content &amp; Extractability</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">Whether an AI engine quotes you depends largely on whether your page is easy to lift an answer out of: answers up front, passages that stand on their own, real coverage of the subject, credible signs of expertise.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-B2">
+              <div class="arch-detail-inner">
+                <p>Whether an AI engine quotes you depends largely on whether your page is easy to lift an answer out of: answers up front, passages that stand on their own, real coverage of the subject, credible signs of expertise. Engine scores that page by page — and then drafts the rewrite, rather than leaving you with a number and no next step.</p>
+                <a class="arch-detail-link" href="../features/content-extractability/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-B3">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Entity &amp; Knowledge Graph</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">AI engines and Google's Knowledge Graph reason about businesses, not pages.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-B3">
+              <div class="arch-detail-inner">
+                <p>AI engines and Google's Knowledge Graph reason about businesses, not pages. Engine checks whether yours is described consistently everywhere it appears, whether your own site correctly identifies who you are, and whether your Knowledge Panel is accurate — then fixes the gaps. It is what lets search and AI be one picture instead of two.</p>
+                <a class="arch-detail-link" href="../features/entity-knowledge-graph/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-B4">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Crawl Analysis</span>
+                <span class="badge badge-soon">Coming soon</span>
+              </span>
+              <p class="arch-node-teaser">Large sites need to know how crawlers — including AI bots — actually spend their time, and which pages are never reached at all.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-B4">
+              <div class="arch-detail-inner">
+                <p>Large sites need to know how crawlers — including AI bots — actually spend their time, and which pages are never reached at all. This is a long-standing capability for big sites; the addition here is treating AI bot traffic as a first-class part of it.</p>
+                <a class="arch-detail-link" href="../features/log-file-analysis/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+          <li class="arch-node">
+            <button class="arch-node-btn" aria-expanded="false" aria-controls="arch-detail-B5">
+              <span class="arch-node-top">
+                <span class="arch-node-name">Local Visibility</span>
+                <span class="badge badge-available">Available</span>
+              </span>
+              <p class="arch-node-teaser">For anything with a physical presence, local visibility is not a side report — it is a large share of how you are found.</p>
+              <span class="arch-node-foot">
+                <span class="arch-node-cta">Details</span>
+                <span class="arch-node-icon" aria-hidden="true"></span>
+              </span>
+            </button>
+            <div class="arch-detail" id="arch-detail-B5">
+              <div class="arch-detail-inner">
+                <p>For anything with a physical presence, local visibility is not a side report — it is a large share of how you are found. Engine checks your Google Business Profile, whether your name, address and phone agree everywhere they appear, and the state of your reviews, then folds local into your overall visibility score. Findings can be fixed on your Business Profile directly.</p>
+                <a class="arch-detail-link" href="../features/local-seo-audit/">See this feature →</a>
+              </div>
+            </div>
+          </li>
+            </ul>
+          </li>
+
+          <li class="arch-connector" aria-hidden="true">
+            <span class="arch-connector-bar"></span>
+            <span class="arch-connector-stem"></span>
+            <span class="arch-connector-arrow"></span>
+            <span class="arch-connector-dot"></span>
+            <span class="arch-connector-dot arch-connector-dot--b"></span>
+          </li>
+          <li class="arch-stage" data-stage="fix">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">04</span>
+              <h2 class="arch-stage-title">Fix</h2>
+              <p class="arch-stage-blurb">Every finding becomes a change you
+              can approve — applied, checked, and reversed automatically if
+              it does not land.</p>
+            </div>
+            <div class="arch-chain">
+              <div class="arch-chain-step">
+                <span class="arch-chain-num">1</span>
+                <h3>Fix Queue</h3>
+                <p>Every problem becomes a specific, reviewable change —
+                never a report you are left to act on alone.</p>
+              </div>
+              <span class="arch-chain-arrow" aria-hidden="true">→</span>
+              <div class="arch-chain-step">
+                <span class="arch-chain-num">2</span>
+                <h3>Apply</h3>
+                <p>You approve it once. Engine makes the change directly, in
+                your site, your CMS or your Business Profile.</p>
+              </div>
+              <span class="arch-chain-arrow" aria-hidden="true">→</span>
+              <div class="arch-chain-step">
+                <span class="arch-chain-num">3</span>
+                <h3>Verify</h3>
+                <p>Engine checks the fix actually landed — not just that it
+                was sent.</p>
+              </div>
+              <span class="arch-chain-arrow" aria-hidden="true">→</span>
+              <div class="arch-chain-branch">
+                <div class="arch-chain-step arch-chain-step--good">
+                  <span class="arch-chain-num">✓</span>
+                  <h3>Landed</h3>
+                  <p>Confirmed live, with a record of the change.</p>
+                </div>
+                <div class="arch-chain-step arch-chain-step--warn">
+                  <span class="arch-chain-num">↺</span>
+                  <h3>Rolled back</h3>
+                  <p>If it does not land clean, Engine reverses it — no
+                  manual cleanup.</p>
+                </div>
+              </div>
+            </div>
+          </li>
+
+          <li class="arch-connector" aria-hidden="true">
+            <span class="arch-connector-bar"></span>
+            <span class="arch-connector-stem"></span>
+            <span class="arch-connector-arrow"></span>
+            <span class="arch-connector-dot"></span>
+            <span class="arch-connector-dot arch-connector-dot--b"></span>
+          </li>
+          <li class="arch-stage" data-stage="destination">
+            <div class="arch-stage-head">
+              <span class="arch-stage-index">05</span>
+              <h2 class="arch-stage-title">Where it lands</h2>
+              <p class="arch-stage-blurb">No new place to manage. Changes
+              land where you already work.</p>
+            </div>
+            <p class="arch-dest-note">Every applied fix goes straight to the
+            surface it belongs on:</p>
+            <div class="arch-dest-row">
+              <span class="pill">Your site</span>
+              <span class="pill">Your CMS</span>
+              <span class="pill">Your Business Profile</span>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <script>
+      (function () {
+        var root = document.documentElement;
+        root.classList.add('js-arch');
+
+        var io = 'IntersectionObserver' in window ? new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('in-view');
+              io.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.2, rootMargin: '0px 0px -8% 0px' }) : null;
+
+        document.querySelectorAll('.arch-stage, .arch-connector').forEach(function (el) {
+          if (io) io.observe(el); else el.classList.add('in-view');
+        });
+
+        document.querySelectorAll('.arch-node-btn').forEach(function (btn) {
+          var detail = document.getElementById(btn.getAttribute('aria-controls'));
+          if (!detail) return;
+          detail.setAttribute('inert', '');
+          btn.addEventListener('click', function () {
+            var open = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!open));
+            detail.classList.toggle('is-open', !open);
+            if (open) detail.setAttribute('inert', '');
+            else detail.removeAttribute('inert');
+          });
+        });
+      })();
+      </script>
+    </main>
+
+    <footer>
+      <span>Engine — AI visibility, measured and fixed.</span>
+      <span>© 2026 <span class="sep">·</span> Built for the answer engines.</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById('theme');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var dark = root.getAttribute('data-theme') === 'dark';
+        root.setAttribute('data-theme', dark ? 'light' : 'dark');
+        try { localStorage.setItem('engine-theme', dark ? 'light' : 'dark'); } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>
