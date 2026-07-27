@@ -29,7 +29,7 @@
  * Run: pnpm --filter @engine/web build
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
@@ -184,8 +184,19 @@ const NAV = [
   ['/docs/roadmap', 'Roadmap'],
 ];
 
-/** Depth-aware relative root so the pages also work from `file://`. */
-function shell({ title, description, active, body, depth = 1 }) {
+/**
+ * Depth-aware relative root so the pages also work from `file://`.
+ *
+ * `depth` is how many levels below /docs the page sits, and it MUST match the
+ * route it gets written to — /docs/index.html is depth 0, /docs/features/ is 1,
+ * /docs/features/<slug>/ is 2. Do not pass it by hand: `write()` derives it
+ * from the route, because when the two disagree the page asks for docs.css at
+ * the wrong level, Pages answers the miss with the SPA shell (HTML, status
+ * 200), and the browser drops the stylesheet on its MIME type. The result is an
+ * unstyled page with nothing failing anywhere — which is exactly how this
+ * shipped once already.
+ */
+function shell({ title, description, active, body, depth }) {
   const up = '../'.repeat(depth);
   const nav = NAV.map(([href, label]) => {
     const to = up + href.replace(/^\/docs\/?/, '') || up;
@@ -265,13 +276,24 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function write(route, html) {
+/**
+ * Render and write one page. Takes the shell's options rather than rendered
+ * HTML so that `depth` is derived from the route here, in the one place that
+ * knows where the file actually lands.
+ */
+function write(route, opts) {
+  const depth = route ? route.split('/').length : 0;
+  const html = shell({ ...opts, depth });
   checkForLeaks(route, html);
   const dir = join(OUT, route);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.html'), html);
+  pages.push({ route, dir });
   console.log('  /docs' + (route ? '/' + route : ''));
 }
+
+/** Every page written this run, for the relative-link check at the end. */
+const pages = [];
 
 const md2html = (md) => marked.parse(md);
 
@@ -281,11 +303,10 @@ const md2html = (md) => marked.parse(md);
 
 function buildChangelog() {
   const md = readFileSync(join(WEB, 'content', 'changelog.md'), 'utf8');
-  write('changelog', shell({
+  write('changelog', {
     title: 'Changelog',
     description: "What's new in Engine, newest first — written in terms of what you can now do.",
     active: '/docs/changelog',
-    depth: 1,
     body: `      <article class="prose">
         <p class="kicker">Changelog</p>
         <h1 class="doc-h1">What's new</h1>
@@ -294,7 +315,7 @@ function buildChangelog() {
         <hr class="rule" />
 ${md2html(md)}
       </article>`,
-  }));
+  });
 }
 
 function readSpecs() {
@@ -348,11 +369,10 @@ function buildFeatures(specs) {
         </section>`;
   }).join('');
 
-  write('features', shell({
+  write('features', {
     title: 'Features',
     description: 'Everything Engine does across visibility and diagnosis — what each part is for, and whether you can use it today.',
     active: '/docs/features',
-    depth: 1,
     body: `      <div class="prose">
         <p class="kicker">Features</p>
         <h1 class="doc-h1">What Engine does</h1>
@@ -361,14 +381,13 @@ function buildFeatures(specs) {
         never a report that leaves the work to you.</p>
       </div>
 ${groups}`,
-  }));
+  });
 
   for (const s of specs) {
-    write(join('features', s.slug), shell({
+    write(join('features', s.slug), {
       title: s.title,
       description: firstSentence(s.problem),
       active: '/docs/features',
-      depth: 2,
       body: `      <article class="prose">
         <a class="back" href="../">← All features</a>
         <p class="kicker">${s.pillar === 'A' ? 'Visibility' : 'Diagnosis'}</p>
@@ -383,7 +402,7 @@ ${groups}`,
 ${s.does.map((d) => `          <li>${esc(d)}</li>`).join('\n')}
         </ul>
       </article>`,
-    }));
+    });
   }
 }
 
@@ -581,13 +600,12 @@ ${connector()}
       })();
       </script>`;
 
-  write('architecture', shell({
+  write('architecture', {
     title: 'Architecture',
     description: "How Engine's measurement, scoring, diagnosis and fix pipeline connects — from what it reads to what it changes and where.",
     active: '/docs/architecture',
-    depth: 1,
     body,
-  }));
+  });
 }
 
 function firstSentence(md) {
@@ -635,26 +653,24 @@ being able to take it back.
 `;
 
 function buildRoadmap() {
-  write('roadmap', shell({
+  write('roadmap', {
     title: 'Roadmap',
     description: 'What you can use today, what is in progress, and what we have deliberately chosen not to build.',
     active: '/docs/roadmap',
-    depth: 1,
     body: `      <article class="prose">
         <p class="kicker">Roadmap</p>
         <h1 class="doc-h1">Where this is going</h1>
 ${md2html(ROADMAP_MD)}
       </article>`,
-  }));
+  });
 }
 
 function buildIndex(specs) {
   const available = specs.filter((s) => s.status === 'available').length;
-  write('', shell({
+  write('', {
     title: 'Documentation',
     description: 'Engine documentation — how the product works, what is new, and where it is going.',
     active: '/docs',
-    depth: 1,
     body: `      <div class="prose">
         <p class="kicker">Documentation</p>
         <h1 class="doc-h1">Engine, documented</h1>
@@ -699,7 +715,7 @@ function buildIndex(specs) {
         checks that it landed, and takes it back automatically if it did not —
         with a record of everything that changed.</p>
       </section>`,
-  }));
+  });
 }
 
 /* ————————————————————————————————————————————————
@@ -730,4 +746,58 @@ if (leaks.length) {
   process.exit(1);
 }
 
-console.log(`Done — ${specs.length} feature pages, no internal terms published.`);
+/* ————————————————————————————————————————————————
+   Relative-link check.
+
+   A page that asks for docs.css one level too high does not fail: Pages
+   answers the miss with the SPA shell — HTML, status 200 — and the browser
+   silently drops the stylesheet on its MIME type. The page renders, unstyled,
+   and every status-code check stays green. So resolve each page's own local
+   links here and confirm the file is really there.
+   ———————————————————————————————————————————————— */
+/**
+ * Resolve a URL as the deployed site would, not as the filesystem happens to.
+ * Those differ in a way that matters: `../docs.css` from /docs/ resolves on
+ * disk to apps/web/docs.css — the SOURCE stylesheet, which exists — while the
+ * deployed URL /docs.css does not. Checking the filesystem would call the
+ * exact bug that shipped "fine".
+ *
+ * Returns whether the deployed path exists, given that the site root holds the
+ * landing page and /docs/** is this build's output.
+ */
+function servedByDeploy(urlPath) {
+  if (urlPath === '/') return true;                       // the landing page
+  if (!urlPath.startsWith('/docs')) return false;         // nothing else is ours
+  const rest = urlPath.slice('/docs'.length).replace(/^\//, '');
+  const target = join(OUT, rest);
+  return existsSync(urlPath.endsWith('/') || !rest.split('/').pop().includes('.')
+    ? join(target, 'index.html')
+    : target);
+}
+
+const broken = [];
+for (const { route, dir } of pages) {
+  const pageUrl = '/docs/' + (route ? route + '/' : '');
+  const html = readFileSync(join(dir, 'index.html'), 'utf8');
+  for (const m of html.matchAll(/(?:href|src)=("|')([^"']+)\1/g)) {
+    const href = m[2];
+    if (/^(https?:|mailto:|#|data:)/.test(href)) continue; // external, anchor, inline
+    const resolved = new URL(href, 'https://x' + pageUrl).pathname;
+    if (!servedByDeploy(resolved)) {
+      broken.push(`  ${pageUrl} — "${href}" → ${resolved}, which is not published`);
+    }
+  }
+}
+
+if (broken.length) {
+  console.error(
+    `\nRefusing to publish — ${broken.length} relative link(s) resolve to no file:\n` +
+    broken.join('\n') +
+    `\n\nThis is usually a depth mismatch. write() derives depth from the route,\n` +
+    `so a page listed here is linking somewhere that genuinely is not there.\n`
+  );
+  rmSync(OUT, { recursive: true, force: true });
+  process.exit(1);
+}
+
+console.log(`Done — ${specs.length} feature pages, no internal terms published, ${pages.length} pages link clean.`);
