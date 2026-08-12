@@ -390,3 +390,8 @@
 - Added a relative-link check to build-docs.mjs: resolves every non-external href/src on every generated page against its DEPLOYED url and fails the build if the target is not published. Deliberately resolves against the deploy layout rather than the filesystem — on disk `../docs.css` from /docs/ hits apps/web/docs.css, the SOURCE stylesheet, so a filesystem check would have called this exact bug fine. Verified by reintroducing the off-by-one: build exits 1 and names `"../docs.css" → /docs.css, which is not published`.
 - Verified: /docs/ now loads docs.css (139 rules applied, Instrument Serif on the h1) and renders styled; /docs/features/, /docs/architecture/, /app/ and / all still 200.
 - Lesson worth keeping: on this Pages project a missing asset is never a 404 — the SPA fallback turns every miss into 200 text/html. Status-code checks cannot detect it; only resolving links against the deploy layout can.
+
+## 2026-08-12
+- Built a public portfolio version of the repo: `public/README.md` (architecture-level write-up, no code/specs/credentials) + 13 retina screenshots in `public/screenshots/`.
+- Added `tools/screenshots/` — a capture harness (demo API speaking the real `apps/api` JSON shapes over a fictional dataset, a static server, and a Playwright/Chromium driver) so the DB-backed views screenshot with real data instead of empty states.
+- Fixed two real CSS bugs found while capturing: `.card-act` reused from the Fix Queue crushed the Audit view's finding rows, and long project names overflowed the Clients card.

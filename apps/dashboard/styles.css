@@ -156,6 +156,11 @@ a { color: inherit; text-decoration: none; }
 .card-act { margin-top: 9px; width: 100%; padding: 5px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface); color: var(--accent); font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; transition: background .12s var(--ease), border-color .12s var(--ease); }
 .card-act:hover { background: var(--accent-wash); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .card-act[disabled] { opacity: .6; cursor: default; }
+/* The Fix Queue styles .card-act as a full-width block under a card. The Audit
+   view reuses the same button inside a flex row, where width:100% makes it grow
+   and crush the finding's title/URL column — so it sits inline there instead. */
+.frow .card-act { margin-top: 0; width: auto; flex: none; padding: 5px 12px; }
+.frow .pill, .frow .impact-n { flex: none; }
 .lane-empty { font-family: var(--mono); font-size: 11px; color: var(--text-faint); padding: 12px 8px; text-align: center; border: 1px dashed var(--border); border-radius: var(--r); }
 /* Whole-board state: an empty queue, or a queue that could not be loaded. */
 .fq-note { font-size: 13px; color: var(--text-muted); padding: 24px 16px; text-align: center; }
@@ -420,6 +425,10 @@ select.field { cursor: pointer; }
 .client-project { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 16px; border: none; border-bottom: 1px solid var(--border); background: none; color: var(--text); font-family: var(--font); font-size: 13px; text-align: left; cursor: pointer; width: 100%; transition: background .12s var(--ease); }
 .client-project:last-child { border-bottom: none; }
 .client-project:hover { background: var(--surface-2); }
+/* Both halves must be able to shrink: a flex item's default min-width is auto,
+   so a long project name or domain pushes the row past the card's edge rather
+   than truncating inside it. */
+.client-project .t, .client-project .m { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .client-project .t { font-weight: 550; }
 .client-project .m { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
 .client-actions { display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--border); }
