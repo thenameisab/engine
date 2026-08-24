@@ -38,6 +38,7 @@ import {
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
+import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -114,10 +115,14 @@ interface Env extends AuthEnv {
   /** C4.5 GitHub PR export — token for the 'github-pr' DeployTarget's real API calls. */
   GITHUB_TOKEN?: string;
   /**
-   * C5 GBP automation — OAuth for the 'gbp-api' DeployTarget's Business Profile
-   * writes. A refresh token (owner-consented, `business.manage` scope) exchanged
-   * for an access token at deploy time, plus the OAuth client. Unset until the
-   * GBP OAuth app + a consented location are configured; the deploy then 503s.
+   * C5 GBP automation, **legacy single-tenant fallback**. One owner's consent
+   * for the whole deployment — correct while nothing was multi-tenant, wrong
+   * once two customers have Business Profiles, because the second customer's
+   * fix would be written to the first one's listing.
+   *
+   * The deploy route now reads the project's own account connection
+   * (`integration_connections`, migration 0014) and only falls back to these if
+   * no connection exists. Remove them once every account has connected.
    */
   GBP_REFRESH_TOKEN?: string;
   GBP_CLIENT_ID?: string;
@@ -1251,15 +1256,45 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
 
     // C5: a 'gbp-api' target applies the fix by calling the Business Profile
     // API synchronously as part of the deploy transition (like github-pr), not
-    // a separate push step. Needs an owner-consented OAuth refresh token +
-    // client; degrades to 503 when unconfigured, the same as github-pr.
+    // a separate push step.
+    //
+    // The token comes from the project's own account connection now, not the
+    // deployment-wide `GBP_REFRESH_TOKEN` this route used to read. That secret
+    // held one owner's consent for every customer, which was fine while nothing
+    // was multi-tenant and is wrong the moment two customers have Business
+    // Profiles: the second one's fix would be written to the first one's
+    // listing. It stays as a fallback so an existing single-tenant deployment
+    // keeps working until its secret is removed.
     if (to === 'deployed' && action.target.kind === 'gbp-api') {
       const { GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET } = c.env;
-      if (!GBP_REFRESH_TOKEN || !GBP_CLIENT_ID || !GBP_CLIENT_SECRET) {
-        return c.json({ error: 'GBP automation is not configured (set GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET)' }, 503);
+      let token: string;
+      try {
+        const accountId = await getProjectAccountId(db, projectId);
+        if (!accountId) return c.json({ error: 'project not found', projectId }, 404);
+        token = await getAccessToken(db, accountId, 'gbp', c.env);
+      } catch (err) {
+        if (!(err instanceof ConnectionUnavailableError)) {
+          return c.json({ error: `GBP deploy failed: ${(err as Error).message}` }, 502);
+        }
+        // No per-account connection. Fall back to the legacy single-tenant
+        // secret if one is set, otherwise say which of the two paths to wire.
+        if (!GBP_REFRESH_TOKEN || !GBP_CLIENT_ID || !GBP_CLIENT_SECRET) {
+          return c.json(
+            {
+              error:
+                'GBP automation is not connected for this account. Connect Google Business Profile in Settings, or set GBP_REFRESH_TOKEN/GBP_CLIENT_ID/GBP_CLIENT_SECRET for a single-tenant deployment.',
+              reason: err.reason,
+            },
+            503,
+          );
+        }
+        try {
+          token = await getGbpAccessToken(GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET);
+        } catch (legacyErr) {
+          return c.json({ error: `GBP deploy failed: ${(legacyErr as Error).message}` }, 502);
+        }
       }
       try {
-        const token = await getGbpAccessToken(GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET);
         const res = await deployGbpAction(token, action.target.locationId, action);
         detail = { ...detail, gbpOperation: res.operation, gbpTarget: res.target };
       } catch (err) {
