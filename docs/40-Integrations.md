@@ -146,7 +146,17 @@ by them alone.
 
 So these vars configure the **OAuth client and the crypto**, not the access
 itself. The access lives in `integration_connections` (migration 0014), one row
-per account per provider, with the refresh token sealed under `ENCRYPTION_KEY`.
+per account per provider.
+
+The sealed refresh token is **not** a column on that table — it lives in
+`integration_credentials`, keyed one-to-one on the connection. A 1:1 table for a
+single column looks like over-normalisation until you ask what happens when
+someone writes `select * from integration_connections` a year from now: with the
+token there, a live customer credential lands in an API response and nothing
+catches it. Splitting it out makes that impossible rather than merely
+discouraged, and removes the hand-maintained "every column except the token"
+list every read would otherwise need. `packages/db`'s `schemaInvariants.test.ts`
+fails if a later migration puts it back.
 
 ```
 dashboard ──POST /accounts/:id/integrations/:provider/connect-url──▶ apps/api

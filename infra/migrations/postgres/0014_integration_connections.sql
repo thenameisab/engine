@@ -9,21 +9,20 @@
 -- property or their Business Profile, where the credential belongs to them,
 -- arrives at runtime, and must be revocable by them alone.
 --
--- Two tables, because "which Google account consented" and "which of its
--- properties belongs to which project" are genuinely different facts with
--- different lifetimes. An agency consents once with a Google account that can
--- see forty client properties, then maps them onto forty projects; re-consent
--- must not discard that mapping, and re-assigning a property must not force
--- re-consent.
+-- Three tables. "Which Google account consented" and "which of its properties
+-- belongs to which project" are genuinely different facts with different
+-- lifetimes: an agency consents once with a Google account that can see forty
+-- client properties, then maps them onto forty projects. Re-consent must not
+-- discard that mapping, and re-assigning a property must not force re-consent.
+--
+-- The credential is the third, split out so that no read of a connection can
+-- leak it by omission. See `integration_credentials`.
 
 -- One consented Google account per (account, provider).
 --
--- The refresh token is stored sealed, never in plaintext — AES-256-GCM under
--- the ENCRYPTION_KEY Worker secret (packages/auth/src/secretBox.ts), with the
--- account id and provider bound in as authenticated additional data. A blob
--- lifted from one row into another fails to open rather than yielding a live
--- token. The key is never written to this database, so a Postgres dump alone
--- does not hand over write access to a customer's Business Profile.
+-- Deliberately holds no credential. The sealed refresh token lives in
+-- `integration_credentials` below, so `select *` on this table is safe by
+-- construction — see that table's comment for why that is worth a second table.
 create table integration_connections (
   id uuid primary key default gen_random_uuid(),
   account_id uuid not null references accounts(id) on delete cascade,
@@ -41,17 +40,15 @@ create table integration_connections (
   -- say "this needs a scope you did not grant" instead of failing on the call.
   granted_scopes text[] not null default '{}',
 
-  -- 'v1.<iv>.<ciphertext>', base64. See packages/auth/src/secretBox.ts.
-  refresh_token_sealed text not null,
-
   -- 'connected'     — usable.
   -- 'needs_reauth'  — Google rejected the refresh token (user revoked access,
   --                   changed password, or the grant expired). Distinct from
   --                   'revoked' because the fix is different: the user must
   --                   re-consent, and the UI has to say so rather than
   --                   silently returning stale data.
-  -- 'revoked'       — disconnected from our side; kept as a row so the audit
-  --                   trail survives, with the sealed token cleared.
+  -- 'revoked'       — disconnected from our side. The row is kept so the audit
+  --                   trail survives; its `integration_credentials` row is
+  --                   deleted, so no credential outlives the disconnect.
   status text not null default 'connected' check (status in ('connected', 'needs_reauth', 'revoked')),
 
   -- Who wired it up. `on delete set null`: the connection must outlive the
@@ -71,6 +68,39 @@ create table integration_connections (
 );
 
 create index integration_connections_account_id_idx on integration_connections(account_id);
+
+-- The sealed refresh token, in its own table.
+--
+-- A 1:1 table for a single column looks like over-normalisation until you ask
+-- what happens when someone writes `select * from integration_connections` in a
+-- year's time. With the token in that table, the answer is that a live
+-- customer credential lands in an API response, and nothing catches it: not the
+-- type checker, not a test, not review unless the reader happens to recognise
+-- the column name. Keeping the token here makes that mistake impossible rather
+-- than merely discouraged, and it removes the hand-maintained "every column
+-- except the token" list that every read would otherwise need.
+--
+-- It also narrows the answer to "what can see this credential": one table name,
+-- one reader (`getAccessToken` in apps/api/src/repositories/integrations.ts).
+--
+-- The value is AES-256-GCM sealed under the ENCRYPTION_KEY Worker secret
+-- (packages/auth/src/secretBox.ts), with the account id and provider bound in
+-- as authenticated additional data — so a blob lifted from one row into another
+-- fails to open rather than yielding a usable token. The key is never written
+-- to this database, so a Postgres dump alone does not hand over write access to
+-- a customer's Business Profile.
+--
+-- Disconnecting deletes this row and leaves the connection behind, so the
+-- audit trail of who connected what and when survives having revoked it.
+create table integration_credentials (
+  -- PK, not just a FK: one credential per connection, enforced rather than
+  -- assumed. `on delete cascade` means dropping a connection cannot strand a
+  -- token nobody can reach but which is still on disk.
+  connection_id uuid primary key references integration_connections(id) on delete cascade,
+  -- 'v1.<iv>.<ciphertext>', base64. See packages/auth/src/secretBox.ts.
+  refresh_token_sealed text not null,
+  updated_at timestamptz not null default now()
+);
 
 -- Lets integration_assignments carry a provider that is guaranteed to match
 -- its connection's, via a composite foreign key (below).

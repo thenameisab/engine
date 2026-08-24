@@ -8,6 +8,12 @@
  * plaintext token into the column, is. Nothing this module exports returns
  * `refresh_token_sealed` — `getAccessToken` returns a short-lived access token
  * and keeps the long-lived one inside.
+ *
+ * The token lives in its own table (`integration_credentials`), which is what
+ * makes that guarantee structural rather than a convention. Reading a connection
+ * is a plain `select *`: there is no "every column except the token" list to
+ * keep correct, and a future query written without this file's context cannot
+ * select a credential it would have to name a second table to reach.
  */
 import {
   importEncryptionKey,
@@ -100,38 +106,46 @@ export async function upsertConnection(
   const key = await importEncryptionKey(encryptionKey);
   const sealed = await seal(key, input.refreshToken, credentialAad(input.accountId, input.provider));
 
-  const [row] = await db<ConnectionRow[]>`
-    insert into integration_connections (
-      account_id, provider, google_subject, google_email,
-      granted_scopes, refresh_token_sealed, status, connected_by
-    )
-    values (
-      ${input.accountId}, ${input.provider}, ${input.googleSubject ?? null}, ${input.googleEmail ?? null},
-      ${input.grantedScopes}, ${sealed}, 'connected', ${input.connectedBy}
-    )
-    on conflict (account_id, provider) do update set
-      google_subject = excluded.google_subject,
-      google_email = excluded.google_email,
-      granted_scopes = excluded.granted_scopes,
-      refresh_token_sealed = excluded.refresh_token_sealed,
-      status = 'connected',
-      connected_by = excluded.connected_by,
-      connected_at = now(),
-      last_error = null,
-      last_refresh_at = null,
-      updated_at = now()
-    returning id, account_id, provider, google_subject, google_email, granted_scopes,
-              status, connected_by, connected_at, last_refresh_at, last_error
-  `;
-  return toConnection(row);
+  // One transaction, because the two rows are one fact. A connection stored
+  // without its credential would show as healthy in the UI and fail on the
+  // first API call; a credential stored against a connection that rolled back
+  // would be unreachable ciphertext.
+  return db.begin(async (tx) => {
+    const [row] = await tx<ConnectionRow[]>`
+      insert into integration_connections (
+        account_id, provider, google_subject, google_email,
+        granted_scopes, status, connected_by
+      )
+      values (
+        ${input.accountId}, ${input.provider}, ${input.googleSubject ?? null}, ${input.googleEmail ?? null},
+        ${input.grantedScopes}, 'connected', ${input.connectedBy}
+      )
+      on conflict (account_id, provider) do update set
+        google_subject = excluded.google_subject,
+        google_email = excluded.google_email,
+        granted_scopes = excluded.granted_scopes,
+        status = 'connected',
+        connected_by = excluded.connected_by,
+        connected_at = now(),
+        last_error = null,
+        last_refresh_at = null,
+        updated_at = now()
+      returning *
+    `;
+    await tx`
+      insert into integration_credentials (connection_id, refresh_token_sealed, updated_at)
+      values (${row.id}, ${sealed}, now())
+      on conflict (connection_id) do update set
+        refresh_token_sealed = excluded.refresh_token_sealed, updated_at = now()
+    `;
+    return toConnection(row);
+  }) as Promise<IntegrationConnection>;
 }
 
 /** Every connection on an account, for the integrations screen. */
 export async function listConnections(db: Db, accountId: string): Promise<IntegrationConnection[]> {
   const rows = await db<ConnectionRow[]>`
-    select id, account_id, provider, google_subject, google_email, granted_scopes,
-           status, connected_by, connected_at, last_refresh_at, last_error
-    from integration_connections
+    select * from integration_connections
     where account_id::text = ${accountId}
     order by provider
   `;
@@ -144,9 +158,7 @@ export async function getConnection(
   provider: GoogleProvider,
 ): Promise<IntegrationConnection | null> {
   const rows = await db<ConnectionRow[]>`
-    select id, account_id, provider, google_subject, google_email, granted_scopes,
-           status, connected_by, connected_at, last_refresh_at, last_error
-    from integration_connections
+    select * from integration_connections
     where account_id::text = ${accountId} and provider = ${provider}
   `;
   return rows[0] ? toConnection(rows[0]) : null;
@@ -223,10 +235,16 @@ export async function getAccessToken(
     );
   }
 
-  const rows = await db<{ refresh_token_sealed: string; status: string; granted_scopes: string[] }[]>`
-    select refresh_token_sealed, status, granted_scopes
-    from integration_connections
-    where account_id::text = ${accountId} and provider = ${provider}
+  // Left join, so a connection whose credential was deleted (a disconnect) is
+  // still distinguishable from no connection at all — the two need different
+  // messages, and an inner join would collapse them into "not connected".
+  const rows = await db<
+    { refresh_token_sealed: string | null; status: string; granted_scopes: string[] }[]
+  >`
+    select c.status, c.granted_scopes, cr.refresh_token_sealed
+    from integration_connections c
+    left join integration_credentials cr on cr.connection_id = c.id
+    where c.account_id::text = ${accountId} and c.provider = ${provider}
   `;
   const row = rows[0];
   if (!row || row.status === 'revoked') {
@@ -234,6 +252,15 @@ export async function getAccessToken(
   }
   if (row.status === 'needs_reauth') {
     throw new ConnectionUnavailableError('needs-reauth', `${provider} access was revoked — reconnect required`);
+  }
+  if (!row.refresh_token_sealed) {
+    // A 'connected' row with no credential should not exist — `upsertConnection`
+    // writes both in one transaction. Treated as needing a reconnect rather than
+    // asserting, because the honest fix for the user is the same either way.
+    throw new ConnectionUnavailableError(
+      'needs-reauth',
+      `${provider} has no stored credential — reconnect required`,
+    );
   }
   if (!hasRequiredScopes(provider, row.granted_scopes ?? [])) {
     throw new ConnectionUnavailableError(
@@ -287,8 +314,10 @@ export async function disconnect(
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ revokedAtGoogle: boolean }> {
   const rows = await db<{ refresh_token_sealed: string }[]>`
-    select refresh_token_sealed from integration_connections
-    where account_id::text = ${accountId} and provider = ${provider}
+    select cr.refresh_token_sealed
+    from integration_connections c
+    join integration_credentials cr on cr.connection_id = c.id
+    where c.account_id::text = ${accountId} and c.provider = ${provider}
   `;
 
   let revokedAtGoogle = false;
@@ -304,11 +333,23 @@ export async function disconnect(
     }
   }
 
-  await db`
-    update integration_connections
-    set status = 'revoked', refresh_token_sealed = '', last_error = null, updated_at = now()
-    where account_id::text = ${accountId} and provider = ${provider}
-  `;
+  // Delete the credential and mark the connection revoked, together — a
+  // half-done disconnect that leaves the token behind is the one outcome the
+  // user must not get after asking us to sever access.
+  await db.begin(async (tx) => {
+    await tx`
+      delete from integration_credentials
+      where connection_id in (
+        select id from integration_connections
+        where account_id::text = ${accountId} and provider = ${provider}
+      )
+    `;
+    await tx`
+      update integration_connections
+      set status = 'revoked', last_error = null, updated_at = now()
+      where account_id::text = ${accountId} and provider = ${provider}
+    `;
+  });
   return { revokedAtGoogle };
 }
 
