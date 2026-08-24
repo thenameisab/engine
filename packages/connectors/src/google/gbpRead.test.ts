@@ -43,7 +43,16 @@ describe('listGbpLocations', () => {
     const url = new URL(calls[0].url);
     const mask = url.searchParams.get('readMask')!;
     // Every field the local audit scores must be named, or it reads as missing.
-    for (const field of ['title', 'categories', 'profile', 'phoneNumbers', 'websiteUri', 'storefrontAddress', 'regularHours']) {
+    for (const field of [
+      'title',
+      'categories',
+      'profile',
+      'phoneNumbers',
+      'websiteUri',
+      'storefrontAddress',
+      'regularHours',
+      'attributes',
+    ]) {
       expect(mask).toContain(field);
     }
     expect(url.pathname).toContain('/accounts/1/locations');
@@ -71,6 +80,13 @@ describe('listGbpLocations', () => {
               regionCode: 'SG',
             },
             regularHours: { periods: [{}, {}] },
+            attributes: [
+              { name: 'has_wheelchair_accessible_entrance', values: [true] },
+              // Google returns every attribute the category supports, set or
+              // not. An entry with no values is one the business left blank.
+              { name: 'has_outdoor_seating', values: [] },
+              { name: 'serves_vegetarian_food' },
+            ],
           },
         ],
       },
@@ -91,7 +107,29 @@ describe('listGbpLocations', () => {
       regionCode: 'SG',
       hasRegularHours: true,
       storeCode: 'AC-01',
+      attributes: ['has_wheelchair_accessible_entrance'],
     });
+  });
+
+  it('counts only attributes the business actually set', async () => {
+    // Counting unset attributes as present would overstate GBP completeness,
+    // which is a scored component of the B5 local audit.
+    const { impl } = stubFetch([
+      {
+        locations: [
+          {
+            name: 'locations/9',
+            attributes: [
+              { name: 'a', values: [true] },
+              { name: 'b', values: [] },
+              { name: 'c' },
+              { values: [true] },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect((await listGbpLocations('t', 'accounts/1', impl)).locations[0].attributes).toEqual(['a']);
   });
 
   it('reports a thin profile as absent fields, not as errors', async () => {
@@ -102,6 +140,7 @@ describe('listGbpLocations', () => {
     expect(loc.additionalCategories).toEqual([]);
     expect(loc.addressLines).toEqual([]);
     expect(loc.hasRegularHours).toBe(false);
+    expect(loc.attributes).toEqual([]);
   });
 
   it('treats an empty regularHours periods array as no published hours', async () => {

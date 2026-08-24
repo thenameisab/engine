@@ -202,6 +202,33 @@ a { color: inherit; text-decoration: none; }
 /* settings */
 .settings-sec { margin: 24px 0 12px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .intg-wrap { padding: 16px; }
+
+/* Google integrations: the customer's own connections, one card per provider.
+   Reuses the .intg-status colour vocabulary above so "connected" reads the same
+   here as "wired" does in the operator readiness grid. */
+.intg-providers { display: flex; flex-direction: column; gap: 12px; }
+.intg-provider .intg-status { margin-left: auto; }
+.intg-provider.needs_reauth { border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
+.intg-provider.connected { border-color: color-mix(in srgb, var(--good) 26%, var(--border)); }
+.intg-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.intg-purpose { font-size: 13px; color: var(--text-muted); margin: 0; max-width: 68ch; }
+.intg-body .fq-note { padding: 10px 12px; text-align: left; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--border); }
+/* A grant Google revoked, or a scope the user unticked, is the one thing on this
+   screen the user must act on — so it is the only thing that gets a colour. */
+.intg-body .fq-note.warn { color: var(--watch); border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
+.intg-assigns { display: flex; flex-direction: column; gap: 8px; }
+.intg-assign { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--border); }
+.intg-assign-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.intg-assign-label { font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.intg-assign .num { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.intg-assign .btn { flex: none; }
+.intg-picker:empty { display: none; }
+.intg-picker .form { padding: 0; }
+.intg-body .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 620px) {
+  .intg-assign { flex-wrap: wrap; }
+  .intg-assign-main { flex-basis: 100%; }
+}
 .form { padding: 16px; display: flex; flex-direction: column; gap: 8px; max-width: 620px; }
 .flabel { font-size: 12px; font-weight: 550; color: var(--text-muted); margin-top: 8px; }
 .field { width: 100%; padding: 9px 11px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12.5px; outline: none; transition: border-color .12s var(--ease); }

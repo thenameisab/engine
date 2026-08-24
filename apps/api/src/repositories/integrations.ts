@@ -323,6 +323,11 @@ export interface IntegrationAssignment {
   resourceId: string;
   resourceLabel?: string;
   createdAt: string;
+  /** Sync health (migration 0015). Null `lastSyncedAt` means it has never synced. */
+  lastSyncedAt?: string;
+  lastSyncError?: string;
+  /** Rows on the last successful sync. Zero is a real result; undefined means never. */
+  lastSyncRows?: number;
 }
 
 interface AssignmentRow {
@@ -334,6 +339,9 @@ interface AssignmentRow {
   resource_id: string;
   resource_label: string | null;
   created_at: Date;
+  last_synced_at: Date | null;
+  last_sync_error: string | null;
+  last_sync_rows: number | null;
 }
 
 function toAssignment(row: AssignmentRow): IntegrationAssignment {
@@ -346,6 +354,11 @@ function toAssignment(row: AssignmentRow): IntegrationAssignment {
     resourceId: row.resource_id,
     resourceLabel: row.resource_label ?? undefined,
     createdAt: row.created_at.toISOString(),
+    lastSyncedAt: row.last_synced_at?.toISOString(),
+    lastSyncError: row.last_sync_error ?? undefined,
+    // `?? undefined` not `?? 0`: zero rows synced and never synced are different
+    // facts, and the UI says "0 rows" for one and "never" for the other.
+    lastSyncRows: row.last_sync_rows ?? undefined,
   };
 }
 
