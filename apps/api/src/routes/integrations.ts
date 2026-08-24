@@ -34,6 +34,7 @@ import { createDb, type Db } from '../db.js';
 import type { AuthEnv, AuthUser } from '../middleware/auth.js';
 import { getAccountRole, upsertUser, getProjectAccountId, isAccountMember } from '../repositories/accounts.js';
 import { markGscConnected } from '../repositories/onboarding.js';
+import { syncGsc, syncGa4, syncGbp } from '../repositories/googleSync.js';
 import {
   listConnections,
   getConnection,
@@ -545,6 +546,78 @@ integrationsRoutes.put('/projects/:projectId/integrations/:provider', async (c) 
   if (provider === 'gsc') await markGscConnected(db, projectId);
 
   return c.json({ assignment: result });
+});
+
+/**
+ * Pull fresh data for one provider now.
+ *
+ * The same functions the nightly cron runs — one implementation, so the path a
+ * user triggers and the path nobody watches cannot drift apart.
+ *
+ * `from`/`to` are accepted for a backfill. Omitted, the provider's default
+ * window applies: for GSC that ends three days back, because Search Console
+ * data lags about two days and is revised for several more, so a window ending
+ * today stores rows Google then changes.
+ */
+integrationsRoutes.post('/projects/:projectId/integrations/:provider/sync', async (c) => {
+  const projectId = c.req.param('projectId');
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'projectId must be a uuid', field: 'projectId' }, 400);
+  const provider = readProvider(c);
+  if (!provider) return c.json({ error: 'unknown provider', field: 'provider' }, 400);
+
+  const body = (await c.req.json<{ from?: unknown; to?: unknown }>().catch(() => ({}))) as {
+    from?: unknown;
+    to?: unknown;
+  };
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const hasRange = body.from !== undefined || body.to !== undefined;
+  if (hasRange) {
+    if (typeof body.from !== 'string' || !DATE_RE.test(body.from)) {
+      return c.json({ error: 'from must be YYYY-MM-DD', field: 'from' }, 400);
+    }
+    if (typeof body.to !== 'string' || !DATE_RE.test(body.to)) {
+      return c.json({ error: 'to must be YYYY-MM-DD', field: 'to' }, 400);
+    }
+    if (body.from > body.to) return c.json({ error: 'from must not be after to', field: 'from' }, 400);
+  }
+  if (hasRange && provider === 'gbp') {
+    // GBP has no time dimension to backfill — a location's profile is current
+    // state, not a daily series. Accepting the range and ignoring it would be
+    // the confusing option.
+    return c.json({ error: 'gbp has no date range to sync — it reads current profile state', field: 'from' }, 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const access = await projectMemberError(c, db, projectId);
+  if ('error' in access) return access.error;
+
+  const window = hasRange ? { from: body.from as string, to: body.to as string } : undefined;
+
+  try {
+    if (provider === 'gbp') {
+      const result = await syncGbp(db, access.accountId, projectId, c.env);
+      if ('error' in result) {
+        return c.json({ error: 'no GBP location is assigned to this project', reason: result.error }, 409);
+      }
+      return c.json({ synced: result });
+    }
+
+    const result =
+      provider === 'gsc'
+        ? await syncGsc(db, access.accountId, projectId, c.env, window)
+        : await syncGa4(db, access.accountId, projectId, c.env, window);
+
+    if ('error' in result) {
+      return c.json({ error: `no ${provider} property is assigned to this project`, reason: result.error }, 409);
+    }
+    return c.json({ synced: result });
+  } catch (err) {
+    if (err instanceof ConnectionUnavailableError) return connectionErrorResponse(c, err);
+    if (err instanceof GoogleApiError) {
+      return c.json({ error: err.message, failure: err.failure, provider }, err.needsReauth ? 409 : 502);
+    }
+    throw err;
+  }
 });
 
 /** Remove one assignment. */

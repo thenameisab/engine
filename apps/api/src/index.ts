@@ -37,6 +37,7 @@ import {
 } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { integrationsRoutes } from './routes/integrations.js';
+import { runScheduledSync } from './repositories/googleSync.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -1564,4 +1565,42 @@ app.get('/accounts/:accountId/report', async (c) => {
  */
 app.route('/', integrationsRoutes);
 
-export default app;
+/**
+ * Nightly Google sync (cron, see `wrangler.toml` `[triggers]`).
+ *
+ * The first scheduled handler in this Worker — until now every ingestion path
+ * needed someone to press a button or a runner to call in. GSC and GA4 are daily
+ * series, so a product that only fetches when a user opens a tab has gaps
+ * wherever nobody looked.
+ *
+ * Runs the same `syncGsc`/`syncGa4`/`syncGbp` functions the on-demand route
+ * calls. `runScheduledSync` collects failures rather than throwing: one customer
+ * whose token was revoked must not abort every other customer's sync, which is
+ * exactly what an uncaught throw in a scheduled handler does.
+ */
+async function scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.ENCRYPTION_KEY) {
+    // Nothing can be connected without these, so there is nothing to sync. A
+    // no-op beats a cron that logs a failure every night on a deployment that
+    // has simply not wired Google yet.
+    console.log('scheduled sync skipped: Google integrations are not configured');
+    return;
+  }
+  const db = createDb(env.DATABASE_URL);
+  const summary = await runScheduledSync(db, env);
+  console.log(
+    `scheduled sync: ${summary.succeeded}/${summary.attempted} succeeded` +
+      (summary.failed.length > 0
+        ? `; failures: ${summary.failed.map((f) => `${f.provider}/${f.projectId}: ${f.error}`).join(' | ')}`
+        : ''),
+  );
+}
+
+export { app };
+
+/**
+ * Exported as an object rather than the Hono app directly, because a Worker's
+ * `scheduled` handler has to live on the default export alongside `fetch`.
+ * Tests import the named `app` and call `app.request(...)`.
+ */
+export default { fetch: app.fetch, scheduled };

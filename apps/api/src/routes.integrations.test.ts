@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { signOAuthState } from '@engine/auth';
-import app from './index.js';
+import { app } from './index.js';
 
 /**
  * The integration routes' contract at the boundary, driven through the real
@@ -222,6 +222,49 @@ describe('PUT /projects/:projectId/integrations/:provider', () => {
   it('rejects a non-uuid projectId and an unknown provider', async () => {
     expect((await put('/projects/nope/integrations/gsc', { resourceId: 'x' })).status).toBe(400);
     expect((await put(`/projects/${PROJECT}/integrations/bing`, { resourceId: 'x' })).status).toBe(400);
+  });
+});
+
+describe('POST /projects/:projectId/integrations/:provider/sync', () => {
+  const PROJECT = '22222222-2222-4222-8222-222222222222';
+
+  function sync(path: string, body: unknown = {}): Promise<Response> {
+    return request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('rejects a malformed date range before any Google call', async () => {
+    const res = await sync(`/projects/${PROJECT}/integrations/gsc/sync`, { from: '24-08-2026', to: '2026-08-24' });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { field: string }).field).toBe('from');
+  });
+
+  it('requires both ends of a range, not just one', async () => {
+    const res = await sync(`/projects/${PROJECT}/integrations/gsc/sync`, { from: '2026-08-01' });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { field: string }).field).toBe('to');
+  });
+
+  it('rejects an inverted range', async () => {
+    const res = await sync(`/projects/${PROJECT}/integrations/gsc/sync`, { from: '2026-08-24', to: '2026-08-01' });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toMatch(/must not be after/);
+  });
+
+  it('refuses a date range on gbp rather than accepting and ignoring it', async () => {
+    // A GBP profile is current state, not a daily series. Silently ignoring the
+    // range would be the confusing option.
+    const res = await sync(`/projects/${PROJECT}/integrations/gbp/sync`, { from: '2026-08-01', to: '2026-08-24' });
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toMatch(/no date range/);
+  });
+
+  it('rejects a non-uuid projectId and an unknown provider', async () => {
+    expect((await sync('/projects/nope/integrations/gsc/sync')).status).toBe(400);
+    expect((await sync(`/projects/${PROJECT}/integrations/bing/sync`)).status).toBe(400);
   });
 });
 

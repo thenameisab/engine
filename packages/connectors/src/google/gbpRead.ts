@@ -83,6 +83,13 @@ export interface GbpLocation {
   hasRegularHours: boolean;
   /** Google's own store code, when the business sets one. */
   storeCode?: string;
+  /**
+   * Attribute ids the location has set, e.g. 'has_wheelchair_accessible_entrance'.
+   * Included because B5 scores attribute coverage as part of GBP completeness —
+   * omitting them from the read would make every synced location look like it
+   * has none, which the audit would report as a real finding.
+   */
+  attributes: string[];
 }
 
 interface LocationsListResponse {
@@ -102,6 +109,7 @@ interface LocationsListResponse {
       regionCode?: string;
     };
     regularHours?: { periods?: unknown[] };
+    attributes?: { name?: string; values?: unknown[] }[];
   }[];
   nextPageToken?: string;
 }
@@ -124,6 +132,7 @@ const LOCATION_READ_MASK = [
   'websiteUri',
   'storefrontAddress',
   'regularHours',
+  'attributes',
 ].join(',');
 
 function mapLocation(l: NonNullable<LocationsListResponse['locations']>[number]): GbpLocation {
@@ -144,6 +153,12 @@ function mapLocation(l: NonNullable<LocationsListResponse['locations']>[number])
     regionCode: l.storefrontAddress?.regionCode,
     hasRegularHours: (l.regularHours?.periods ?? []).length > 0,
     storeCode: l.storeCode,
+    // Google returns every attribute the category *supports*, set or not, so an
+    // entry with no values is an attribute the business has left blank. Counting
+    // those as present would overstate profile completeness.
+    attributes: (l.attributes ?? [])
+      .filter((a) => typeof a.name === 'string' && (a.values ?? []).length > 0)
+      .map((a) => a.name as string),
   };
 }
 
