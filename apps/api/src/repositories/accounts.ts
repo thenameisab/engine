@@ -74,6 +74,22 @@ export async function isAccountMember(db: Db, accountId: string, userId: string)
   return rows.length > 0;
 }
 
+/**
+ * The caller's role on an account, or null if they are not a member.
+ *
+ * `isAccountMember` answers "may they read this?", which was the only question
+ * every route before this needed. Connecting or disconnecting a Google account
+ * is different: the credential is shared by the whole account, so a `member`
+ * revoking it breaks every project's data sync for everyone. That is an owner
+ * decision, and distinguishing the two requires the role, not just membership.
+ */
+export async function getAccountRole(db: Db, accountId: string, userId: string): Promise<'owner' | 'member' | null> {
+  const rows = await db<{ role: 'owner' | 'member' }[]>`
+    select role from account_members where account_id::text = ${accountId} and user_id = ${userId}
+  `;
+  return rows[0]?.role ?? null;
+}
+
 /** Resolves a project to its owning account, so a project-scoped route can check membership. */
 export async function getProjectAccountId(db: Db, projectId: string): Promise<string | null> {
   const rows = await db<{ account_id: string }[]>`

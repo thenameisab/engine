@@ -29,10 +29,29 @@ describe('evaluateIntegration', () => {
   });
 
   it('reports partial when some but not all required vars are present', () => {
-    const gsc = getIntegration('gsc-oauth')!;
-    const r = evaluateIntegration(gsc, { GSC_CLIENT_ID: 'x.apps.googleusercontent.com' });
+    const google = getIntegration('google-integrations')!;
+    const r = evaluateIntegration(google, { GOOGLE_CLIENT_ID: 'x.apps.googleusercontent.com' });
     expect(r.status).toBe('partial');
-    expect(r.missing.map((m) => m.name).sort()).toEqual(['GSC_CLIENT_SECRET', 'GSC_REDIRECT_URI']);
+    expect(r.missing.map((m) => m.name).sort()).toEqual([
+      'ENCRYPTION_KEY',
+      'GOOGLE_CLIENT_SECRET',
+      'GOOGLE_REDIRECT_URI',
+      'OAUTH_STATE_SECRET',
+    ]);
+  });
+
+  it('needs the credential-sealing secrets, not just the OAuth client', () => {
+    // A deployment with a valid OAuth client but no ENCRYPTION_KEY can walk a
+    // user through Google's consent screen and then fail to store the result.
+    // Readiness has to call that 'partial', not 'configured'.
+    const google = getIntegration('google-integrations')!;
+    const r = evaluateIntegration(google, {
+      GOOGLE_CLIENT_ID: 'x.apps.googleusercontent.com',
+      GOOGLE_CLIENT_SECRET: 'GOCSPX-x',
+      GOOGLE_REDIRECT_URI: 'https://api.example/oauth/google/callback',
+    });
+    expect(r.status).toBe('partial');
+    expect(r.missing.map((m) => m.name).sort()).toEqual(['ENCRYPTION_KEY', 'OAUTH_STATE_SECRET']);
   });
 
   it('treats blank/whitespace values as absent', () => {

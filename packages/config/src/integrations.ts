@@ -114,37 +114,63 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'JWT verification is fully unit-tested against real generated Ed25519 keys (crypto only, no live account needed). Deployed dashboard origins must be added to Neon Auth trusted origins for the OAuth callback to be accepted.',
   },
   {
-    id: 'gsc-oauth',
-    name: 'Google Search Console (OAuth)',
+    id: 'google-integrations',
+    name: 'Google integrations (Search Console, GA4, Business Profile)',
     category: 'identity',
-    purpose: 'E1 onboarding: the user connects their GSC property so we can read verified search performance (field CWV, queries).',
-    account: 'Google Cloud project with an OAuth 2.0 Web client + the Search Console API enabled.',
+    purpose:
+      'Customers connect their own Google accounts in the product: GSC search performance, GA4 traffic, and GBP location reads plus C5 write-back.',
+    account:
+      'One Google Cloud project with an OAuth 2.0 Web client. Enable: Search Console API; Analytics Data API AND Analytics Admin API; My Business Account Management, Business Information and Google My Business (v4) APIs.',
     requiredForMvp: true,
     env: [
       {
-        name: 'GSC_CLIENT_ID',
-        description: 'OAuth 2.0 client ID from the Google Cloud console.',
+        name: 'GOOGLE_CLIENT_ID',
+        description: 'OAuth 2.0 client ID. One client serves all three providers — they differ only by scope.',
         secret: false,
         required: true,
         example: '1234567890-abcdefg.apps.googleusercontent.com',
       },
       {
-        name: 'GSC_CLIENT_SECRET',
+        name: 'GOOGLE_CLIENT_SECRET',
         description: 'OAuth 2.0 client secret. Bound as a Worker secret.',
         secret: true,
         required: true,
         example: 'GOCSPX-xxxxxxxxxxxxxxxxxxxx',
       },
       {
-        name: 'GSC_REDIRECT_URI',
-        description: 'The registered OAuth redirect URI — must match `/oauth/gsc/callback` exactly.',
+        name: 'GOOGLE_REDIRECT_URI',
+        description:
+          'The registered redirect URI. Google matches it byte-for-byte, so it must equal the deployed origin plus `/oauth/google/callback` exactly.',
         secret: false,
         required: true,
-        example: 'https://api.engine.example/oauth/gsc/callback',
+        example: 'https://engine-api.workers.dev/oauth/google/callback',
+      },
+      {
+        name: 'ENCRYPTION_KEY',
+        description:
+          'base64 of 32 random bytes (`openssl rand -base64 32`). Seals customer refresh tokens at rest (AES-256-GCM). Rotating it invalidates every stored connection — every customer must reconnect.',
+        secret: true,
+        required: true,
+        example: 'ZmFrZS1rZXktZm9yLXRoZS1leGFtcGxlLW9ubHktMzJiIQ==',
+      },
+      {
+        name: 'OAUTH_STATE_SECRET',
+        description:
+          'Signs the OAuth `state` parameter. Without it the callback cannot tell which account a consent belongs to, and refuses to run.',
+        secret: true,
+        required: true,
+        example: 'a-long-random-string',
+      },
+      {
+        name: 'DASHBOARD_URL',
+        description: 'Dashboard origin, for the post-consent return link. Optional — the callback page still renders without it.',
+        secret: false,
+        required: false,
+        example: 'https://engine-7vv.pages.dev/app',
       },
     ],
     notes:
-      'Blocked on creating the Cloud project + OAuth client. The connect-URL builder and token-exchange callback are code-complete behind these vars.',
+      'Blocked on creating the Cloud project + OAuth client. GBP additionally needs an approved Business Profile API access request — new Cloud projects get zero quota, and approval takes weeks. All three scopes are sensitive, so until Google verifies the app it is capped at ~100 manually-added test users behind a warning screen.',
   },
   {
     id: 'stripe',

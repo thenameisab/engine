@@ -36,6 +36,7 @@ import {
   checkDeployTargetBody,
 } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
+import { integrationsRoutes } from './routes/integrations.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -86,7 +87,6 @@ import { listPendingCmsPluginActions } from './repositories/cmsPluginActions.js'
 import {
   getOnboardingProgress,
   markDomainConnected,
-  markGscConnected,
   markFirstCrawl,
   markFirstInsight,
   markFirstFixProposed,
@@ -96,9 +96,6 @@ import { getSubscription, upsertSubscription, getUsageCounters } from './reposit
 
 interface Env extends AuthEnv {
   DATABASE_URL: string;
-  GSC_CLIENT_ID?: string;
-  GSC_CLIENT_SECRET?: string;
-  GSC_REDIRECT_URI?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   /** JSON map of Stripe price id -> our PlanTier, e.g. {"price_growth_monthly":"growth"}. */
   STRIPE_PRICE_TO_TIER?: string;
@@ -124,6 +121,22 @@ interface Env extends AuthEnv {
   GBP_REFRESH_TOKEN?: string;
   GBP_CLIENT_ID?: string;
   GBP_CLIENT_SECRET?: string;
+  /**
+   * Per-account Google integrations (GSC + GA4 + GBP, migration 0014). One
+   * OAuth client serves all three — they differ only by scope. These replace
+   * the single-tenant `GSC_*` and `GBP_*` pairs above, which hold one
+   * credential for the whole deployment; those stay until the connectors that
+   * read them are migrated over.
+   */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
+  /** base64 of 32 random bytes (`openssl rand -base64 32`). Seals refresh tokens at rest. */
+  ENCRYPTION_KEY?: string;
+  /** Signs the OAuth `state` parameter, so a callback cannot be pointed at another account. */
+  OAUTH_STATE_SECRET?: string;
+  /** Dashboard origin, for the post-consent return link. */
+  DASHBOARD_URL?: string;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -139,8 +152,9 @@ app.use('*', (c, next) => {
     origin: configured && configured.length > 0 ? configured : '*',
     // 'PATCH' added for M2.5's branding update route — the browser's real
     // PATCH request otherwise fails after a *successful* preflight, since the
-    // preflight itself reports which methods are allowed.
-    allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    // preflight itself reports which methods are allowed. 'PUT'/'DELETE' added
+    // for the integration assign/disconnect routes, which hit the same trap.
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
   })(c, next);
 });
@@ -154,8 +168,13 @@ app.use('*', (c, next) => {
  *  - `GET /health` — a liveness probe, reveals nothing.
  *  - `POST /billing/webhook` — called by Stripe, which cannot hold a JWT. It
  *    has its own stronger gate: HMAC signature verification (@engine/billing).
- *  - `GET /oauth/gsc/callback` — a browser redirect target from Google; the
- *    OAuth `code` is the credential and is useless without our client secret.
+ *  - `GET /oauth/google/callback` — a browser redirect target from Google. It
+ *    carries no Authorization header and cannot; the **signed `state`** is what
+ *    authenticates it, naming the account and user we minted it for
+ *    (`packages/auth/src/oauthState.ts`). This replaces the old
+ *    `/oauth/gsc/callback`, whose `state` was a bare project id.
+ *  - `GET /integrations/providers` — a static description of what can be
+ *    connected. No account data, no secrets.
  */
 app.use('/health/integrations', requireAuth);
 app.use('/projects/*', requireAuth);
@@ -1327,67 +1346,6 @@ app.post('/projects/:projectId/onboarding/domain-connected', async (c) => {
 });
 
 /**
- * E1 GSC connect wizard, step 1: build the Google OAuth consent URL. Pure URL
- * construction — no live call, so it's testable without a real Google Cloud
- * OAuth client. `GSC_CLIENT_ID`/`GSC_REDIRECT_URI` are unset until that
- * client exists; this 500s clearly rather than emitting a broken URL.
- */
-app.get('/projects/:projectId/onboarding/gsc/connect-url', async (c) => {
-  const { GSC_CLIENT_ID, GSC_REDIRECT_URI } = c.env;
-  if (!GSC_CLIENT_ID || !GSC_REDIRECT_URI) {
-    return c.json({ error: 'GSC OAuth is not configured (GSC_CLIENT_ID/GSC_REDIRECT_URI)' }, 500);
-  }
-  const projectId = c.req.param('projectId');
-  const db = createDb(c.env.DATABASE_URL);
-  const accessError = await projectAccessError(db, projectId, c.get('user'));
-  if (accessError) return c.json(accessError.body, accessError.status);
-  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  url.searchParams.set('client_id', GSC_CLIENT_ID);
-  url.searchParams.set('redirect_uri', GSC_REDIRECT_URI);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('access_type', 'offline');
-  url.searchParams.set('prompt', 'consent');
-  url.searchParams.set('scope', 'https://www.googleapis.com/auth/webmasters.readonly');
-  url.searchParams.set('state', projectId);
-  return c.json({ url: url.toString() });
-});
-
-/**
- * E1 GSC connect wizard, step 2: the OAuth redirect target. Exchanges the
- * authorization code for tokens via Google's token endpoint — a real network
- * call to Google, so this path is typechecked and logically correct but not
- * exercised against a live Google Cloud OAuth client in this environment.
- * Token storage (where the access/refresh token actually lands) is left for
- * when a real client exists to test against, rather than guessed at now.
- */
-app.get('/oauth/gsc/callback', async (c) => {
-  const { GSC_CLIENT_ID, GSC_CLIENT_SECRET, GSC_REDIRECT_URI } = c.env;
-  const code = c.req.query('code');
-  const projectId = c.req.query('state');
-  if (!GSC_CLIENT_ID || !GSC_CLIENT_SECRET || !GSC_REDIRECT_URI) {
-    return c.json({ error: 'GSC OAuth is not configured' }, 500);
-  }
-  if (!code || !projectId) return c.json({ error: 'missing code or state' }, 400);
-
-  const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: GSC_CLIENT_ID,
-      client_secret: GSC_CLIENT_SECRET,
-      redirect_uri: GSC_REDIRECT_URI,
-      grant_type: 'authorization_code',
-    }),
-  });
-  if (!tokenResp.ok) return c.json({ error: 'token exchange failed' }, 502);
-
-  const db = createDb(c.env.DATABASE_URL);
-  const progress = await markGscConnected(db, projectId);
-  return c.json({ progress });
-});
-
-/**
  * G3 Stripe webhook. Signature-verified (@engine/billing, no Stripe SDK) so
  * this is fully exercisable without a live Stripe account — see
  * packages/billing's tests. `STRIPE_PRICE_TO_TIER` maps Stripe price ids to
@@ -1594,5 +1552,16 @@ app.get('/accounts/:accountId/report', async (c) => {
   const html = renderAccountReportHtml(account, rows);
   return c.body(html, 200, { 'content-type': 'text/html; charset=utf-8' });
 });
+
+/**
+ * Per-account Google integrations (GSC + GA4 + GBP). Mounted here rather than
+ * written inline: these routes form one coherent unit — consent handshake,
+ * resource picker, project assignment — and this file is already long enough.
+ *
+ * Mounted *after* the `app.use` gates above so `/accounts/*` and `/projects/*`
+ * routes inside it inherit `requireAuth`, while `/oauth/google/callback` and
+ * `/integrations/providers` stay open by virtue of their paths.
+ */
+app.route('/', integrationsRoutes);
 
 export default app;
