@@ -43,7 +43,12 @@ crons = ["15 3 * * *"]
 #
 # Non-secret vars (safe to set as plaintext `vars` per environment, or in
 # `.dev.vars` locally): GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, DASHBOARD_URL,
-# STRIPE_PRICE_TO_TIER, SERP_PROVIDER, OPENAI_MODEL, GEMINI_MODEL.
+# ALLOWED_EMAILS, STRIPE_PRICE_TO_TIER, SERP_PROVIDER, OPENAI_MODEL, GEMINI_MODEL.
+#
+# ALLOWED_EMAILS is the invite list. Left unset, any Google account that clears
+# the consent screen can sign in and create its own account — the "invite-only"
+# on the sign-in screen is then decoration. Set it with:
+#   wrangler secret put ALLOWED_EMAILS   (or as a plaintext var per environment)
 #
 # GOOGLE_REDIRECT_URI must equal this Worker's deployed origin plus
 # `/oauth/google/callback`, byte for byte — Google compares it exactly.

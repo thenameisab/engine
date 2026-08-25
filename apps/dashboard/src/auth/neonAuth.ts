@@ -81,34 +81,6 @@ export async function signInWithGoogle(): Promise<void> {
   location.href = data.url;
 }
 
-/**
- * Send a magic-link email, if the Better Auth instance has the plugin enabled.
- *
- * Throws when it cannot. Like `signInWithGoogle`, this used to sign in a local
- * dev session on any failure — including the very common case of the
- * magic-link plugin simply not being enabled server-side, which meant typing an
- * address and pressing a button let anyone in under whatever email they typed.
- */
-export async function sendEmailLink(email: string): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch(`${authBase()}/sign-in/magic-link`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, callbackURL: location.href }),
-    });
-  } catch {
-    throw new Error('Could not reach the sign-in service. Check your connection and try again.');
-  }
-  if (res.status === 404 || res.status === 501) {
-    throw new Error('Email sign-in is not enabled on this deployment. Use Continue with Google.');
-  }
-  if (!res.ok) {
-    throw new Error(`Could not send the sign-in link (${res.status}). Try again, or use Continue with Google.`);
-  }
-}
-
 export async function signOutRemote(): Promise<void> {
   try {
     await fetch(`${authBase()}/sign-out`, { method: 'POST', credentials: 'include' });

@@ -48,6 +48,17 @@ export interface AuthEnv {
    * edge worker's C1.7 auto-rollback call. Bound as a secret on both Workers.
    */
   INTERNAL_API_TOKEN?: string;
+  /**
+   * Comma-separated emails allowed to use the product ("invite-only, pre-alpha",
+   * which the sign-in screen claims and nothing enforced). Case-insensitive.
+   *
+   * Unset means no allowlist: any Google account that clears the consent screen
+   * can sign in and create its own account. That is the deliberate default —
+   * a deny-all-when-unset would be indistinguishable, from the user's side,
+   * from auth being broken, which is the failure class this codebase keeps
+   * removing. `/health/integrations` reports whether it is configured.
+   */
+  ALLOWED_EMAILS?: string;
 }
 
 /**
@@ -65,6 +76,38 @@ function jwksFor(url: string): JwksKeyLookup {
     jwksByUrl.set(url, jwks);
   }
   return jwks;
+}
+
+/**
+ * Parse `ALLOWED_EMAILS` into a normalised set. Empty when unset.
+ *
+ * Exported for the readiness check and for tests; the comparison is
+ * lower-cased and trimmed because an invite list is typed by a human and
+ * "Person@Example.com " is the same person.
+ */
+export function parseAllowedEmails(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/**
+ * Whether a verified email may use the product.
+ *
+ * An unset allowlist admits everyone — see `ALLOWED_EMAILS`. A *set* allowlist
+ * rejects a token carrying no email at all, rather than treating "no email" as
+ * "not excluded": the gate exists to name who is allowed in, and something it
+ * cannot name is not on the list.
+ */
+export function isInvited(email: string | undefined, allowedRaw: string | undefined): boolean {
+  const allowed = parseAllowedEmails(allowedRaw);
+  if (allowed.size === 0) return true;
+  if (!email) return false;
+  return allowed.has(email.trim().toLowerCase());
 }
 
 /**
@@ -153,9 +196,23 @@ export async function requireAuth(
       issuer: c.env.AUTH_ISSUER,
       audience: c.env.AUTH_AUDIENCE,
     });
+    const email = typeof claims.email === 'string' ? claims.email : undefined;
+
+    // Invite gate. Applied after verification, never before: deciding access
+    // on an unverified `email` claim would let anyone mint their own pass.
+    if (!isInvited(email, c.env.ALLOWED_EMAILS)) {
+      return c.json(
+        {
+          error: 'This account is not on the invite list for this pre-alpha.',
+          email: email ?? null,
+        },
+        403,
+      );
+    }
+
     c.set('user', {
       id: claims.sub,
-      email: typeof claims.email === 'string' ? claims.email : undefined,
+      email,
       name: typeof claims.name === 'string' ? claims.name : undefined,
     });
     return next();

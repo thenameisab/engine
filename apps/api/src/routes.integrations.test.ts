@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { signOAuthState } from '@engine/auth';
 import { app } from './index.js';
+import { isInvited, parseAllowedEmails } from './middleware/auth.js';
 
 /**
  * The integration routes' contract at the boundary, driven through the real
@@ -305,6 +306,43 @@ describe('AUTH_MODE=disabled', () => {
       disabled,
     );
     expect(res.status).toBe(503);
+  });
+});
+
+describe('the invite allowlist', () => {
+  it('admits everyone when unset, rather than denying by default', () => {
+    // A deny-all-when-unset gate is indistinguishable, from the user's side,
+    // from auth being broken — the failure class this codebase keeps removing.
+    expect(isInvited('anyone@example.com', undefined)).toBe(true);
+    expect(isInvited('anyone@example.com', '')).toBe(true);
+  });
+
+  it('admits a listed address and refuses an unlisted one', () => {
+    const list = 'a@example.com,b@example.com';
+    expect(isInvited('a@example.com', list)).toBe(true);
+    expect(isInvited('b@example.com', list)).toBe(true);
+    expect(isInvited('c@example.com', list)).toBe(false);
+  });
+
+  it('ignores case and surrounding whitespace, since a human types the list', () => {
+    expect(isInvited('Person@Example.com', ' person@example.com , other@x.com ')).toBe(true);
+    expect(isInvited('  person@example.com  ', 'PERSON@EXAMPLE.COM')).toBe(true);
+  });
+
+  it('refuses a token with no email once a list is set', () => {
+    // "No email" is not "not excluded" — the gate names who may enter, and it
+    // cannot name this.
+    expect(isInvited(undefined, 'a@example.com')).toBe(false);
+  });
+
+  it('does not admit on a partial or substring match', () => {
+    expect(isInvited('evil-a@example.com', 'a@example.com')).toBe(false);
+    expect(isInvited('a@example.com.attacker.test', 'a@example.com')).toBe(false);
+  });
+
+  it('parses a list into normalised entries, dropping blanks', () => {
+    expect([...parseAllowedEmails('A@x.com, ,b@Y.com,')]).toEqual(['a@x.com', 'b@y.com']);
+    expect(parseAllowedEmails(undefined).size).toBe(0);
   });
 });
 

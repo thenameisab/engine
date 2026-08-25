@@ -104,10 +104,18 @@ export const INTEGRATIONS: IntegrationDef[] = [
       {
         name: 'AUTH_MODE',
         description:
-          "Set to 'disabled' to run the API unauthenticated for local development only. Never set this on a deployed Worker — it holds live SERP/LLM keys.",
+          "Set to 'disabled' to run the API unauthenticated. Honoured only for requests to a loopback host, so setting it on a deployed Worker refuses requests rather than opening them.",
         secret: false,
         required: false,
         example: 'disabled',
+      },
+      {
+        name: 'ALLOWED_EMAILS',
+        description:
+          'Comma-separated invite list. Unset means any Google account that clears the consent screen may sign in and create its own account — set this to enforce the "invite-only, pre-alpha" the sign-in screen claims.',
+        secret: false,
+        required: false,
+        example: 'first@example.com,second@example.com',
       },
     ],
     notes:
