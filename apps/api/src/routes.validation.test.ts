@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CrawledPage } from '@engine/diagnosis';
-import app from './index.js';
+import { app } from './index.js';
 
 /**
  * The validation contract at the route boundary, driven through the real Hono

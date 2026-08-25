@@ -36,6 +36,9 @@ import {
   checkDeployTargetBody,
 } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
+import { integrationsRoutes } from './routes/integrations.js';
+import { runScheduledSync } from './repositories/googleSync.js';
+import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -86,7 +89,6 @@ import { listPendingCmsPluginActions } from './repositories/cmsPluginActions.js'
 import {
   getOnboardingProgress,
   markDomainConnected,
-  markGscConnected,
   markFirstCrawl,
   markFirstInsight,
   markFirstFixProposed,
@@ -96,9 +98,6 @@ import { getSubscription, upsertSubscription, getUsageCounters } from './reposit
 
 interface Env extends AuthEnv {
   DATABASE_URL: string;
-  GSC_CLIENT_ID?: string;
-  GSC_CLIENT_SECRET?: string;
-  GSC_REDIRECT_URI?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   /** JSON map of Stripe price id -> our PlanTier, e.g. {"price_growth_monthly":"growth"}. */
   STRIPE_PRICE_TO_TIER?: string;
@@ -116,14 +115,34 @@ interface Env extends AuthEnv {
   /** C4.5 GitHub PR export — token for the 'github-pr' DeployTarget's real API calls. */
   GITHUB_TOKEN?: string;
   /**
-   * C5 GBP automation — OAuth for the 'gbp-api' DeployTarget's Business Profile
-   * writes. A refresh token (owner-consented, `business.manage` scope) exchanged
-   * for an access token at deploy time, plus the OAuth client. Unset until the
-   * GBP OAuth app + a consented location are configured; the deploy then 503s.
+   * C5 GBP automation, **legacy single-tenant fallback**. One owner's consent
+   * for the whole deployment — correct while nothing was multi-tenant, wrong
+   * once two customers have Business Profiles, because the second customer's
+   * fix would be written to the first one's listing.
+   *
+   * The deploy route now reads the project's own account connection
+   * (`integration_connections`, migration 0014) and only falls back to these if
+   * no connection exists. Remove them once every account has connected.
    */
   GBP_REFRESH_TOKEN?: string;
   GBP_CLIENT_ID?: string;
   GBP_CLIENT_SECRET?: string;
+  /**
+   * Per-account Google integrations (GSC + GA4 + GBP, migration 0014). One
+   * OAuth client serves all three — they differ only by scope. These replace
+   * the single-tenant `GSC_*` and `GBP_*` pairs above, which hold one
+   * credential for the whole deployment; those stay until the connectors that
+   * read them are migrated over.
+   */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
+  /** base64 of 32 random bytes (`openssl rand -base64 32`). Seals refresh tokens at rest. */
+  ENCRYPTION_KEY?: string;
+  /** Signs the OAuth `state` parameter, so a callback cannot be pointed at another account. */
+  OAUTH_STATE_SECRET?: string;
+  /** Dashboard origin, for the post-consent return link. */
+  DASHBOARD_URL?: string;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: { user: AuthUser } }>();
@@ -139,8 +158,9 @@ app.use('*', (c, next) => {
     origin: configured && configured.length > 0 ? configured : '*',
     // 'PATCH' added for M2.5's branding update route — the browser's real
     // PATCH request otherwise fails after a *successful* preflight, since the
-    // preflight itself reports which methods are allowed.
-    allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    // preflight itself reports which methods are allowed. 'PUT'/'DELETE' added
+    // for the integration assign/disconnect routes, which hit the same trap.
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
   })(c, next);
 });
@@ -154,8 +174,13 @@ app.use('*', (c, next) => {
  *  - `GET /health` — a liveness probe, reveals nothing.
  *  - `POST /billing/webhook` — called by Stripe, which cannot hold a JWT. It
  *    has its own stronger gate: HMAC signature verification (@engine/billing).
- *  - `GET /oauth/gsc/callback` — a browser redirect target from Google; the
- *    OAuth `code` is the credential and is useless without our client secret.
+ *  - `GET /oauth/google/callback` — a browser redirect target from Google. It
+ *    carries no Authorization header and cannot; the **signed `state`** is what
+ *    authenticates it, naming the account and user we minted it for
+ *    (`packages/auth/src/oauthState.ts`). This replaces the old
+ *    `/oauth/gsc/callback`, whose `state` was a bare project id.
+ *  - `GET /integrations/providers` — a static description of what can be
+ *    connected. No account data, no secrets.
  */
 app.use('/health/integrations', requireAuth);
 app.use('/projects/*', requireAuth);
@@ -1231,15 +1256,45 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
 
     // C5: a 'gbp-api' target applies the fix by calling the Business Profile
     // API synchronously as part of the deploy transition (like github-pr), not
-    // a separate push step. Needs an owner-consented OAuth refresh token +
-    // client; degrades to 503 when unconfigured, the same as github-pr.
+    // a separate push step.
+    //
+    // The token comes from the project's own account connection now, not the
+    // deployment-wide `GBP_REFRESH_TOKEN` this route used to read. That secret
+    // held one owner's consent for every customer, which was fine while nothing
+    // was multi-tenant and is wrong the moment two customers have Business
+    // Profiles: the second one's fix would be written to the first one's
+    // listing. It stays as a fallback so an existing single-tenant deployment
+    // keeps working until its secret is removed.
     if (to === 'deployed' && action.target.kind === 'gbp-api') {
       const { GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET } = c.env;
-      if (!GBP_REFRESH_TOKEN || !GBP_CLIENT_ID || !GBP_CLIENT_SECRET) {
-        return c.json({ error: 'GBP automation is not configured (set GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET)' }, 503);
+      let token: string;
+      try {
+        const accountId = await getProjectAccountId(db, projectId);
+        if (!accountId) return c.json({ error: 'project not found', projectId }, 404);
+        token = await getAccessToken(db, accountId, 'gbp', c.env);
+      } catch (err) {
+        if (!(err instanceof ConnectionUnavailableError)) {
+          return c.json({ error: `GBP deploy failed: ${(err as Error).message}` }, 502);
+        }
+        // No per-account connection. Fall back to the legacy single-tenant
+        // secret if one is set, otherwise say which of the two paths to wire.
+        if (!GBP_REFRESH_TOKEN || !GBP_CLIENT_ID || !GBP_CLIENT_SECRET) {
+          return c.json(
+            {
+              error:
+                'GBP automation is not connected for this account. Connect Google Business Profile in Settings, or set GBP_REFRESH_TOKEN/GBP_CLIENT_ID/GBP_CLIENT_SECRET for a single-tenant deployment.',
+              reason: err.reason,
+            },
+            503,
+          );
+        }
+        try {
+          token = await getGbpAccessToken(GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET);
+        } catch (legacyErr) {
+          return c.json({ error: `GBP deploy failed: ${(legacyErr as Error).message}` }, 502);
+        }
       }
       try {
-        const token = await getGbpAccessToken(GBP_REFRESH_TOKEN, GBP_CLIENT_ID, GBP_CLIENT_SECRET);
         const res = await deployGbpAction(token, action.target.locationId, action);
         detail = { ...detail, gbpOperation: res.operation, gbpTarget: res.target };
       } catch (err) {
@@ -1323,67 +1378,6 @@ app.post('/projects/:projectId/onboarding/domain-connected', async (c) => {
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
   const progress = await markDomainConnected(db, projectId);
-  return c.json({ progress });
-});
-
-/**
- * E1 GSC connect wizard, step 1: build the Google OAuth consent URL. Pure URL
- * construction — no live call, so it's testable without a real Google Cloud
- * OAuth client. `GSC_CLIENT_ID`/`GSC_REDIRECT_URI` are unset until that
- * client exists; this 500s clearly rather than emitting a broken URL.
- */
-app.get('/projects/:projectId/onboarding/gsc/connect-url', async (c) => {
-  const { GSC_CLIENT_ID, GSC_REDIRECT_URI } = c.env;
-  if (!GSC_CLIENT_ID || !GSC_REDIRECT_URI) {
-    return c.json({ error: 'GSC OAuth is not configured (GSC_CLIENT_ID/GSC_REDIRECT_URI)' }, 500);
-  }
-  const projectId = c.req.param('projectId');
-  const db = createDb(c.env.DATABASE_URL);
-  const accessError = await projectAccessError(db, projectId, c.get('user'));
-  if (accessError) return c.json(accessError.body, accessError.status);
-  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  url.searchParams.set('client_id', GSC_CLIENT_ID);
-  url.searchParams.set('redirect_uri', GSC_REDIRECT_URI);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('access_type', 'offline');
-  url.searchParams.set('prompt', 'consent');
-  url.searchParams.set('scope', 'https://www.googleapis.com/auth/webmasters.readonly');
-  url.searchParams.set('state', projectId);
-  return c.json({ url: url.toString() });
-});
-
-/**
- * E1 GSC connect wizard, step 2: the OAuth redirect target. Exchanges the
- * authorization code for tokens via Google's token endpoint — a real network
- * call to Google, so this path is typechecked and logically correct but not
- * exercised against a live Google Cloud OAuth client in this environment.
- * Token storage (where the access/refresh token actually lands) is left for
- * when a real client exists to test against, rather than guessed at now.
- */
-app.get('/oauth/gsc/callback', async (c) => {
-  const { GSC_CLIENT_ID, GSC_CLIENT_SECRET, GSC_REDIRECT_URI } = c.env;
-  const code = c.req.query('code');
-  const projectId = c.req.query('state');
-  if (!GSC_CLIENT_ID || !GSC_CLIENT_SECRET || !GSC_REDIRECT_URI) {
-    return c.json({ error: 'GSC OAuth is not configured' }, 500);
-  }
-  if (!code || !projectId) return c.json({ error: 'missing code or state' }, 400);
-
-  const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: GSC_CLIENT_ID,
-      client_secret: GSC_CLIENT_SECRET,
-      redirect_uri: GSC_REDIRECT_URI,
-      grant_type: 'authorization_code',
-    }),
-  });
-  if (!tokenResp.ok) return c.json({ error: 'token exchange failed' }, 502);
-
-  const db = createDb(c.env.DATABASE_URL);
-  const progress = await markGscConnected(db, projectId);
   return c.json({ progress });
 });
 
@@ -1595,4 +1589,53 @@ app.get('/accounts/:accountId/report', async (c) => {
   return c.body(html, 200, { 'content-type': 'text/html; charset=utf-8' });
 });
 
-export default app;
+/**
+ * Per-account Google integrations (GSC + GA4 + GBP). Mounted here rather than
+ * written inline: these routes form one coherent unit — consent handshake,
+ * resource picker, project assignment — and this file is already long enough.
+ *
+ * Mounted *after* the `app.use` gates above so `/accounts/*` and `/projects/*`
+ * routes inside it inherit `requireAuth`, while `/oauth/google/callback` and
+ * `/integrations/providers` stay open by virtue of their paths.
+ */
+app.route('/', integrationsRoutes);
+
+/**
+ * Nightly Google sync (cron, see `wrangler.toml` `[triggers]`).
+ *
+ * The first scheduled handler in this Worker — until now every ingestion path
+ * needed someone to press a button or a runner to call in. GSC and GA4 are daily
+ * series, so a product that only fetches when a user opens a tab has gaps
+ * wherever nobody looked.
+ *
+ * Runs the same `syncGsc`/`syncGa4`/`syncGbp` functions the on-demand route
+ * calls. `runScheduledSync` collects failures rather than throwing: one customer
+ * whose token was revoked must not abort every other customer's sync, which is
+ * exactly what an uncaught throw in a scheduled handler does.
+ */
+async function scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.ENCRYPTION_KEY) {
+    // Nothing can be connected without these, so there is nothing to sync. A
+    // no-op beats a cron that logs a failure every night on a deployment that
+    // has simply not wired Google yet.
+    console.log('scheduled sync skipped: Google integrations are not configured');
+    return;
+  }
+  const db = createDb(env.DATABASE_URL);
+  const summary = await runScheduledSync(db, env);
+  console.log(
+    `scheduled sync: ${summary.succeeded}/${summary.attempted} succeeded` +
+      (summary.failed.length > 0
+        ? `; failures: ${summary.failed.map((f) => `${f.provider}/${f.projectId}: ${f.error}`).join(' | ')}`
+        : ''),
+  );
+}
+
+export { app };
+
+/**
+ * Exported as an object rather than the Hono app directly, because a Worker's
+ * `scheduled` handler has to live on the default export alongside `fetch`.
+ * Tests import the named `app` and call `app.request(...)`.
+ */
+export default { fetch: app.fetch, scheduled };

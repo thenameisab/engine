@@ -13,13 +13,28 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json"
 
+# ── Scheduled work ─────────────────────────────────────────────────────────
+# Nightly Google sync (GSC + GA4 + GBP). 03:15 UTC — after Google's own daily
+# processing settles, and off the hour so it does not pile onto the platform's
+# busiest cron minute. GSC data still lags ~2 days and is revised for several
+# more, so each run re-fetches a 28-day window and upserts; that is how a
+# revision lands rather than being missed.
+[triggers]
+crons = ["15 3 * * *"]
+
 # ── External integrations ──────────────────────────────────────────────────
 # Secrets (set via `wrangler secret put <NAME>`, never committed):
 #   DATABASE_URL          Neon Postgres connection string
 #   INTERNAL_API_TOKEN    Shared service token for the edge worker's C1.7
 #                         auto-rollback call (no user session behind it).
 #                         Bind the same value on apps/workers.
-#   GSC_CLIENT_SECRET     Google OAuth client secret (GSC connect)
+#   GOOGLE_CLIENT_SECRET  Google OAuth client secret (customer GSC/GA4/GBP connect)
+#   ENCRYPTION_KEY        base64 of 32 random bytes (`openssl rand -base64 32`).
+#                         Seals customer refresh tokens at rest. Rotating it
+#                         invalidates every stored connection — every customer
+#                         must reconnect.
+#   OAUTH_STATE_SECRET    Signs the OAuth `state` parameter, so a callback
+#                         cannot be redirected at another account.
 #   STRIPE_WEBHOOK_SECRET Stripe webhook signing secret
 #   STRIPE_SECRET_KEY     Stripe secret key (optional — outbound calls only)
 #   SERPER_API_KEY        Serper.dev SERP API key (A1 rank tracking)
@@ -27,8 +42,11 @@ AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1
 #   GEMINI_API_KEY        Google Gemini API key (A2 AI visibility)
 #
 # Non-secret vars (safe to set as plaintext `vars` per environment, or in
-# `.dev.vars` locally): GSC_CLIENT_ID, GSC_REDIRECT_URI, STRIPE_PRICE_TO_TIER,
-# SERP_PROVIDER, OPENAI_MODEL, GEMINI_MODEL.
+# `.dev.vars` locally): GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, DASHBOARD_URL,
+# STRIPE_PRICE_TO_TIER, SERP_PROVIDER, OPENAI_MODEL, GEMINI_MODEL.
+#
+# GOOGLE_REDIRECT_URI must equal this Worker's deployed origin plus
+# `/oauth/google/callback`, byte for byte — Google compares it exactly.
 #
 # Full catalogue + provisioning steps: docs/40-Integrations.md
 # Local dev: copy `.dev.vars.example` → `.dev.vars` and fill in.

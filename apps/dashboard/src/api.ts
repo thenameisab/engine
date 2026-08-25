@@ -32,6 +32,12 @@ import type {
   ActionStatus,
   DeployTarget,
   SerpInspectResult,
+  GoogleProviderId,
+  ProviderCatalogEntry,
+  IntegrationConnection,
+  IntegrationAssignment,
+  ProviderResource,
+  SyncOutcome,
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
@@ -392,4 +398,122 @@ export async function fetchReportUrl(accountId: string): Promise<string> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   const html = await res.text();
   return URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+}
+
+/* ── Per-account Google integrations ───────────────────────────────────── */
+
+/**
+ * The provider catalogue. Unauthenticated on the API side (a static product
+ * description), but routed through `request` anyway so it obeys the same base
+ * URL and timeout as everything else.
+ */
+export async function fetchProviderCatalog(): Promise<ProviderCatalogEntry[]> {
+  const resp = await request<{ providers: ProviderCatalogEntry[] }>('/integrations/providers');
+  return resp.providers;
+}
+
+export async function fetchConnections(
+  accountId: string,
+): Promise<{ connections: IntegrationConnection[]; oauthConfigured: boolean }> {
+  return request<{ connections: IntegrationConnection[]; oauthConfigured: boolean }>(
+    `/accounts/${accountId}/integrations`,
+  );
+}
+
+/**
+ * Start a connect flow. Returns Google's consent URL for the caller to open —
+ * deliberately not a redirect, so the dashboard can use a popup and keep the
+ * page it is on.
+ */
+export async function fetchConnectUrl(
+  accountId: string,
+  provider: GoogleProviderId,
+  returnTo?: string,
+): Promise<string> {
+  const resp = await request<{ url: string }>(`/accounts/${accountId}/integrations/${provider}/connect-url`, {
+    method: 'POST',
+    body: JSON.stringify({ returnTo }),
+  });
+  return resp.url;
+}
+
+/** The properties or locations this connection can see, for the picker. */
+export async function fetchProviderResources(
+  accountId: string,
+  provider: GoogleProviderId,
+): Promise<{ resources: ProviderResource[]; truncated?: boolean }> {
+  return request<{ resources: ProviderResource[]; truncated?: boolean }>(
+    `/accounts/${accountId}/integrations/${provider}/resources`,
+  );
+}
+
+export async function disconnectProvider(
+  accountId: string,
+  provider: GoogleProviderId,
+): Promise<{ revokedAtGoogle: boolean }> {
+  return request<{ disconnected: boolean; revokedAtGoogle: boolean }>(
+    `/accounts/${accountId}/integrations/${provider}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function fetchProjectIntegrations(): Promise<{
+  assignments: IntegrationAssignment[];
+  connections: IntegrationConnection[];
+}> {
+  return request<{ assignments: IntegrationAssignment[]; connections: IntegrationConnection[] }>(
+    `/projects/${getProjectId()}/integrations`,
+  );
+}
+
+export async function assignProviderResource(
+  provider: GoogleProviderId,
+  body: { resourceId: string; resourceLabel?: string; entityId?: string },
+): Promise<IntegrationAssignment> {
+  const resp = await request<{ assignment: IntegrationAssignment }>(
+    `/projects/${getProjectId()}/integrations/${provider}`,
+    { method: 'PUT', body: JSON.stringify(body) },
+  );
+  return resp.assignment;
+}
+
+export async function unassignProviderResource(assignmentId: string): Promise<void> {
+  await request<{ removed: boolean }>(
+    `/projects/${getProjectId()}/integrations/assignments/${assignmentId}`,
+    { method: 'DELETE' },
+  );
+}
+
+/**
+ * Pull fresh data now. A sync can legitimately take longer than the shared
+ * 8-second timeout in `request` — a 28-day Search Console window is thousands
+ * of rows — so this issues its own fetch with a longer budget rather than
+ * reporting a timeout for work that is still running.
+ */
+export async function syncProvider(
+  provider: GoogleProviderId,
+  range?: { from: string; to: string },
+): Promise<SyncOutcome | { locations: number; skipped: number }> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error('no API base URL configured');
+  const token = await getApiToken();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+  try {
+    const res = await fetch(`${base}/projects/${getProjectId()}/integrations/${provider}/sync`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(range ?? {}),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const json = (await res.json()) as { synced?: SyncOutcome; locations?: number; skipped?: number };
+    if (json.synced) return json.synced;
+    return { locations: json.locations ?? 0, skipped: json.skipped ?? 0 };
+  } finally {
+    clearTimeout(timeout);
+  }
 }

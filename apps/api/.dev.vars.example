@@ -24,15 +24,21 @@ INTERNAL_API_TOKEN=a-long-random-string
 # Set to 'disabled' to run the API unauthenticated for local development only. Never set this on a deployed Worker — it holds live SERP/LLM keys. [config, optional]
 AUTH_MODE=disabled
 
-# ── Google Search Console (OAuth) (identity) ──
-# E1 onboarding: the user connects their GSC property so we can read verified search performance (field CWV, queries).
-# Account: Google Cloud project with an OAuth 2.0 Web client + the Search Console API enabled.
-# OAuth 2.0 client ID from the Google Cloud console. [config, required]
-GSC_CLIENT_ID=1234567890-abcdefg.apps.googleusercontent.com
+# ── Google integrations (Search Console, GA4, Business Profile) (identity) ──
+# Customers connect their own Google accounts in the product: GSC search performance, GA4 traffic, and GBP location reads plus C5 write-back.
+# Account: One Google Cloud project with an OAuth 2.0 Web client. Enable: Search Console API; Analytics Data API AND Analytics Admin API; My Business Account Management, Business Information and Google My Business (v4) APIs.
+# OAuth 2.0 client ID. One client serves all three providers — they differ only by scope. [config, required]
+GOOGLE_CLIENT_ID=1234567890-abcdefg.apps.googleusercontent.com
 # OAuth 2.0 client secret. Bound as a Worker secret. [secret, required]
-GSC_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
-# The registered OAuth redirect URI — must match `/oauth/gsc/callback` exactly. [config, required]
-GSC_REDIRECT_URI=https://api.engine.example/oauth/gsc/callback
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
+# The registered redirect URI. Google matches it byte-for-byte, so it must equal the deployed origin plus `/oauth/google/callback` exactly. [config, required]
+GOOGLE_REDIRECT_URI=https://engine-api.workers.dev/oauth/google/callback
+# base64 of 32 random bytes (`openssl rand -base64 32`). Seals customer refresh tokens at rest (AES-256-GCM). Rotating it invalidates every stored connection — every customer must reconnect. [secret, required]
+ENCRYPTION_KEY=ZmFrZS1rZXktZm9yLXRoZS1leGFtcGxlLW9ubHktMzJiIQ==
+# Signs the OAuth `state` parameter. Without it the callback cannot tell which account a consent belongs to, and refuses to run. [secret, required]
+OAUTH_STATE_SECRET=a-long-random-string
+# Dashboard origin, for the post-consent return link. Optional — the callback page still renders without it. [config, optional]
+DASHBOARD_URL=https://engine-7vv.pages.dev/app
 
 # ── Stripe (billing) (billing) ──
 # G3 billing: subscription lifecycle synced from Stripe webhooks into our read-model; plan/usage/over-limit enforcement.
@@ -41,7 +47,7 @@ GSC_REDIRECT_URI=https://api.engine.example/oauth/gsc/callback
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
 # JSON map of Stripe price id → our PlanTier, e.g. {"price_starter":"starter","price_growth":"growth"}. [config, required]
 STRIPE_PRICE_TO_TIER={"price_starter_monthly":"starter","price_growth_monthly":"growth"}
-# Stripe secret API key — only needed for outbound calls (creating checkout sessions / portal links). Webhook verification does not use it. [secret, optional]
+# Stripe secret API key. Required for `POST /accounts/:id/billing/checkout` (M1.7); webhook verification does not use it. [secret, optional]
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
 
 # ── Serper.dev (SERP data) (serp) ──
@@ -68,3 +74,10 @@ OPENAI_MODEL=gpt-4o-mini
 GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxx
 # Gemini model id to poll (defaults to a current flash model if unset). [config, optional]
 GEMINI_MODEL=gemini-2.0-flash
+
+# ── GitHub (PR export) (deploy) ──
+# C4.5 GitHub PR export: for headless sites with no edge worker or CMS plugin, deploy a fix as a reviewable PR against the customer's repo (@engine/deploy's 'github-pr' DeployTarget).
+# Account: A GitHub App or fine-grained PAT with contents:write + pull-requests:write on the customer repo(s).
+# (optional for pre-alpha)
+# Token used to call GitHub's REST API on the customer's behalf. Bound as a Worker secret. Per-account tokens are a later scope; this is a single shared token for pre-alpha. [secret, required]
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

@@ -311,3 +311,75 @@ export interface Loaded<T> {
   data: T;
   source: DataSource;
 }
+
+/* ── Per-account Google integrations (GSC / GA4 / GBP) ─────────────────── */
+
+export type GoogleProviderId = 'gsc' | 'ga4' | 'gbp';
+
+/** Mirrors the API's `/integrations/providers` catalogue entry. */
+export interface ProviderCatalogEntry {
+  id: GoogleProviderId;
+  name: string;
+  purpose: string;
+  scopes: string[];
+  /** 'property' or 'location' — what the picker is choosing. */
+  resourceNoun: string;
+  requiredApis: string[];
+  /** True when Google gates the API behind an access request, not just an enable toggle. */
+  requiresAccessRequest: boolean;
+  writes: boolean;
+}
+
+/**
+ * One connected Google account. Note the absence of any token field — the API
+ * never returns the stored credential, sealed or otherwise.
+ */
+export interface IntegrationConnection {
+  id: string;
+  accountId: string;
+  provider: GoogleProviderId;
+  googleEmail?: string;
+  googleSubject?: string;
+  grantedScopes: string[];
+  status: 'connected' | 'needs_reauth' | 'revoked';
+  connectedBy?: string;
+  connectedAt: string;
+  lastRefreshAt?: string;
+  lastError?: string;
+  /** False when the user unticked a scope on Google's consent screen. */
+  scopesSufficient: boolean;
+}
+
+/** One assignable resource, as the picker shows it. */
+export interface ProviderResource {
+  id: string;
+  label: string;
+  /** False for a property the connected account cannot actually read. */
+  selectable: boolean;
+  detail?: string;
+}
+
+export interface IntegrationAssignment {
+  id: string;
+  connectionId: string;
+  provider: GoogleProviderId;
+  projectId: string;
+  /** Set for gbp only — a location is an entity. */
+  entityId?: string;
+  resourceId: string;
+  resourceLabel?: string;
+  createdAt: string;
+  lastSyncedAt?: string;
+  lastSyncError?: string;
+  lastSyncRows?: number;
+}
+
+export interface SyncOutcome {
+  provider: GoogleProviderId;
+  projectId: string;
+  resourceId: string;
+  rows: number;
+  truncated: boolean;
+  from: string;
+  to: string;
+}

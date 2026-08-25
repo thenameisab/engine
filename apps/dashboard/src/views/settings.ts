@@ -10,6 +10,7 @@ import {
   saveDeployTarget,
 } from '../api.js';
 import { integrationsSection } from './integrations.js';
+import { googleIntegrationsSection } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
 import type { DeployTarget } from '../types.js';
 
@@ -194,7 +195,7 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Settings']),
-      el('p', {}, ['Connect the dashboard to your Engine API and review which integrations are wired.']),
+      el('p', {}, ['Connect your Google accounts, point this project at the right property, and review which integrations are wired.']),
     ]),
     el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['API connection'])]),
@@ -211,11 +212,16 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     await deployTargetSection(ctx),
     el('div', { class: 'settings-sec' }, ['Branding']),
     brandingSection(ctx),
-    el('div', { class: 'settings-sec' }, ['Integrations']),
+    el('div', { class: 'settings-sec' }, ['Google integrations']),
+    await googleIntegrationsSection(ctx),
+    el('div', { class: 'settings-sec' }, ['Platform wiring']),
     el('section', { class: 'panel' }, [
       el('header', {}, [
         el('h3', {}, ['External integrations']),
         el('span', { class: 'more' }, ['from /health/integrations']),
+      ]),
+      el('div', { class: 'fhint num' }, [
+        'Whether this deployment has its own vendor keys wired. Separate from the Google connections above, which are yours.',
       ]),
       el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),

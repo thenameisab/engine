@@ -1,6 +1,6 @@
 # Engine — External Integrations & Configuration
 
-**Status:** v1.1 · Last updated 2026-07-16
+**Status:** v1.2 · Last updated 2026-08-24
 **Companion to:** [Architecture](20-Architecture.md) · [Roadmap](10-Roadmap.md)
 **Source of truth in code:** [`packages/config`](../packages/config) — the `INTEGRATIONS`
 registry drives the runtime readiness check, the `.dev.vars.example` template,
@@ -43,7 +43,7 @@ cp apps/api/.dev.vars.example apps/api/.dev.vars   # then fill in real values
 |---|---|---|---|---|
 | Postgres (Neon) | data | Everything (operational store) | Neon | ✅ provisioned |
 | **Neon Auth (Better Auth)** | identity | Sign-in + the API auth gate | Neon Auth (on the Neon project) | ✅ provisioned |
-| Google Search Console (OAuth) | identity | E1 onboarding (connect GSC) | Google Cloud OAuth client | ⛔ blocked on account |
+| **Google integrations (GSC + GA4 + GBP)** | identity | Customers connect their own Google accounts | Google Cloud OAuth client | ⛔ blocked on account |
 | Stripe | billing | G3 billing | Stripe account | ⛔ blocked on account |
 | **Serper.dev** | serp | A1 rank tracking | Serper.dev | ⛔ needs key |
 | **OpenAI** | llm | A2 AI visibility (primary) | OpenAI API | ⛔ needs key |
@@ -91,7 +91,8 @@ unit-tested against real generated Ed25519 keys (crypto only, no live account).
 `/health/integrations` — i.e. everything that touches the database or spends
 live SERP/LLM credit. **Deliberately open:** `GET /health` (liveness),
 `POST /billing/webhook` (Stripe can't hold a JWT; it has a stronger HMAC
-signature gate), and `GET /oauth/gsc/callback` (a Google redirect target).
+signature gate), `GET /oauth/google/callback` (a Google redirect target), and
+`GET /integrations/providers` (a static description of what can be connected).
 
 The gate **fails closed**: an unset `AUTH_JWKS_URL` or an unreachable JWKS
 returns `503`, never "allow".
@@ -129,27 +130,125 @@ or the OAuth callback is rejected (`403 INVALID_CALLBACKURL`).
 
 ---
 
-## 3. Google Search Console — OAuth (`GSC_CLIENT_ID`, `GSC_CLIENT_SECRET`, `GSC_REDIRECT_URI`)
+## 3. Google integrations — GSC, GA4, GBP (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `ENCRYPTION_KEY`, `OAUTH_STATE_SECRET`, `DASHBOARD_URL`)
 
-**Used for:** E1 onboarding — the user connects their verified GSC property so
-we can read search performance (queries, field Core Web Vitals).
+**Used for:** customers connecting **their own** Google accounts, in the
+product: Search Console performance, GA4 traffic, and Business Profile reads
+plus C5 write-back.
 
-**Provisioning:**
+### How this differs from every other integration here
+
+Every other row on this page is one credential for the whole deployment — one
+`SERPER_API_KEY`, set by us, the same for every customer. That is right for a
+vendor key we pay for. It cannot work for a customer's Search Console property,
+where the credential belongs to them, arrives at runtime, and must be revocable
+by them alone.
+
+So these vars configure the **OAuth client and the crypto**, not the access
+itself. The access lives in `integration_connections` (migration 0014), one row
+per account per provider.
+
+The sealed refresh token is **not** a column on that table — it lives in
+`integration_credentials`, keyed one-to-one on the connection. A 1:1 table for a
+single column looks like over-normalisation until you ask what happens when
+someone writes `select * from integration_connections` a year from now: with the
+token there, a live customer credential lands in an API response and nothing
+catches it. Splitting it out makes that impossible rather than merely
+discouraged, and removes the hand-maintained "every column except the token"
+list every read would otherwise need. `packages/db`'s `schemaInvariants.test.ts`
+fails if a later migration puts it back.
+
+```
+dashboard ──POST /accounts/:id/integrations/:provider/connect-url──▶ apps/api
+apps/api  ──mints a signed `state` (HMAC, 10-min TTL)──▶ returns Google's consent URL
+browser   ──consent──▶ Google ──redirect──▶ GET /oauth/google/callback
+apps/api  ──verifies `state`, exchanges the code, seals the refresh token──▶ Postgres
+```
+
+The callback is **not** behind `requireAuth` — a browser arriving from Google
+carries no Authorization header and cannot. The **signed `state`** authenticates
+it instead: it names the account and the user, and we minted it minutes ago.
+This replaces the old `/oauth/gsc/callback`, whose `state` was a bare project id;
+once a callback persists a credential, an unsigned state lets anyone who can
+guess a project id bind their own Google account to someone else's project.
+
+### One connection, many projects
+
+Connections are per **account**; `integration_assignments` maps a provider
+resource onto a project. An agency consents once with a Google account that can
+see forty client properties, then assigns them. Reconnecting does not discard
+the mapping. GSC and GA4 are one property per project (a partial unique index
+enforces it); GBP is many locations per project, and each assignment names the
+**entity** it writes to, because a location is an entity (migration 0013).
+
+Connecting and disconnecting require the account **owner** role — the credential
+is shared, so a `member` revoking it would break every project's sync.
+
+### Provisioning
+
 1. Create (or reuse) a project in the [Google Cloud Console](https://console.cloud.google.com/).
-2. Enable the **Search Console API**.
-3. Configure the OAuth consent screen (external, `webmasters.readonly` scope).
+2. Enable **all** of these APIs:
+   - Search Console API
+   - Google Analytics **Data** API **and** Google Analytics **Admin** API — the
+     Admin API is how a user's properties are listed for the picker, and is easy
+     to miss because it returns no analytics itself.
+   - My Business Account Management API, My Business Business Information API,
+     and Google My Business API (v4) — reviews and local posts exist only on v4.
+3. Configure the OAuth consent screen (External).
 4. Create an **OAuth 2.0 Client ID** (type: Web application).
-5. Add the authorized redirect URI — it must match `GSC_REDIRECT_URI` and point
-   at `/oauth/gsc/callback` exactly.
+5. Add the authorized redirect URI. It must equal the deployed Worker origin plus
+   `/oauth/google/callback`, **byte for byte** — Google compares it exactly, and
+   `redirect_uri_mismatch` is the most common first-setup failure.
+6. `openssl rand -base64 32` → `ENCRYPTION_KEY`. Generate a second random string
+   → `OAUTH_STATE_SECRET`.
+7. **Business Profile only:** submit Google's Business Profile API access request.
+   New Cloud projects get **zero** quota, so a correct client and a valid token
+   still return 403 until a human approves it. Approval commonly takes weeks —
+   start it before you need it.
 
-**Code paths (built, behind these vars):**
-`GET /projects/:id/onboarding/gsc/connect-url` builds the consent URL;
-`GET /oauth/gsc/callback` exchanges the auth code for tokens. Both `500` clearly
-when unconfigured. Token storage lands when there's a real client to test against.
+### The verification gate
 
-**Cost:** free (API quota is generous for our usage).
+`webmasters.readonly`, `analytics.readonly` and `business.manage` are all
+**sensitive** scopes. Until Google verifies the app, the consent screen shows an
+"unverified app" warning and is capped at roughly 100 test users, each added by
+email in the console. That is fine for pre-alpha and does **not** work for
+self-serve signup.
 
----
+Verification needs a homepage on a domain you own and have verified, a published
+privacy policy, written scope justification, and a demo video; it commonly takes
+several weeks. The CASA security assessment applies to restricted scopes
+(Gmail/Drive class), not these.
+
+### Rotating `ENCRYPTION_KEY`
+
+Rotating it invalidates **every stored connection** — the sealed tokens can no
+longer be opened, and every customer must reconnect. There is no re-wrap path
+today. Treat it as a key you do not rotate casually.
+
+### Code paths
+
+`packages/connectors/src/google/` — one provider registry driving the flow for
+all three, the OAuth calls, and the GSC/GA4/GBP reads. Every request shape is
+unit-tested against an injected `fetch`, so none of it waits on a live client.
+`packages/auth/src/secretBox.ts` seals credentials; `oauthState.ts` signs the
+state. `apps/api/src/routes/integrations.ts` holds the routes;
+`repositories/integrations.ts` is the only place a token is sealed or opened.
+
+### Sync
+
+`POST /projects/:id/integrations/:provider/sync` pulls on demand, and a cron
+trigger (`15 3 * * *`) runs the same functions nightly. Metrics land in
+`gsc_query_daily`, `gsc_page_daily` and `ga4_channel_daily` (migration 0015);
+GBP writes `local_profiles`, which is what B5's audit has been reading from a
+hand-written `PUT`.
+
+Every write is an upsert on its natural grain, so a re-sync overwrites rather
+than accumulating — without that, a cron firing twice would double every click
+count and nothing about the number would look wrong. GSC's window ends three
+days back, because Search Console lags about two days and keeps revising for
+several more; each run re-fetches the whole window so revisions land.
+
+**Cost:** free. All three APIs have quotas generous for our usage.
 
 ## 4. Stripe — billing (`STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TO_TIER`, `STRIPE_SECRET_KEY`)
 
@@ -246,5 +345,9 @@ on key presence.
 3. For a new SERP/LLM vendor, add an adapter implementing the existing
    `SerpConnector` / `LlmEngineConnector` interface and wire it into
    `packages/connectors/src/factory.ts`.
+   For a new **customer-connected** provider (Bing Webmaster, say), add a row to
+   `GOOGLE_PROVIDERS` in `packages/connectors/src/google/providers.ts` and a
+   resource lister — the consent handshake, storage and UI are generic over that
+   registry, so there is no second copy of the flow to write.
 4. Never commit real secrets; set them via `wrangler secret put` (prod) or
    `.dev.vars` (local).
