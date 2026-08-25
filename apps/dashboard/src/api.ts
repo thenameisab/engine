@@ -52,11 +52,28 @@ export function getApiBaseUrl(): string {
 export function setApiBaseUrl(url: string): void {
   localStorage.setItem(BASE_KEY, url.trim().replace(/\/$/, ''));
 }
+/** The selected project id, or '' when none has been chosen. */
 export function getProjectId(): string {
-  return localStorage.getItem(PROJECT_KEY) ?? 'demo';
+  return localStorage.getItem(PROJECT_KEY) ?? '';
 }
+
+/**
+ * The selected project id, or a clear failure.
+ *
+ * This used to default to the literal string `'demo'`, left over from before
+ * projects were real rows. `'demo'` is not a uuid, so every project route
+ * answered 400 and each view rendered a validation error about a project the
+ * user never chose. Saying "no project selected" is the honest version of the
+ * same fact, and views already surface a thrown message.
+ */
+function requireProjectId(): string {
+  const id = getProjectId();
+  if (!id) throw new Error('No project selected. Choose one in Settings, or create one from the Clients grid.');
+  return id;
+}
+
 export function setProjectId(id: string): void {
-  localStorage.setItem(PROJECT_KEY, id.trim() || 'demo');
+  localStorage.setItem(PROJECT_KEY, id.trim());
 }
 /** The account the Clients grid last selected — null until the user picks one. */
 export function getAccountId(): string | null {
@@ -104,7 +121,7 @@ export function fetchIntegrations(): Promise<ReadinessReport> {
  * "no data", not a 0 that would read as "zero visibility".
  */
 export async function fetchPulse(): Promise<PulseData> {
-  const resp = await request<ApiPulseResponse>(`/projects/${getProjectId()}/pulse`);
+  const resp = await request<ApiPulseResponse>(`/projects/${requireProjectId()}/pulse`);
   return toPulseData(resp);
 }
 
@@ -124,7 +141,7 @@ interface RankPollResponse {
  */
 export async function rankPoll(keyword: string, country: string): Promise<SerpInspectResult> {
   const query = { keyword, geo: { country }, device: 'desktop', language: 'en', engine: 'google' };
-  const resp = await request<RankPollResponse>(`/projects/${getProjectId()}/rank/poll`, {
+  const resp = await request<RankPollResponse>(`/projects/${requireProjectId()}/rank/poll`, {
     method: 'POST',
     body: JSON.stringify({ queries: [query] }),
   });
@@ -147,7 +164,7 @@ export async function rankPoll(keyword: string, country: string): Promise<SerpIn
  * actions — so this does not fall back to sample data. The board says so.
  */
 export async function fetchActions(): Promise<ActionCard[]> {
-  const resp = await request<{ actions: ApiAction[] }>(`/projects/${getProjectId()}/actions`);
+  const resp = await request<{ actions: ApiAction[] }>(`/projects/${requireProjectId()}/actions`);
   return resp.actions.map(toActionCard);
 }
 
@@ -165,7 +182,7 @@ export async function fetchAudit(): Promise<AuditData> {
     healthScore: number | null;
     lastRunAt: string | null;
     pagesAudited: number | null;
-  }>(`/projects/${getProjectId()}/audit`);
+  }>(`/projects/${requireProjectId()}/audit`);
   const findings = resp.findings.map(toFindingRow);
   return {
     healthScore: resp.healthScore,
@@ -187,7 +204,7 @@ const TRANSITION_PATH: Record<Exclude<ActionStatus, 'proposed'>, string> = {
 
 /** The project's tracked entities — the Copilot's own picker list. */
 export function fetchEntities(): Promise<ApiEntity[]> {
-  return request<{ entities: ApiEntity[] }>(`/projects/${getProjectId()}/entities`).then((r) => r.entities);
+  return request<{ entities: ApiEntity[] }>(`/projects/${requireProjectId()}/entities`).then((r) => r.entities);
 }
 
 /**
@@ -197,7 +214,7 @@ export function fetchEntities(): Promise<ApiEntity[]> {
  */
 export function fetchCopilotSummary(entityId: string): Promise<CopilotSummary> {
   return request<{ summary: CopilotSummary }>(
-    `/projects/${getProjectId()}/entities/${entityId}/copilot/summary`,
+    `/projects/${requireProjectId()}/entities/${entityId}/copilot/summary`,
   ).then((r) => r.summary);
 }
 
@@ -208,7 +225,7 @@ export function fetchCopilotSummary(entityId: string): Promise<CopilotSummary> {
  * the optional Finding -> Action suggestion.
  */
 export function askCopilot(question: string): Promise<{ answer: CopilotAnswer; latencyMs: number }> {
-  return request<{ answer: CopilotAnswer; latencyMs: number }>(`/projects/${getProjectId()}/copilot/ask`, {
+  return request<{ answer: CopilotAnswer; latencyMs: number }>(`/projects/${requireProjectId()}/copilot/ask`, {
     method: 'POST',
     body: JSON.stringify({ question }),
   });
@@ -220,11 +237,11 @@ export function askCopilot(question: string): Promise<{ answer: CopilotAnswer; l
  * findings (into the shared inventory) and strengths, and returns both.
  */
 export function fetchEntityStrengths(): Promise<EntityStrength[]> {
-  return request<{ strengths: EntityStrength[] }>(`/projects/${getProjectId()}/entity-audit`).then((r) => r.strengths);
+  return request<{ strengths: EntityStrength[] }>(`/projects/${requireProjectId()}/entity-audit`).then((r) => r.strengths);
 }
 export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCount: number; strengths: EntityStrength[] }> {
   return request<{ entitiesAudited: number; findingsCount: number; strengths: EntityStrength[] }>(
-    `/projects/${getProjectId()}/entity-audit`,
+    `/projects/${requireProjectId()}/entity-audit`,
     { method: 'POST', body: JSON.stringify({}) },
   );
 }
@@ -235,21 +252,21 @@ export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCou
  * the deterministic audit for a location, persisting local findings + score.
  */
 export function fetchLocalVisibility(): Promise<LocalVisibility[]> {
-  return request<{ visibility: LocalVisibility[] }>(`/projects/${getProjectId()}/local-audit`).then((r) => r.visibility);
+  return request<{ visibility: LocalVisibility[] }>(`/projects/${requireProjectId()}/local-audit`).then((r) => r.visibility);
 }
 export function fetchLocalProfile(entityId: string): Promise<Record<string, unknown> | null> {
   return request<{ profile: Record<string, unknown> | null }>(
-    `/projects/${getProjectId()}/entities/${entityId}/local-profile`,
+    `/projects/${requireProjectId()}/entities/${entityId}/local-profile`,
   ).then((r) => r.profile);
 }
 export function saveLocalProfile(entityId: string, profile: Record<string, unknown>): Promise<unknown> {
-  return request(`/projects/${getProjectId()}/entities/${entityId}/local-profile`, {
+  return request(`/projects/${requireProjectId()}/entities/${entityId}/local-profile`, {
     method: 'PUT',
     body: JSON.stringify({ profile }),
   });
 }
 export function runLocalAudit(entityId: string): Promise<{ entityId: string; findingsCount: number; visibility: LocalVisibility }> {
-  return request(`/projects/${getProjectId()}/entities/${entityId}/local-audit`, { method: 'POST', body: JSON.stringify({}) });
+  return request(`/projects/${requireProjectId()}/entities/${entityId}/local-audit`, { method: 'POST', body: JSON.stringify({}) });
 }
 
 /**
@@ -261,29 +278,29 @@ export function runLocalAudit(entityId: string): Promise<{ entityId: string; fin
  */
 export function fetchCompetitors(selfEntityId: string): Promise<CompetitorRef[]> {
   return request<{ competitors: CompetitorRef[] }>(
-    `/projects/${getProjectId()}/entities/${selfEntityId}/competitors`,
+    `/projects/${requireProjectId()}/entities/${selfEntityId}/competitors`,
   ).then((r) => r.competitors);
 }
 export function addCompetitor(selfEntityId: string, competitorEntityId: string): Promise<{ id: string }> {
-  return request<{ id: string }>(`/projects/${getProjectId()}/entities/${selfEntityId}/competitors`, {
+  return request<{ id: string }>(`/projects/${requireProjectId()}/entities/${selfEntityId}/competitors`, {
     method: 'POST',
     body: JSON.stringify({ competitorEntityId }),
   });
 }
 export function removeCompetitor(selfEntityId: string, competitorSetId: string): Promise<unknown> {
-  return request(`/projects/${getProjectId()}/entities/${selfEntityId}/competitors/${competitorSetId}`, {
+  return request(`/projects/${requireProjectId()}/entities/${selfEntityId}/competitors/${competitorSetId}`, {
     method: 'DELETE',
   });
 }
 export function fetchCompetitorGaps(selfEntityId: string): Promise<CompetitorGap[]> {
   return request<{ gaps: CompetitorGap[] }>(
-    `/projects/${getProjectId()}/entities/${selfEntityId}/competitor-audit`,
+    `/projects/${requireProjectId()}/entities/${selfEntityId}/competitor-audit`,
   ).then((r) => r.gaps);
 }
 export function runCompetitorAudit(
   selfEntityId: string,
 ): Promise<{ selfEntityId: string; competitorsAudited: number; findingsCount: number; gaps: CompetitorGap[]; byType: Record<GapType, CompetitorGap[]> }> {
-  return request(`/projects/${getProjectId()}/entities/${selfEntityId}/competitor-audit`, {
+  return request(`/projects/${requireProjectId()}/entities/${selfEntityId}/competitor-audit`, {
     method: 'POST',
     body: JSON.stringify({}),
   });
@@ -297,13 +314,13 @@ export function runCompetitorAudit(
  */
 export function fetchCitationOpportunities(selfEntityId: string): Promise<CitationOpportunity[]> {
   return request<{ opportunities: CitationOpportunity[] }>(
-    `/projects/${getProjectId()}/entities/${selfEntityId}/offsite-audit`,
+    `/projects/${requireProjectId()}/entities/${selfEntityId}/offsite-audit`,
   ).then((r) => r.opportunities);
 }
 export function runOffsiteAudit(
   selfEntityId: string,
 ): Promise<{ selfEntityId: string; observationsAnalyzed: number; categorySize: number; findingsCount: number; opportunities: CitationOpportunity[] }> {
-  return request(`/projects/${getProjectId()}/entities/${selfEntityId}/offsite-audit`, {
+  return request(`/projects/${requireProjectId()}/entities/${selfEntityId}/offsite-audit`, {
     method: 'POST',
     body: JSON.stringify({}),
   });
@@ -315,12 +332,12 @@ export function runOffsiteAudit(
  * "Propose fix" can work yet.
  */
 export function fetchDeployTarget(): Promise<DeployTarget | null> {
-  return request<{ target: DeployTarget | null }>(`/projects/${getProjectId()}/deploy-target`).then((r) => r.target);
+  return request<{ target: DeployTarget | null }>(`/projects/${requireProjectId()}/deploy-target`).then((r) => r.target);
 }
 
 /** Set the project's deploy target. */
 export function saveDeployTarget(target: DeployTarget): Promise<DeployTarget> {
-  return request<{ target: DeployTarget }>(`/projects/${getProjectId()}/deploy-target`, {
+  return request<{ target: DeployTarget }>(`/projects/${requireProjectId()}/deploy-target`, {
     method: 'PUT',
     body: JSON.stringify({ target }),
   }).then((r) => r.target);
@@ -334,14 +351,14 @@ export function saveDeployTarget(target: DeployTarget): Promise<DeployTarget> {
  */
 export function proposeFix(findingId: string): Promise<{ actions: ApiAction[]; note?: string }> {
   return request<{ actions: ApiAction[]; note?: string }>(
-    `/projects/${getProjectId()}/findings/${findingId}/propose`,
+    `/projects/${requireProjectId()}/findings/${findingId}/propose`,
     { method: 'POST', body: JSON.stringify({}) },
   );
 }
 
 /** Attempt a live Fix Queue transition (DB-backed; may fail in pre-alpha). */
 export function transitionAction(actionId: string, to: Exclude<ActionStatus, 'proposed'>): Promise<unknown> {
-  return request(`/projects/${getProjectId()}/actions/${actionId}/${TRANSITION_PATH[to]}`, {
+  return request(`/projects/${requireProjectId()}/actions/${actionId}/${TRANSITION_PATH[to]}`, {
     method: 'POST',
     body: JSON.stringify({ actor: 'dashboard:internal' }),
   });
@@ -462,7 +479,7 @@ export async function fetchProjectIntegrations(): Promise<{
   connections: IntegrationConnection[];
 }> {
   return request<{ assignments: IntegrationAssignment[]; connections: IntegrationConnection[] }>(
-    `/projects/${getProjectId()}/integrations`,
+    `/projects/${requireProjectId()}/integrations`,
   );
 }
 
@@ -471,7 +488,7 @@ export async function assignProviderResource(
   body: { resourceId: string; resourceLabel?: string; entityId?: string },
 ): Promise<IntegrationAssignment> {
   const resp = await request<{ assignment: IntegrationAssignment }>(
-    `/projects/${getProjectId()}/integrations/${provider}`,
+    `/projects/${requireProjectId()}/integrations/${provider}`,
     { method: 'PUT', body: JSON.stringify(body) },
   );
   return resp.assignment;
@@ -479,7 +496,7 @@ export async function assignProviderResource(
 
 export async function unassignProviderResource(assignmentId: string): Promise<void> {
   await request<{ removed: boolean }>(
-    `/projects/${getProjectId()}/integrations/assignments/${assignmentId}`,
+    `/projects/${requireProjectId()}/integrations/assignments/${assignmentId}`,
     { method: 'DELETE' },
   );
 }
@@ -500,7 +517,7 @@ export async function syncProvider(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
-    const res = await fetch(`${base}/projects/${getProjectId()}/integrations/${provider}/sync`, {
+    const res = await fetch(`${base}/projects/${requireProjectId()}/integrations/${provider}/sync`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

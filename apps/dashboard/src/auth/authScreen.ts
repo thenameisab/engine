@@ -27,6 +27,12 @@ export function mountAuthScreen(root: HTMLElement): void {
 
   const note = el('p', { class: 'auth-note' });
 
+  /** Show a failure on the card. Sign-in errors have nowhere else to go — there is no shell yet. */
+  const showError = (message: string) => {
+    note.textContent = message;
+    note.classList.add('show', 'error');
+  };
+
   const emailBtn = el('button', {
     class: 'auth-btn primary',
     onclick: async () => {
@@ -37,15 +43,21 @@ export function mountAuthScreen(root: HTMLElement): void {
         setTimeout(() => emailInput.classList.remove('shake'), 400);
         return;
       }
+      note.classList.remove('show', 'error');
       emailBtn.setAttribute('disabled', 'true');
       emailBtn.textContent = 'Sending…';
-      const sent = await sendEmailLink(v);
-      if (sent) {
+      try {
+        await sendEmailLink(v);
         emailBtn.textContent = 'Link sent';
         note.textContent = `Check ${v} for a sign-in link.`;
         note.classList.add('show');
+      } catch (err) {
+        // Re-enable: the failure is usually transient or a wrong address, and a
+        // dead button with an error above it is a worse outcome than a retry.
+        emailBtn.removeAttribute('disabled');
+        emailBtn.textContent = 'Send sign-in link';
+        showError((err as Error).message);
       }
-      // On the dev fallback, a session is set and the screen tears down on its own.
     },
   }, ['Send sign-in link']);
 
@@ -63,7 +75,17 @@ export function mountAuthScreen(root: HTMLElement): void {
 
     el('button', {
       class: 'auth-btn provider',
-      onclick: () => signInWithGoogle(),
+      onclick: (e: Event) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        btn.setAttribute('disabled', 'true');
+        note.classList.remove('show', 'error');
+        void signInWithGoogle().catch((err: Error) => {
+          // Only reached when the redirect never happens — on success the
+          // browser has already left this page.
+          btn.removeAttribute('disabled');
+          showError(err.message);
+        });
+      },
       html: `${GOOGLE_G}<span>Continue with Google</span>`,
     }),
 

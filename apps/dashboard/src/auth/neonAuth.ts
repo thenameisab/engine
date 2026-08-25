@@ -12,7 +12,7 @@
  * `window.ENGINE_AUTH_BASE`. The deployed dashboard's origin must be added to
  * Neon Auth's trusted origins for the OAuth callback to be accepted.
  */
-import { setSession, type SessionUser } from './session.js';
+import type { SessionUser } from './session.js';
 
 const DEFAULT_AUTH_BASE =
   'https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth';
@@ -50,47 +50,63 @@ export async function fetchRemoteSession(): Promise<SessionUser | null> {
   }
 }
 
-/** Begin Google sign-in. Redirects into Better Auth's social flow; dev fallback on any hiccup. */
+/**
+ * Begin Google sign-in by redirecting into Better Auth's social flow.
+ *
+ * Throws on failure rather than signing anyone in. This used to fall back to a
+ * local "dev session" whenever Neon Auth was unreachable or answered non-2xx,
+ * which meant a misconfigured or briefly-down auth server let anyone into the
+ * product shell as `you@engine.dev`. It granted no API access — the API needs a
+ * real JWT — so every view then failed, and the user saw a broken product
+ * rather than "sign-in is down". A sign-in that cannot verify anyone must
+ * fail, visibly.
+ */
 export async function signInWithGoogle(): Promise<void> {
+  let res: Response;
   try {
-    const res = await fetch(`${authBase()}/sign-in/social`, {
+    res = await fetch(`${authBase()}/sign-in/social`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ provider: 'google', callbackURL: location.href }),
     });
-    if (res.ok) {
-      const data = (await res.json()) as { url?: string };
-      if (data.url) {
-        location.href = data.url;
-        return;
-      }
-    }
   } catch {
-    /* fall through to dev session */
+    throw new Error('Could not reach the sign-in service. Check your connection and try again.');
   }
-  setSession({ name: 'Team member', email: 'you@engine.dev', provider: 'dev' });
+  if (!res.ok) {
+    throw new Error(`Sign-in is unavailable (${res.status}). If this persists, the auth service needs attention.`);
+  }
+  const data = (await res.json().catch(() => ({}))) as { url?: string };
+  if (!data.url) throw new Error('The sign-in service did not return a redirect URL.');
+  location.href = data.url;
 }
 
 /**
- * Email magic-link, if the Better Auth instance has the plugin enabled.
- * Returns true when a link was sent; on any failure, signs in a dev session so
- * the app stays usable. (Magic-link delivery + the plugin land server-side.)
+ * Send a magic-link email, if the Better Auth instance has the plugin enabled.
+ *
+ * Throws when it cannot. Like `signInWithGoogle`, this used to sign in a local
+ * dev session on any failure — including the very common case of the
+ * magic-link plugin simply not being enabled server-side, which meant typing an
+ * address and pressing a button let anyone in under whatever email they typed.
  */
-export async function sendEmailLink(email: string): Promise<boolean> {
+export async function sendEmailLink(email: string): Promise<void> {
+  let res: Response;
   try {
-    const res = await fetch(`${authBase()}/sign-in/magic-link`, {
+    res = await fetch(`${authBase()}/sign-in/magic-link`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email, callbackURL: location.href }),
     });
-    if (res.ok) return true;
   } catch {
-    /* fall through to dev session */
+    throw new Error('Could not reach the sign-in service. Check your connection and try again.');
   }
-  setSession({ name: email.split('@')[0] || 'Member', email, provider: 'dev' });
-  return false;
+  if (res.status === 404 || res.status === 501) {
+    throw new Error('Email sign-in is not enabled on this deployment. Use Continue with Google.');
+  }
+  if (!res.ok) {
+    throw new Error(`Could not send the sign-in link (${res.status}). Try again, or use Continue with Google.`);
+  }
 }
 
 export async function signOutRemote(): Promise<void> {

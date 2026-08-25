@@ -67,6 +67,30 @@ function jwksFor(url: string): JwksKeyLookup {
   return jwks;
 }
 
+/**
+ * True when the request was made to a loopback address — the only place
+ * `AUTH_MODE=disabled` is allowed to take effect.
+ *
+ * Reads the request URL's hostname rather than any header: `Host` and
+ * `X-Forwarded-Host` are attacker-controlled, so trusting either would hand
+ * back the bypass this exists to close.
+ */
+export function isLoopbackRequest(url: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost')
+  );
+}
+
 /** Map a verification failure to a status: expired → 401 (refresh and retry). */
 function statusFor(err: JwtError): 401 | 403 {
   return err.code === 'expired' || err.code === 'not-yet-valid' ? 401 : 403;
@@ -83,8 +107,20 @@ export async function requireAuth(
   next: Next,
 ): Promise<Response | void> {
   if (c.env.AUTH_MODE === 'disabled') {
-    c.set('user', { id: 'dev', email: 'dev@engine.local', name: 'Local dev' });
-    return next();
+    // Honoured only for a request that actually arrived on a loopback host.
+    // The docs have always said "local development only, never on a deployed
+    // Worker", but nothing enforced it — one stray `wrangler secret put
+    // AUTH_MODE disabled` left the API wide open over every project route, the
+    // database URL, and live SERP/LLM credit, with no signal that it had
+    // happened. A hostname check is cheap and cannot be got wrong by accident.
+    if (isLoopbackRequest(c.req.url)) {
+      c.set('user', { id: 'dev', email: 'dev@engine.local', name: 'Local dev' });
+      return next();
+    }
+    return c.json(
+      { error: 'AUTH_MODE=disabled is refused outside local development. Unset it on this deployment.' },
+      503,
+    );
   }
 
   const jwksUrl = c.env.AUTH_JWKS_URL;

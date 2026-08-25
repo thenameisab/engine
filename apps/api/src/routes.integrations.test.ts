@@ -268,6 +268,46 @@ describe('POST /projects/:projectId/integrations/:provider/sync', () => {
   });
 });
 
+describe('AUTH_MODE=disabled', () => {
+  // The docs always said "local development only, never on a deployed Worker".
+  // Nothing enforced it, so one stray `wrangler secret put` left every project
+  // route, the database URL and live SERP/LLM credit open with no signal.
+  const disabled = { ...env, AUTH_MODE: 'disabled' } as Record<string, string>;
+
+  function get(url: string, e: Record<string, string>): Promise<Response> {
+    return app.request(new Request(url), {}, e);
+  }
+
+  it('is honoured for a loopback request, so local dev still works', async () => {
+    const res = await get('http://localhost:8787/health/integrations', disabled);
+    expect(res.status).toBe(200);
+  });
+
+  it('is honoured on 127.0.0.1 too', async () => {
+    const res = await get('http://127.0.0.1:8787/health/integrations', disabled);
+    expect(res.status).toBe(200);
+  });
+
+  it('is refused on a deployed hostname rather than opening the API', async () => {
+    const res = await get('https://engine-api.workers.dev/health/integrations', disabled);
+    expect(res.status).toBe(503);
+    expect((await res.json() as { error: string }).error).toMatch(/refused outside local development/);
+  });
+
+  it('cannot be re-enabled by a forged Host header', async () => {
+    // The guard reads the request URL, not Host/X-Forwarded-Host, both of which
+    // the caller controls.
+    const res = await app.request(
+      new Request('https://engine-api.workers.dev/health/integrations', {
+        headers: { host: 'localhost', 'x-forwarded-host': 'localhost' },
+      }),
+      {},
+      disabled,
+    );
+    expect(res.status).toBe(503);
+  });
+});
+
 describe('CORS', () => {
   it('allows the methods the integration routes actually use', async () => {
     const res = await request('/accounts/x/integrations', {
