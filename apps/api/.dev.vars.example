@@ -21,8 +21,10 @@ AUTH_ISSUER=https://<project>.neonauth.<region>.aws.neon.tech/neondb/auth
 AUTH_AUDIENCE=engine-api
 # Shared service token for machine callers with no user session (the edge worker's C1.7 auto-rollback). Bind the same value on apps/api and apps/workers. [secret, optional]
 INTERNAL_API_TOKEN=a-long-random-string
-# Set to 'disabled' to run the API unauthenticated for local development only. Never set this on a deployed Worker — it holds live SERP/LLM keys. [config, optional]
+# Set to 'disabled' to run the API unauthenticated. Honoured only for requests to a loopback host, so setting it on a deployed Worker refuses requests rather than opening them. [config, optional]
 AUTH_MODE=disabled
+# Comma-separated invite list. Unset means any Google account that clears the consent screen may sign in and create its own account — set this to enforce the "invite-only, pre-alpha" the sign-in screen claims. [config, optional]
+ALLOWED_EMAILS=first@example.com,second@example.com
 
 # ── Google integrations (Search Console, GA4, Business Profile) (identity) ──
 # Customers connect their own Google accounts in the product: GSC search performance, GA4 traffic, and GBP location reads plus C5 write-back.

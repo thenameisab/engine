@@ -12,6 +12,7 @@ import { entityGraphView } from './views/entityGraph.js';
 import { competitorsView } from './views/competitors.js';
 import { offsiteView } from './views/offsite.js';
 import { localView } from './views/local.js';
+import { integrationsView } from './views/integrations.js';
 import { settingsView } from './views/settings.js';
 import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
@@ -32,6 +33,7 @@ const ROUTES: Route[] = [
   { id: 'competitors', label: 'Competitors', iconMarkup: ICONS.versus, view: competitorsView },
   { id: 'offsite', label: 'Backlinks', iconMarkup: ICONS.link, view: offsiteView },
   { id: 'local', label: 'Local SEO', iconMarkup: ICONS.pin, view: localView },
+  { id: 'integrations', label: 'Integrations', iconMarkup: ICONS.plug, view: integrationsView },
   { id: 'clients', label: 'Clients', iconMarkup: ICONS.clients, view: accountsView },
   { id: 'settings', label: 'Settings', iconMarkup: ICONS.gear, view: settingsView },
 ];
@@ -46,6 +48,9 @@ const HIDDEN_ROUTES: Route[] = [{ id: 'report', label: 'Branded report', iconMar
 const ALL_ROUTES = [...ROUTES, ...HIDDEN_ROUTES];
 
 const RAIL_KEY = 'engine.railCollapsed';
+
+/** The live `hashchange` handler, so re-mounting the shell replaces it rather than adding another. */
+let hashListener: (() => void) | null = null;
 
 function currentRouteId(): string {
   const id = location.hash.replace(/^#\/?/, '');
@@ -155,7 +160,13 @@ export function mountShell(root: HTMLElement): void {
 
   const main = appEl.querySelector('.main') as HTMLElement;
   main.append(topbar, content);
-  root.append(appEl, toastHost);
+  // `replaceChildren`, not `append`. Signing in re-boots the app with the auth
+  // screen still in the root: appending left the shell mounted *underneath* a
+  // full-viewport `.auth-screen`, so the user appeared stuck on the sign-in
+  // page and only a reload fixed it — on reload the session already exists, so
+  // the auth screen is never mounted and the root is empty. Symmetric with
+  // `mountAuthScreen`, which has always cleared the root.
+  root.replaceChildren(appEl, toastHost);
   mountCopilot(root);
 
   let startCollapsed = false;
@@ -181,6 +192,11 @@ export function mountShell(root: HTMLElement): void {
     content.scrollTop = 0;
   }
 
-  addEventListener('hashchange', renderRoute);
+  // Registered on `window`, which outlives the shell, so a re-mount (sign out,
+  // sign back in) would otherwise stack a second listener and render every
+  // route twice. Dropping the previous one keeps exactly one live.
+  if (hashListener) removeEventListener('hashchange', hashListener);
+  hashListener = renderRoute;
+  addEventListener('hashchange', hashListener);
   void renderRoute();
 }

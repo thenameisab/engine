@@ -9,8 +9,6 @@ import {
   fetchDeployTarget,
   saveDeployTarget,
 } from '../api.js';
-import { integrationsSection } from './integrations.js';
-import { googleIntegrationsSection } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
 import type { DeployTarget } from '../types.js';
 
@@ -179,7 +177,7 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
   const projInput = el('input', {
     class: 'field',
     type: 'text',
-    placeholder: 'demo',
+    placeholder: 'project uuid',
     value: getProjectId(),
   }) as HTMLInputElement;
 
@@ -195,7 +193,7 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Settings']),
-      el('p', {}, ['Connect your Google accounts, point this project at the right property, and review which integrations are wired.']),
+      el('p', {}, ['Point the dashboard at your Engine API, and set where approved fixes deploy.']),
     ]),
     el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['API connection'])]),
@@ -205,6 +203,9 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
         el('div', { class: 'fhint num' }, ['Where the dashboard reads live data from. Leave blank to explore with sample data.']),
         el('label', { class: 'flabel' }, ['Project ID']),
         projInput,
+        el('div', { class: 'fhint num' }, [
+          'The uuid of the project this dashboard reads. Create one from the Clients grid to get its id.',
+        ]),
         el('div', { class: 'form-actions' }, [save]),
       ]),
     ]),
@@ -212,18 +213,17 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     await deployTargetSection(ctx),
     el('div', { class: 'settings-sec' }, ['Branding']),
     brandingSection(ctx),
-    el('div', { class: 'settings-sec' }, ['Google integrations']),
-    await googleIntegrationsSection(ctx),
-    el('div', { class: 'settings-sec' }, ['Platform wiring']),
+    el('div', { class: 'settings-sec' }, ['Integrations']),
     el('section', { class: 'panel' }, [
-      el('header', {}, [
-        el('h3', {}, ['External integrations']),
-        el('span', { class: 'more' }, ['from /health/integrations']),
+      el('header', {}, [el('h3', {}, ['Connections'])]),
+      el('div', { class: 'form' }, [
+        el('div', { class: 'fhint num' }, [
+          'Google Search Console, Analytics and Business Profile now have their own page.',
+        ]),
+        el('div', { class: 'form-actions' }, [
+          el('button', { class: 'btn', onclick: () => ctx.navigate('integrations') }, ['Open Integrations']),
+        ]),
       ]),
-      el('div', { class: 'fhint num' }, [
-        'Whether this deployment has its own vendor keys wired. Separate from the Google connections above, which are yours.',
-      ]),
-      el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),
   ]);
 }

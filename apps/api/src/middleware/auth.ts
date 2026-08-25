@@ -48,6 +48,17 @@ export interface AuthEnv {
    * edge worker's C1.7 auto-rollback call. Bound as a secret on both Workers.
    */
   INTERNAL_API_TOKEN?: string;
+  /**
+   * Comma-separated emails allowed to use the product ("invite-only, pre-alpha",
+   * which the sign-in screen claims and nothing enforced). Case-insensitive.
+   *
+   * Unset means no allowlist: any Google account that clears the consent screen
+   * can sign in and create its own account. That is the deliberate default —
+   * a deny-all-when-unset would be indistinguishable, from the user's side,
+   * from auth being broken, which is the failure class this codebase keeps
+   * removing. `/health/integrations` reports whether it is configured.
+   */
+  ALLOWED_EMAILS?: string;
 }
 
 /**
@@ -67,6 +78,62 @@ function jwksFor(url: string): JwksKeyLookup {
   return jwks;
 }
 
+/**
+ * Parse `ALLOWED_EMAILS` into a normalised set. Empty when unset.
+ *
+ * Exported for the readiness check and for tests; the comparison is
+ * lower-cased and trimmed because an invite list is typed by a human and
+ * "Person@Example.com " is the same person.
+ */
+export function parseAllowedEmails(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/**
+ * Whether a verified email may use the product.
+ *
+ * An unset allowlist admits everyone — see `ALLOWED_EMAILS`. A *set* allowlist
+ * rejects a token carrying no email at all, rather than treating "no email" as
+ * "not excluded": the gate exists to name who is allowed in, and something it
+ * cannot name is not on the list.
+ */
+export function isInvited(email: string | undefined, allowedRaw: string | undefined): boolean {
+  const allowed = parseAllowedEmails(allowedRaw);
+  if (allowed.size === 0) return true;
+  if (!email) return false;
+  return allowed.has(email.trim().toLowerCase());
+}
+
+/**
+ * True when the request was made to a loopback address — the only place
+ * `AUTH_MODE=disabled` is allowed to take effect.
+ *
+ * Reads the request URL's hostname rather than any header: `Host` and
+ * `X-Forwarded-Host` are attacker-controlled, so trusting either would hand
+ * back the bypass this exists to close.
+ */
+export function isLoopbackRequest(url: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost')
+  );
+}
+
 /** Map a verification failure to a status: expired → 401 (refresh and retry). */
 function statusFor(err: JwtError): 401 | 403 {
   return err.code === 'expired' || err.code === 'not-yet-valid' ? 401 : 403;
@@ -83,8 +150,20 @@ export async function requireAuth(
   next: Next,
 ): Promise<Response | void> {
   if (c.env.AUTH_MODE === 'disabled') {
-    c.set('user', { id: 'dev', email: 'dev@engine.local', name: 'Local dev' });
-    return next();
+    // Honoured only for a request that actually arrived on a loopback host.
+    // The docs have always said "local development only, never on a deployed
+    // Worker", but nothing enforced it — one stray `wrangler secret put
+    // AUTH_MODE disabled` left the API wide open over every project route, the
+    // database URL, and live SERP/LLM credit, with no signal that it had
+    // happened. A hostname check is cheap and cannot be got wrong by accident.
+    if (isLoopbackRequest(c.req.url)) {
+      c.set('user', { id: 'dev', email: 'dev@engine.local', name: 'Local dev' });
+      return next();
+    }
+    return c.json(
+      { error: 'AUTH_MODE=disabled is refused outside local development. Unset it on this deployment.' },
+      503,
+    );
   }
 
   const jwksUrl = c.env.AUTH_JWKS_URL;
@@ -117,9 +196,23 @@ export async function requireAuth(
       issuer: c.env.AUTH_ISSUER,
       audience: c.env.AUTH_AUDIENCE,
     });
+    const email = typeof claims.email === 'string' ? claims.email : undefined;
+
+    // Invite gate. Applied after verification, never before: deciding access
+    // on an unverified `email` claim would let anyone mint their own pass.
+    if (!isInvited(email, c.env.ALLOWED_EMAILS)) {
+      return c.json(
+        {
+          error: 'This account is not on the invite list for this pre-alpha.',
+          email: email ?? null,
+        },
+        403,
+      );
+    }
+
     c.set('user', {
       id: claims.sub,
-      email: typeof claims.email === 'string' ? claims.email : undefined,
+      email,
       name: typeof claims.name === 'string' ? claims.name : undefined,
     });
     return next();

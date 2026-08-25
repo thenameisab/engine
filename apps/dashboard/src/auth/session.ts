@@ -1,13 +1,21 @@
 /**
- * Client-side session for the auth gate. Deliberately minimal: a signed-in
- * user is a small JSON blob in localStorage. Real token verification happens
- * against Neon Auth once its keys are wired (see neonAuth.ts); until then a
- * dev sign-in is enough to demonstrate and share the gated app.
+ * Client-side session for the auth gate: a signed-in user as a small JSON blob
+ * in localStorage.
+ *
+ * This is presentation state only — it decides whether the shell or the sign-in
+ * screen renders, and nothing more. Every request to the API carries a
+ * separately-fetched Neon Auth JWT which the API verifies against the published
+ * JWKS, so forging this blob gains a would-be attacker an empty shell and
+ * nothing else.
+ *
+ * There is deliberately no 'dev' provider. One used to exist as a fallback for
+ * when Neon Auth was unreachable, which meant a broken auth service silently
+ * admitted anyone; sign-in now fails visibly instead.
  */
 export interface SessionUser {
   name: string;
   email: string;
-  provider: 'google' | 'email' | 'dev';
+  provider: 'google' | 'email';
 }
 
 const KEY = 'engine.session';

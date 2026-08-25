@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { signOAuthState } from '@engine/auth';
 import { app } from './index.js';
+import { isInvited, parseAllowedEmails } from './middleware/auth.js';
 
 /**
  * The integration routes' contract at the boundary, driven through the real
@@ -265,6 +266,83 @@ describe('POST /projects/:projectId/integrations/:provider/sync', () => {
   it('rejects a non-uuid projectId and an unknown provider', async () => {
     expect((await sync('/projects/nope/integrations/gsc/sync')).status).toBe(400);
     expect((await sync(`/projects/${PROJECT}/integrations/bing/sync`)).status).toBe(400);
+  });
+});
+
+describe('AUTH_MODE=disabled', () => {
+  // The docs always said "local development only, never on a deployed Worker".
+  // Nothing enforced it, so one stray `wrangler secret put` left every project
+  // route, the database URL and live SERP/LLM credit open with no signal.
+  const disabled = { ...env, AUTH_MODE: 'disabled' } as Record<string, string>;
+
+  function get(url: string, e: Record<string, string>): Promise<Response> {
+    return app.request(new Request(url), {}, e);
+  }
+
+  it('is honoured for a loopback request, so local dev still works', async () => {
+    const res = await get('http://localhost:8787/health/integrations', disabled);
+    expect(res.status).toBe(200);
+  });
+
+  it('is honoured on 127.0.0.1 too', async () => {
+    const res = await get('http://127.0.0.1:8787/health/integrations', disabled);
+    expect(res.status).toBe(200);
+  });
+
+  it('is refused on a deployed hostname rather than opening the API', async () => {
+    const res = await get('https://engine-api.workers.dev/health/integrations', disabled);
+    expect(res.status).toBe(503);
+    expect((await res.json() as { error: string }).error).toMatch(/refused outside local development/);
+  });
+
+  it('cannot be re-enabled by a forged Host header', async () => {
+    // The guard reads the request URL, not Host/X-Forwarded-Host, both of which
+    // the caller controls.
+    const res = await app.request(
+      new Request('https://engine-api.workers.dev/health/integrations', {
+        headers: { host: 'localhost', 'x-forwarded-host': 'localhost' },
+      }),
+      {},
+      disabled,
+    );
+    expect(res.status).toBe(503);
+  });
+});
+
+describe('the invite allowlist', () => {
+  it('admits everyone when unset, rather than denying by default', () => {
+    // A deny-all-when-unset gate is indistinguishable, from the user's side,
+    // from auth being broken — the failure class this codebase keeps removing.
+    expect(isInvited('anyone@example.com', undefined)).toBe(true);
+    expect(isInvited('anyone@example.com', '')).toBe(true);
+  });
+
+  it('admits a listed address and refuses an unlisted one', () => {
+    const list = 'a@example.com,b@example.com';
+    expect(isInvited('a@example.com', list)).toBe(true);
+    expect(isInvited('b@example.com', list)).toBe(true);
+    expect(isInvited('c@example.com', list)).toBe(false);
+  });
+
+  it('ignores case and surrounding whitespace, since a human types the list', () => {
+    expect(isInvited('Person@Example.com', ' person@example.com , other@x.com ')).toBe(true);
+    expect(isInvited('  person@example.com  ', 'PERSON@EXAMPLE.COM')).toBe(true);
+  });
+
+  it('refuses a token with no email once a list is set', () => {
+    // "No email" is not "not excluded" — the gate names who may enter, and it
+    // cannot name this.
+    expect(isInvited(undefined, 'a@example.com')).toBe(false);
+  });
+
+  it('does not admit on a partial or substring match', () => {
+    expect(isInvited('evil-a@example.com', 'a@example.com')).toBe(false);
+    expect(isInvited('a@example.com.attacker.test', 'a@example.com')).toBe(false);
+  });
+
+  it('parses a list into normalised entries, dropping blanks', () => {
+    expect([...parseAllowedEmails('A@x.com, ,b@Y.com,')]).toEqual(['a@x.com', 'b@y.com']);
+    expect(parseAllowedEmails(undefined).size).toBe(0);
   });
 });
 

@@ -332,6 +332,11 @@ select.field { cursor: pointer; }
 @keyframes authShake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-5px)} 40%,80%{transform:translateX(5px)} }
 .auth-note { text-align: center; font-size: 12.5px; color: #1a7f52; margin-top: 12px; max-height: 0; opacity: 0; overflow: hidden; transition: max-height .3s var(--ease), opacity .3s var(--ease); }
 .auth-note.show { max-height: 40px; opacity: 1; }
+/* A sign-in failure is not a success message. The base rule is green and clamps
+   to one line; an error is red and gets room for a sentence that explains what
+   to do, since the card is the only surface available before the shell exists. */
+.auth-note.error { color: #c0392b; }
+.auth-note.error.show { max-height: 96px; }
 .auth-foot { text-align: center; font-size: 11.5px; color: #9aa2ad; margin-top: 20px; }
 
 /* sign-out in the rail footer */
