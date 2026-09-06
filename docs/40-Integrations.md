@@ -42,7 +42,8 @@ cp apps/api/.dev.vars.example apps/api/.dev.vars   # then fill in real values
 | Integration | Category | Needed for | External account | Pre-alpha |
 |---|---|---|---|---|
 | Postgres (Neon) | data | Everything (operational store) | Neon | ✅ provisioned |
-| **Neon Auth (Better Auth)** | identity | Sign-in + the API auth gate | Neon Auth (on the Neon project) | ✅ provisioned |
+| **Neon Auth (Better Auth)** | identity | The API auth gate; Google sign-in | Neon Auth (on the Neon project) | 🟡 provisioned, sign-in blocked on trusted origins |
+| **Credential sign-in** | identity | How the three pre-alpha users actually sign in | None | ✅ in use |
 | **Google integrations (GSC + GA4 + GBP)** | identity | Customers connect their own Google accounts | Google Cloud OAuth client | ⛔ blocked on account |
 | Stripe | billing | G3 billing | Stripe account | ⛔ blocked on account |
 | **Serper.dev** | serp | A1 rank tracking | Serper.dev | ⛔ needs key |
@@ -123,10 +124,71 @@ Runs the API unauthenticated so the dashboard works without completing a real
 Google sign-in. It is set in local `.dev.vars` and **must never be set on a
 deployed Worker**, which holds live SERP/LLM keys and the database URL.
 
-### Trusted origins
+### Trusted origins — currently blocking Google sign-in
 
 Any deployed dashboard origin must be added to Neon Auth's trusted-origins list
 or the OAuth callback is rejected (`403 INVALID_CALLBACKURL`).
+
+**`https://engine-7vv.pages.dev` is not on that list**, so `POST /sign-in/social`
+returns 403 for every caller from the deployed dashboard, whoever they are.
+`http://localhost:4321` returns 200 and a Google redirect URL, which is how the
+difference was isolated. This is a Neon Auth console setting, not a code change,
+and it is why §2b exists.
+
+---
+
+## 2b. Credential sign-in — the fixed pre-alpha roster (`LOCAL_AUTH_USERS`, `LOCAL_AUTH_SECRET`)
+
+A stopgap that does one job: let the three pre-alpha users in while Google
+sign-in cannot complete from the deployed origin. Not the identity story, and
+not a second one competing with it — the Neon Auth path above is untouched and
+resumes the moment the origin is trusted.
+
+```
+dashboard ──POST /auth/login {email, password}──▶ apps/api
+apps/api  ──check the roster──▶ HMAC-SHA-256 session token (8h)
+dashboard ──Authorization: Bearer <token>──▶ apps/api
+apps/api  ──verify its own HMAC──▶ allow / 401 / 403
+```
+
+`requireAuth` tries this before the JWT path and skips it entirely when
+`LOCAL_AUTH_SECRET` is unset, so a deployment that uses only Neon Auth behaves
+exactly as it did. The two token kinds coexist on the one `Authorization`
+header: a Neon Auth JWT has three dot-separated segments, this token has two.
+
+**What it is not.** No signup, no password reset, no recovery, no email
+verification. The set of people who can authenticate is exactly the set named in
+`LOCAL_AUTH_USERS`, and no code path can grow it.
+
+### Configuring it
+
+| Var | |
+|---|---|
+| `LOCAL_AUTH_USERS` | The roster: `email:password[:Display Name]`, comma-separated. A password cannot contain a comma or a colon. **A secret** — it holds live passwords. |
+| `LOCAL_AUTH_SECRET` | HMAC key for the session tokens. Rotating it signs everyone out. Use a different value from `OAUTH_STATE_SECRET`. |
+
+```bash
+wrangler secret put LOCAL_AUTH_USERS   # first@x.com:pw:First,second@x.com:pw2:Second
+wrangler secret put LOCAL_AUTH_SECRET  # openssl rand -base64 32
+```
+
+Leave both unset to turn credential sign-in off: `/auth/login` then answers 503
+and the gate falls back to Neon Auth JWTs alone.
+
+### Notes worth keeping
+
+- **Principals are namespaced `local:<email>`**, disjoint from Neon Auth `sub`
+  values. Moving someone to Google sign-in later creates a *new* principal
+  rather than silently inheriting this one's account memberships.
+- **The `users` row is written at sign-in**, not lazily on first authenticated
+  request. `account_members.user_id` FKs to it, so without that the very first
+  thing a new user does — create a client — would fail on a foreign key.
+- **Every login rejection is byte-identical.** Distinguishing "no such user"
+  from "wrong password" turns the form into a way to enumerate three people's
+  email addresses.
+- **`ALLOWED_EMAILS` does not apply** to roster users. The roster is already an
+  explicit closed list, and a stricter one; a second list would add no gate and
+  one more way to lock everyone out.
 
 ---
 

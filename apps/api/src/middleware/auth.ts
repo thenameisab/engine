@@ -18,12 +18,16 @@ import {
   verifyJwt,
   bearerToken,
   verifyServiceToken,
+  verifyLocalSession,
   JwtError,
   type JwksKeyLookup,
 } from '@engine/auth';
 
 export interface AuthUser {
-  /** The Better Auth user id (JWT `sub`), or a `service:*` machine principal. */
+  /**
+   * The principal: a Better Auth user id (JWT `sub`), a `local:<email>` roster
+   * user (see `POST /auth/login`), or a `service:*` machine caller.
+   */
   id: string;
   email?: string;
   name?: string;
@@ -59,6 +63,18 @@ export interface AuthEnv {
    * removing. `/health/integrations` reports whether it is configured.
    */
   ALLOWED_EMAILS?: string;
+  /**
+   * The fixed pre-alpha roster: `email:password[:Name]`, comma-separated.
+   * Parsed by `@engine/auth`'s `parseLocalRoster`. Unset means credential
+   * sign-in is off and `POST /auth/login` answers 503.
+   */
+  LOCAL_AUTH_USERS?: string;
+  /**
+   * HMAC key for the session tokens `POST /auth/login` mints. Must not be
+   * shared with `OAUTH_STATE_SECRET`; the token's `typ` claim makes a mix-up
+   * safe anyway, but two jobs deserve two keys.
+   */
+  LOCAL_AUTH_SECRET?: string;
 }
 
 /**
@@ -166,11 +182,6 @@ export async function requireAuth(
     );
   }
 
-  const jwksUrl = c.env.AUTH_JWKS_URL;
-  if (!jwksUrl) {
-    return c.json({ error: 'auth is not configured (AUTH_JWKS_URL)' }, 503);
-  }
-
   const token = bearerToken(c.req.header('authorization'));
   if (!token) {
     return c.json({ error: 'missing bearer token' }, 401);
@@ -188,6 +199,38 @@ export async function requireAuth(
   if (verifyServiceToken(token, c.env.INTERNAL_API_TOKEN)) {
     c.set('user', { id: 'service:internal', isService: true });
     return next();
+  }
+
+  // Credential sign-in for the fixed roster (`POST /auth/login`). Tried before
+  // the JWT path and skipped entirely when unconfigured, so a deployment that
+  // uses only Neon Auth behaves exactly as it did.
+  //
+  // A Neon Auth JWT has three dot-separated segments and this token has two,
+  // so a token of the wrong kind falls through as 'malformed' rather than
+  // being rejected outright — the two schemes coexist on one header.
+  if (c.env.LOCAL_AUTH_SECRET) {
+    const session = await verifyLocalSession(token, c.env.LOCAL_AUTH_SECRET);
+    if (session.ok) {
+      // Deliberately not run through `isInvited`. The roster is already an
+      // explicit, closed list of exactly who may sign in — and a stricter one,
+      // since it also demands a password. Composing a second list here adds no
+      // gate, only a way to lock the three users out by editing an unrelated var.
+      c.set('user', { id: session.user.id, email: session.user.email, name: session.user.name });
+      return next();
+    }
+    // An expired session is the one failure the client can fix on its own, and
+    // only by signing in again — say so rather than letting it fall through to
+    // the JWT path and come back as an opaque 'invalid token'.
+    if (session.reason === 'expired') {
+      return c.json({ error: 'session expired', code: 'expired' }, 401);
+    }
+  }
+
+  const jwksUrl = c.env.AUTH_JWKS_URL;
+  if (!jwksUrl) {
+    // Reached only when the token is not a service token and not a valid local
+    // session, so there is genuinely no way left to verify it.
+    return c.json({ error: 'auth is not configured (AUTH_JWKS_URL)' }, 503);
   }
 
   try {

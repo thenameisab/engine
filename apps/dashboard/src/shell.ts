@@ -75,7 +75,10 @@ function railFoot(): HTMLElement {
     class: 'signout',
     title: 'Sign out',
     onclick: () => {
-      void signOutRemote();
+      // Only a Google session has anything to sign out of remotely; a password
+      // session's token is ours and is dropped by `signOut`. Calling Neon Auth
+      // for it would be a request that can only fail.
+      if (user?.provider === 'google') void signOutRemote();
       signOut();
     },
     html: icon(ICONS.signout),

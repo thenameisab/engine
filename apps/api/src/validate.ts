@@ -427,6 +427,21 @@ export function checkCreateCheckoutBody(body: unknown): Invalid | null {
   );
 }
 
+// ── Credential sign-in (POST /auth/login) ───────────────────────────────────
+
+/**
+ * The only validator whose failure message is a design decision as much as a
+ * correctness one. It names a *missing or mistyped* field, which is a caller
+ * bug, but it must never reveal anything about the roster — so `email` being a
+ * string is checked here and whether that string is a real user is not.
+ */
+export function checkLoginBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(checkString(b.email, 'email'), checkString(b.password, 'password'));
+}
+
 // ── M2.5 agency white-label (POST /accounts, POST /accounts/:id/projects,
 // PATCH /accounts/:id/branding) ─────────────────────────────────────────────
 

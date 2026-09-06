@@ -1,12 +1,16 @@
 /**
- * Client-side session for the auth gate: a signed-in user as a small JSON blob
- * in localStorage.
+ * Client-side session for the auth gate.
  *
- * This is presentation state only — it decides whether the shell or the sign-in
- * screen renders, and nothing more. Every request to the API carries a
- * separately-fetched Neon Auth JWT which the API verifies against the published
- * JWKS, so forging this blob gains a would-be attacker an empty shell and
- * nothing else.
+ * Two kinds of session land here:
+ *
+ *  - **Google (Neon Auth).** The real session is a cookie on Neon Auth's
+ *    origin; this blob is presentation state only, deciding whether the shell
+ *    or the sign-in screen renders. Forging it gains a would-be attacker an
+ *    empty shell, because every API request carries a separately-fetched JWT
+ *    the API verifies against the published JWKS.
+ *  - **Password (the fixed pre-alpha roster).** Here the API itself mints an
+ *    HMAC-signed session token at `POST /auth/login`, and that token is stored
+ *    alongside the user — see `TOKEN_KEY` for why it is persisted.
  *
  * There is deliberately no 'dev' provider. One used to exist as a fallback for
  * when Neon Auth was unreachable, which meant a broken auth service silently
@@ -15,22 +19,35 @@
 export interface SessionUser {
   name: string;
   email: string;
-  provider: 'google' | 'email';
+  provider: 'google' | 'password';
 }
 
 const KEY = 'engine.session';
+
+/**
+ * The API session token for a password sign-in.
+ *
+ * Persisted, unlike the Google path's bearer token, which is held only in
+ * memory because it can be re-minted at any time from a cookie the browser
+ * keeps. There is no cookie behind a credential sign-in: not persisting this
+ * would sign the user out on every reload, and re-prompting for a password on
+ * every refresh trains people to type it into anything that asks. The token
+ * expires on its own after eight hours, and `signOut` removes it.
+ */
+const TOKEN_KEY = 'engine.apiToken';
+
 export const AUTH_EVENT = 'engine:auth-changed';
 
-function safeGet(): string | null {
+function safeGet(key: string): string | null {
   try {
-    return localStorage.getItem(KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
 export function getUser(): SessionUser | null {
-  const raw = safeGet();
+  const raw = safeGet(KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as SessionUser;
@@ -43,9 +60,15 @@ export function isAuthenticated(): boolean {
   return getUser() !== null;
 }
 
-export function setSession(user: SessionUser): void {
+/** The stored API token for a password session, or null (Google sessions mint theirs per request). */
+export function getStoredApiToken(): string | null {
+  return safeGet(TOKEN_KEY);
+}
+
+export function setSession(user: SessionUser, apiToken?: string): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(user));
+    if (apiToken) localStorage.setItem(TOKEN_KEY, apiToken);
   } catch {
     /* storage unavailable (sandboxed preview) — session lasts the page life via the event only */
   }
@@ -55,6 +78,7 @@ export function setSession(user: SessionUser): void {
 export function signOut(): void {
   try {
     localStorage.removeItem(KEY);
+    localStorage.removeItem(TOKEN_KEY);
   } catch {
     /* ignore */
   }
