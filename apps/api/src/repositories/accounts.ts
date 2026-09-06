@@ -53,18 +53,28 @@ export async function upsertUser(
   `;
 }
 
-/** Create an account and make the caller its owner, in one call. */
+/**
+ * Create an account and make the caller its owner, in one call.
+ *
+ * One transaction, because the two rows are one fact. `listAccountsForUser`
+ * reaches accounts only by joining `account_members`, so an account whose
+ * member insert failed is invisible to every user — including the person who
+ * just created it, who sees an error and tries again. Nothing lists it, nothing
+ * cleans it up, and no later query notices: the row is simply orphaned.
+ */
 export async function createAccount(db: Db, name: string, ownerUserId: string): Promise<Account> {
-  const [row] = await db<AccountRow[]>`
-    insert into accounts (name)
-    values (${name})
-    returning id, name, branding, created_at
-  `;
-  await db`
-    insert into account_members (account_id, user_id, role)
-    values (${row.id}, ${ownerUserId}, 'owner')
-  `;
-  return toAccount(row);
+  return db.begin(async (tx) => {
+    const [row] = await tx<AccountRow[]>`
+      insert into accounts (name)
+      values (${name})
+      returning id, name, branding, created_at
+    `;
+    await tx`
+      insert into account_members (account_id, user_id, role)
+      values (${row.id}, ${ownerUserId}, 'owner')
+    `;
+    return toAccount(row);
+  }) as Promise<Account>;
 }
 
 export async function isAccountMember(db: Db, accountId: string, userId: string): Promise<boolean> {
