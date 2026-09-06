@@ -76,6 +76,47 @@ describe('customer OAuth credentials', () => {
   });
 });
 
+describe('account membership', () => {
+  /**
+   * An account is reachable only by joining `account_members`
+   * (`listAccountsForUser`), so an account with no member row is invisible to
+   * every user and never cleaned up.
+   *
+   * That invariant cannot be written as DDL: a check constraint cannot see
+   * another table, and a FK from `accounts` to `account_members` would be
+   * circular — the account row must exist before its membership can reference
+   * it. So it is held by `createAccount` writing both rows in one transaction
+   * (apps/api/src/repositories/accounts.ts), and what the schema can guarantee
+   * is only the shape below. These assertions keep that shape honest, and this
+   * comment records where the real guard lives.
+   */
+  it('makes account_members the single, cascading path from a user to an account', async () => {
+    const files = await readMigrationFiles(MIGRATIONS_DIR);
+    const combined = withoutComments(files.map((f) => f.sql).join('\n'));
+
+    const members = tableBody(combined, 'account_members');
+    expect(members).not.toBeNull();
+    // Cascade both ways, so deleting an account or a user cannot leave a
+    // membership row pointing at nothing.
+    expect(members).toMatch(/account_id\s+uuid\s+not\s+null\s+references\s+accounts\(id\)\s+on\s+delete\s+cascade/i);
+    expect(members).toMatch(/user_id\s+text\s+not\s+null\s+references\s+users\(id\)\s+on\s+delete\s+cascade/i);
+    // Composite primary key: one row per (account, user), so a repeated grant
+    // is a conflict rather than a duplicate membership.
+    expect(members).toMatch(/primary\s+key\s*\(account_id,\s*user_id\)/i);
+  });
+
+  it('keeps no second, unjoined owner path on accounts', async () => {
+    // An `owner_user_id` column on `accounts` would be a second way to say who
+    // owns an account — and the two would drift, with membership checks and the
+    // account list disagreeing about who can see what.
+    const files = await readMigrationFiles(MIGRATIONS_DIR);
+    const combined = withoutComments(files.map((f) => f.sql).join('\n'));
+
+    expect(tableBody(combined, 'accounts')).not.toMatch(/owner|user_id/i);
+    expect(combined).not.toMatch(/alter\s+table\s+accounts\s+add\s+column\s+(owner|user_id)/i);
+  });
+});
+
 describe('migration set', () => {
   it('has no duplicate version numbers', async () => {
     // A collision is easy to create when two branches are in flight, and the
