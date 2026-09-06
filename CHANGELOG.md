@@ -83,6 +83,16 @@ versions.
   read from computed styles. No horizontal overflow at 375px. 749 tests across
   20 packages, build clean.
 
+### Fixed (follow-up in the same PR)
+- **A first-time visitor to the deployed app could not sign in at all.** Sign-in
+  now goes through the API, and the API URL lived only in Settings — which is
+  behind the sign-in screen. The error even said "set it in Settings", advice
+  you cannot follow. The Google flow never hit this because it talked to Neon
+  Auth at a hardcoded default. `getApiBaseUrl()` now falls back to a
+  `window.ENGINE_API_BASE` baked into the deployed page, and when nothing has
+  supplied one the sign-in card asks for the URL itself, once, then hides the
+  field. Reproduced in the browser from a cleared localStorage before fixing.
+
 ### Known gaps
 - Enter-to-submit is wired through a real `<form>` and verified via the form's
   own submit event; it could not be verified through a synthetic keypress
