@@ -1,6 +1,7 @@
 import { el } from '../dom.js';
 import { ICONS } from '../icons.js';
 import { signInWithPassword } from './passwordAuth.js';
+import { getApiBaseUrl, setApiBaseUrl } from '../api.js';
 
 /**
  * The sign-in screen: email, password, one button.
@@ -55,6 +56,27 @@ export function mountAuthScreen(root: HTMLElement): void {
 
   const submit = el('button', { class: 'auth-btn', type: 'submit' }, ['Sign in']);
 
+  /**
+   * The API URL, shown only when nothing has supplied one.
+   *
+   * Sign-in goes through the API now, so a build with no `ENGINE_API_BASE`
+   * baked in and no saved value is unreachable: the field that configures it
+   * lives in Settings, and Settings is behind this screen. Rather than dead-end
+   * with "set it in Settings" — advice you cannot follow — the card asks for it
+   * here, once. It disappears the moment a value exists, so the normal case
+   * stays two fields.
+   */
+  const needsApiUrl = !getApiBaseUrl();
+  const apiUrl = el('input', {
+    class: 'auth-field',
+    type: 'url',
+    id: 'auth-api',
+    inputmode: 'url',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    placeholder: 'https://engine-api.<you>.workers.dev',
+  }) as HTMLInputElement;
+
   // A <form>, not a bare button: it is what makes Enter submit from either
   // field, and what lets a password manager recognise the pair and offer to
   // fill it. Both are free, and both are missed by a div-and-click-handler.
@@ -65,6 +87,17 @@ export function mountAuthScreen(root: HTMLElement): void {
       e.preventDefault();
       clearError();
       const address = email.value.trim();
+      if (needsApiUrl) {
+        const base = apiUrl.value.trim();
+        if (!base) {
+          showError('Enter the API URL for this deployment.');
+          apiUrl.focus();
+          return;
+        }
+        // Saved before the request, so a wrong password does not also cost the
+        // user the URL they just typed.
+        setApiBaseUrl(base);
+      }
       if (!address || !password.value) {
         showError('Enter your email and password.');
         (address ? password : email).focus();
@@ -83,6 +116,9 @@ export function mountAuthScreen(root: HTMLElement): void {
         });
     },
   }, [
+    ...(needsApiUrl
+      ? [el('label', { class: 'auth-label', for: 'auth-api' }, ['API URL']), apiUrl]
+      : []),
     el('label', { class: 'auth-label', for: 'auth-email' }, ['Email']),
     email,
     el('label', { class: 'auth-label', for: 'auth-password' }, ['Password']),
@@ -103,5 +139,5 @@ export function mountAuthScreen(root: HTMLElement): void {
   ]);
 
   root.append(el('div', { class: 'auth-screen' }, [el('div', { class: 'auth-center' }, [card])]));
-  email.focus();
+  (needsApiUrl ? apiUrl : email).focus();
 }

@@ -47,8 +47,32 @@ const BASE_KEY = 'engine.apiBaseUrl';
 const PROJECT_KEY = 'engine.projectId';
 const ACCOUNT_KEY = 'engine.accountId';
 
+declare global {
+  interface Window {
+    /** Baked-in API origin for a deployed build. See `getApiBaseUrl`. */
+    ENGINE_API_BASE?: string;
+  }
+}
+
+/**
+ * Where the dashboard talks to apps/api.
+ *
+ * Three sources, most specific first: what this browser saved in Settings, a
+ * `window.ENGINE_API_BASE` baked into the page at deploy time, then nothing.
+ *
+ * The global matters more than it looks. Sign-in itself now goes through the
+ * API (`POST /auth/login`), so "the API URL lives in Settings" made the
+ * deployed app impossible to enter: Settings is behind the sign-in screen, and
+ * the sign-in screen could not reach the API. The Google flow never hit this,
+ * because it talked to Neon Auth at a hardcoded default instead. Set the global
+ * on a deployed build and nobody has to configure anything; leave it unset and
+ * the sign-in card offers the field itself.
+ */
 export function getApiBaseUrl(): string {
-  return localStorage.getItem(BASE_KEY) ?? '';
+  const saved = localStorage.getItem(BASE_KEY);
+  if (saved) return saved;
+  const baked = typeof window !== 'undefined' ? window.ENGINE_API_BASE : undefined;
+  return baked ? baked.trim().replace(/\/$/, '') : '';
 }
 export function setApiBaseUrl(url: string): void {
   localStorage.setItem(BASE_KEY, url.trim().replace(/\/$/, ''));
