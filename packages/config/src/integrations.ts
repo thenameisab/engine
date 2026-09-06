@@ -122,6 +122,35 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'JWT verification is fully unit-tested against real generated Ed25519 keys (crypto only, no live account needed). Deployed dashboard origins must be added to Neon Auth trusted origins for the OAuth callback to be accepted.',
   },
   {
+    id: 'local-auth',
+    name: 'Credential sign-in (fixed pre-alpha roster)',
+    category: 'identity',
+    purpose:
+      'Signs the three pre-alpha users in with an email and password, minting a session token the API verifies itself. Exists because Neon Auth cannot complete a Google sign-in from the deployed dashboard origin.',
+    account: 'None — no third party. Both values are chosen by whoever operates the deployment.',
+    requiredForMvp: false,
+    env: [
+      {
+        name: 'LOCAL_AUTH_USERS',
+        description:
+          'The roster: `email:password[:Display Name]`, comma-separated. A password cannot contain a comma or a colon. This is a secret — it holds live passwords.',
+        secret: true,
+        required: true,
+        example: 'first@example.com:a-long-password:First Person,second@example.com:another-password',
+      },
+      {
+        name: 'LOCAL_AUTH_SECRET',
+        description:
+          'HMAC key for the session tokens `POST /auth/login` mints. Rotating it signs everyone out. Use a different value from OAUTH_STATE_SECRET.',
+        secret: true,
+        required: true,
+        example: 'a-long-random-string',
+      },
+    ],
+    notes:
+      'A deliberate stopgap, not the identity story: no signup, no password reset, no recovery. Delete both values to turn credential sign-in off — the API then answers 503 on /auth/login and falls back to Neon Auth JWTs alone.',
+  },
+  {
     id: 'google-integrations',
     name: 'Google integrations (Search Console, GA4, Business Profile)',
     category: 'identity',

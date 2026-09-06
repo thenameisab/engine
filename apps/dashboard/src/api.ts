@@ -41,6 +41,7 @@ import type {
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
+import { getStoredApiToken } from './auth/session.js';
 
 const BASE_KEY = 'engine.apiBaseUrl';
 const PROJECT_KEY = 'engine.projectId';
@@ -88,10 +89,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!base) throw new Error('no API base URL configured');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  // The API verifies this against Neon Auth's JWKS. Null when there's no real
-  // remote session (dev-session fallback): the request then 401s and the
-  // caller falls back to sample data, rather than the API quietly being open.
-  const token = await getApiToken();
+  // Two token sources, checked in that order. A password sign-in stores a
+  // token the API minted and verifies itself; a Google sign-in has none stored
+  // and mints one per request from the Neon Auth cookie. Null when neither
+  // applies: the request then 401s, rather than the API quietly being open.
+  const token = getStoredApiToken() ?? (await getApiToken());
   try {
     const res = await fetch(`${base}${path}`, {
       ...init,

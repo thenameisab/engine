@@ -10,6 +10,88 @@ versions.
 
 ---
 
+## 2026-09-06 — Three users can actually sign in (`packages/auth`, `POST /auth/login`)
+
+### Added
+- **Credential sign-in for the fixed pre-alpha roster.** `packages/auth/src/localAuth.ts`
+  plus `POST /auth/login` on apps/api: an email and password against a closed
+  roster, exchanged for an HMAC-SHA-256 session token (8h) that `requireAuth`
+  verifies itself. Third trust source alongside Neon Auth JWTs and the machine
+  service token.
+- It exists because Google sign-in **cannot complete from the deployed origin**:
+  `https://engine-7vv.pages.dev` is not on Neon Auth's trusted-origins list, so
+  `POST /sign-in/social` answers `403 INVALID_CALLBACKURL` for everyone. That is
+  a console setting outside this repository; three people needed in meanwhile.
+- Roster lives in `LOCAL_AUTH_USERS` (`email:password[:Name]`, comma-separated),
+  signed with `LOCAL_AUTH_SECRET`. "Hardcoded" means *fixed* — no signup, no
+  reset, no recovery, and no code path that grows the set — not *committed*: a
+  password in git is a password in every clone and every CI log.
+- New `local-auth` entry in the `@engine/config` registry, so
+  `/health/integrations` reports whether it is wired, and `.dev.vars.example`
+  regenerated.
+
+### Changed
+- **The sign-in screen is now email + password, and nothing on it moves.**
+  Deleted `auth/background.ts` — a requestAnimationFrame canvas that ran for as
+  long as the first screen of the product was up — along with the card's entry
+  animation, the field's shake-on-error and every transition in the block. The
+  neon look is all static paint: layered radial gradients and box-shadows,
+  one composite and then nothing.
+- Google button removed from the card. The flow in `neonAuth.ts` is intact;
+  restoring the button is adding the origin in the Neon Auth console and
+  reverting one hunk.
+- `app.ts` no longer calls `fetchRemoteSession()` on boot. Nothing can start an
+  OAuth redirect now, so the call could only ever come back empty.
+- Sign-out only calls Neon Auth for a Google session; a password session's token
+  is ours and is dropped locally.
+- `requireAuth` no longer requires `AUTH_JWKS_URL` before it will look at a
+  token — a deployment can now be gated by credential sign-in alone.
+
+### Fixed
+- **The `users` row is written at sign-in**, not lazily on the first
+  authenticated request. `account_members.user_id` FKs to it, so without this
+  the very first thing a new user does — create a client — fails on a foreign
+  key against a principal that has never been written. This is the same failure
+  the 2026-08-25 triage traced to "no real identity has ever reached this
+  database".
+
+### Security
+- Every login rejection is **byte-identical**, asserted by a test that compares
+  the two responses: an unknown address and a wrong password must not be
+  distinguishable, or the form enumerates three people's email addresses.
+  Credential comparison is timing-safe, with a dummy of the same shape for
+  unknown addresses.
+- Session tokens carry a `typ` claim and it is checked. This token and a signed
+  OAuth state share a wire format, and a consent flow hands the state to the
+  browser with an influenceable `userId`; without the check, a deployment that
+  reused one secret for both could have a state replayed as a session. Covered
+  by a test at both the unit and route level.
+- `ALLOWED_EMAILS` deliberately does not apply to roster users — the roster is
+  already an explicit closed list, and a stricter one.
+
+### Verified
+- Against **live Neon via `wrangler dev`**, not only vitest: wrong password and
+  unknown address return identical 401s; a real login returns a token; the token
+  opens `/accounts`; a tampered token does not; `POST /accounts` creates a real
+  client and `users` gains its first non-`dev` row. Test rows deleted, 0 orphans.
+- In the browser: sign-in replaces the auth screen with the shell **with no
+  reload** (`.auth-screen` 0, `.app` 1); four sign-in/sign-out cycles leave
+  exactly one `.app`, one `.copilot-overlay` and one `.toast-host`; a client
+  created through the Clients grid reaches the database; a failed sign-in writes
+  no session and renders the error on the card.
+- Zero animated or transitioning elements on the auth screen and zero canvases,
+  read from computed styles. No horizontal overflow at 375px. 749 tests across
+  20 packages, build clean.
+
+### Known gaps
+- Enter-to-submit is wired through a real `<form>` and verified via the form's
+  own submit event; it could not be verified through a synthetic keypress
+  because the automation harness sends a keydown with an empty `key`.
+- `createAccount` still does two inserts with no transaction — a failure between
+  them leaves an account with no members. Pre-existing, unrelated to this change.
+
+---
+
 ## 2026-07-22 — Local visibility, end to end: audit it, then fix it (`packages/local`, `packages/deploy`)
 
 The first pillar to ship its diagnosis and its executor on the same day — a local

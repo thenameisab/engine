@@ -20,6 +20,7 @@ import {
   type StripeWebhookEvent,
 } from '@engine/billing';
 import { evaluateReadiness } from '@engine/config';
+import { verifyLocalCredentials, signLocalSession, localRosterSize } from '@engine/auth';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
@@ -34,6 +35,7 @@ import {
   checkCreateProjectBody,
   checkBrandingBody,
   checkDeployTargetBody,
+  checkLoginBody,
 } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { integrationsRoutes } from './routes/integrations.js';
@@ -187,6 +189,59 @@ app.use('/projects/*', requireAuth);
 app.use('/accounts/*', requireAuth);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
+
+/**
+ * Credential sign-in for the fixed pre-alpha roster.
+ *
+ * Public by necessity — it is how a caller *becomes* authenticated — and the
+ * only unauthenticated route that can mint a principal. It exists because Neon
+ * Auth's Google flow cannot sign anyone in to the deployed dashboard today
+ * (the Pages origin is not on Neon Auth's trusted-origins list), and the
+ * product has three users who need in. See `packages/auth/src/localAuth.ts`.
+ *
+ * Returns 503 when unconfigured rather than 401: "credential sign-in is not
+ * enabled on this deployment" and "your password is wrong" are different
+ * facts, and the sign-in screen says different things about them.
+ *
+ * Every rejection returns the same message and the same status. Distinguishing
+ * "no such user" from "wrong password" turns a login form into a roster
+ * oracle, and the roster is three people's email addresses.
+ */
+app.post('/auth/login', async (c) => {
+  const secret = c.env.LOCAL_AUTH_SECRET;
+  const rosterRaw = c.env.LOCAL_AUTH_USERS;
+  if (!secret || localRosterSize(rosterRaw) === 0) {
+    return c.json(
+      { error: 'Credential sign-in is not configured on this deployment (LOCAL_AUTH_USERS / LOCAL_AUTH_SECRET).' },
+      503,
+    );
+  }
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkLoginBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { email: string; password: string };
+
+  const user = verifyLocalCredentials(body.email, body.password, rosterRaw);
+  if (!user) return c.json({ error: 'Those credentials are not valid.' }, 401);
+
+  const token = await signLocalSession(user, secret);
+
+  // Create the `users` row now, at sign-in, rather than leaving it to the
+  // first authenticated request. `account_members.user_id` FKs to it, so
+  // without this the very first thing a new user does — create a client —
+  // fails on a foreign key against a principal that has never been written.
+  try {
+    await upsertUser(createDb(c.env.DATABASE_URL), user);
+  } catch (err) {
+    // The credential is valid; the database is a separate concern. Signing in
+    // still succeeds, and `upsertUser` runs again on the first API call.
+    console.error('sign-in succeeded but upsertUser failed', err);
+  }
+
+  return c.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+});
 
 /**
  * Read a JSON body without trusting it.
