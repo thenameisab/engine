@@ -175,6 +175,41 @@ wrangler secret put LOCAL_AUTH_SECRET  # openssl rand -base64 32
 Leave both unset to turn credential sign-in off: `/auth/login` then answers 503
 and the gate falls back to Neon Auth JWTs alone.
 
+### Editing the roster
+
+`LOCAL_AUTH_USERS` **is** the user list — there is no table, no admin screen and
+no invite flow. To add, remove, rename or re-password someone, rewrite the whole
+value:
+
+```bash
+# local (apps/api/.dev.vars, gitignored) — edit the line, restart wrangler dev
+LOCAL_AUTH_USERS=one@x.com:pw1:One Person,two@x.com:pw2:Two,three@x.com:pw3:Three
+
+# deployed — the prompt takes the full comma-separated value, then redeploy
+wrangler secret put LOCAL_AUTH_USERS
+```
+
+Three consequences worth knowing before you edit it:
+
+- **Changing a password does not sign that person out.** Their session token is
+  already minted and stays valid for up to 8h. To cut everyone off immediately,
+  rotate `LOCAL_AUTH_SECRET` — that invalidates every outstanding token.
+- **Changing someone's *address* creates a new user.** The principal is
+  `local:<email>`, so the new address starts with no account memberships and the
+  old `users` row stays behind. Renaming a person is a display-name edit (the
+  third field); changing who they are is not.
+- **A malformed entry is dropped, not fatal.** A missing password or a stray
+  colon silently removes that one person rather than breaking the API, so check
+  `/health/integrations` — it reports how many credentials parsed — after an edit.
+
+### The dashboard has to know where the API is
+
+Sign-in now goes *through* the API, so the dashboard needs its origin before
+anyone can log in. Set `window.ENGINE_API_BASE` on the deployed page and nobody
+has to configure anything. Left unset, the sign-in card asks for the API URL
+once and remembers it — without that, the field lives in Settings, which is
+behind the sign-in screen nobody can get past.
+
 ### Notes worth keeping
 
 - **Principals are namespaced `local:<email>`**, disjoint from Neon Auth `sub`
