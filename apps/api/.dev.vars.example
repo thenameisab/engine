@@ -26,6 +26,15 @@ AUTH_MODE=disabled
 # Comma-separated invite list. Unset means any Google account that clears the consent screen may sign in and create its own account — set this to enforce the "invite-only, pre-alpha" the sign-in screen claims. [config, optional]
 ALLOWED_EMAILS=first@example.com,second@example.com
 
+# ── Credential sign-in (fixed pre-alpha roster) (identity) ──
+# Signs the three pre-alpha users in with an email and password, minting a session token the API verifies itself. Exists because Neon Auth cannot complete a Google sign-in from the deployed dashboard origin.
+# Account: None — no third party. Both values are chosen by whoever operates the deployment.
+# (optional for pre-alpha)
+# The roster: `email:password[:Display Name]`, comma-separated. A password cannot contain a comma or a colon. This is a secret — it holds live passwords. [secret, required]
+LOCAL_AUTH_USERS=first@example.com:a-long-password:First Person,second@example.com:another-password
+# HMAC key for the session tokens `POST /auth/login` mints. Rotating it signs everyone out. Use a different value from OAUTH_STATE_SECRET. [secret, required]
+LOCAL_AUTH_SECRET=a-long-random-string
+
 # ── Google integrations (Search Console, GA4, Business Profile) (identity) ──
 # Customers connect their own Google accounts in the product: GSC search performance, GA4 traffic, and GBP location reads plus C5 write-back.
 # Account: One Google Cloud project with an OAuth 2.0 Web client. Enable: Search Console API; Analytics Data API AND Analytics Admin API; My Business Account Management, Business Information and Google My Business (v4) APIs.
