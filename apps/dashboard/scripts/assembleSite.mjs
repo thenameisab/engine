@@ -41,7 +41,45 @@ const app = join(site, 'app');
 mkdirSync(app, { recursive: true });
 cpSync(join(root, 'dist'), join(app, 'dist'), { recursive: true, dereference: true });
 cpSync(join(root, 'styles.css'), join(app, 'styles.css'), { dereference: true });
-writeFileSync(join(app, 'index.html'), readFileSync(join(root, 'index.html'), 'utf8'));
+writeFileSync(join(app, 'index.html'), appHtml());
+
+/**
+ * The product's index.html, with the API origin written into it.
+ *
+ * The dashboard and apps/api are two deployments on two origins, and since
+ * sign-in goes through the API (`POST /auth/login`) the page cannot do anything
+ * at all — not even show a signed-in user — until it knows that origin. Asking
+ * the person signing in is the wrong place to solve it: they are three
+ * teammates, not operators, and the answer is the same for all of them and
+ * fixed at deploy time. So the build answers it.
+ *
+ * Unset is legitimate — a local build reaches `wrangler dev` on
+ * localhost:8787 without any of this (see `getApiBaseUrl` in src/api.ts) — so
+ * this warns rather than failing. It warns loudly, because an unset value on a
+ * *deployed* build is a site nobody can sign in to, and the build log is the
+ * only place that fact appears.
+ */
+function appHtml() {
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  const base = (process.env.ENGINE_API_BASE ?? '').trim().replace(/\/$/, '');
+  if (!base) {
+    console.warn(
+      'assembleSite: ENGINE_API_BASE is not set. Fine for a local build (the app falls back to\n' +
+        '              http://localhost:8787), but a DEPLOYED build without it cannot reach the API,\n' +
+        '              and sign-in goes through the API — so nobody will be able to log in.',
+    );
+    return html;
+  }
+  // JSON.stringify, not quotes: it escapes anything that would otherwise break
+  // out of the string literal or close the script tag early.
+  const tag = `  <script>window.ENGINE_API_BASE=${JSON.stringify(base).replace(/</g, '\\u003c')};</script>\n`;
+  if (!html.includes('<body>')) {
+    console.error('assembleSite: index.html has no <body> to inject ENGINE_API_BASE before.');
+    process.exit(1);
+  }
+  console.log(`assembleSite: ENGINE_API_BASE = ${base}`);
+  return html.replace('<body>', `<body>\n${tag}`);
+}
 
 /* ——— Landing page at /, public docs at /docs —————————————————————
    build-docs.mjs regenerates apps/web/docs from apps/web/content and its own

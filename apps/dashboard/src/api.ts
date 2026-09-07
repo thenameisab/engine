@@ -49,31 +49,60 @@ const ACCOUNT_KEY = 'engine.accountId';
 
 declare global {
   interface Window {
-    /** Baked-in API origin for a deployed build. See `getApiBaseUrl`. */
+    /** API origin, written into the page by `scripts/assembleSite.mjs`. */
     ENGINE_API_BASE?: string;
   }
 }
 
 /**
- * Where the dashboard talks to apps/api.
+ * The API origin for a page served from a loopback host.
  *
- * Three sources, most specific first: what this browser saved in Settings, a
- * `window.ENGINE_API_BASE` baked into the page at deploy time, then nothing.
+ * `wrangler dev` serves apps/api here (see `.claude/launch.json`), and the
+ * dashboard is served from a different port, so the two are always
+ * cross-origin locally. Hardcoding the pair is what makes `pnpm build` and
+ * `wrangler dev` work together with no configuration at all.
+ */
+const LOCAL_API_BASE = 'http://localhost:8787';
+
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost')
+  );
+}
+
+/**
+ * Where the dashboard talks to apps/api. Resolved, never asked for.
  *
- * The global matters more than it looks. Sign-in itself now goes through the
- * API (`POST /auth/login`), so "the API URL lives in Settings" made the
- * deployed app impossible to enter: Settings is behind the sign-in screen, and
- * the sign-in screen could not reach the API. The Google flow never hit this,
- * because it talked to Neon Auth at a hardcoded default instead. Set the global
- * on a deployed build and nobody has to configure anything; leave it unset and
- * the sign-in card offers the field itself.
+ * Three sources, most specific first:
+ *
+ *  1. **Settings**, for the one person who needs to point a local page at a
+ *     deployed API or vice versa. An escape hatch, not the normal path.
+ *  2. **`window.ENGINE_API_BASE`**, written into `index.html` at build time by
+ *     `scripts/assembleSite.mjs` from the `ENGINE_API_BASE` environment
+ *     variable. This is how a deployed build knows.
+ *  3. **`http://localhost:8787`** when the page itself is on a loopback host,
+ *     because that is where `wrangler dev` always serves the API.
+ *
+ * This used to be Settings alone, which was fine while sign-in went straight to
+ * Neon Auth. It stopped being fine when sign-in started going through the API:
+ * Settings is behind the sign-in screen, so a fresh browser could not reach the
+ * one field it needed. The interim fix put the field on the sign-in card, which
+ * worked but asked every user to know a deployment detail. Knowing the API
+ * origin is the build's job, so the build does it.
  */
 export function getApiBaseUrl(): string {
   const saved = localStorage.getItem(BASE_KEY);
   if (saved) return saved;
   const baked = typeof window !== 'undefined' ? window.ENGINE_API_BASE : undefined;
-  return baked ? baked.trim().replace(/\/$/, '') : '';
+  if (baked) return baked.trim().replace(/\/$/, '');
+  if (typeof location !== 'undefined' && isLoopbackHost(location.hostname)) return LOCAL_API_BASE;
+  return '';
 }
+
 export function setApiBaseUrl(url: string): void {
   localStorage.setItem(BASE_KEY, url.trim().replace(/\/$/, ''));
 }

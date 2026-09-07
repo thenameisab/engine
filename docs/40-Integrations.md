@@ -202,13 +202,39 @@ Three consequences worth knowing before you edit it:
   colon silently removes that one person rather than breaking the API, so check
   `/health/integrations` — it reports how many credentials parsed — after an edit.
 
-### The dashboard has to know where the API is
+### The dashboard has to know where the API is — `ENGINE_API_BASE`
 
-Sign-in now goes *through* the API, so the dashboard needs its origin before
-anyone can log in. Set `window.ENGINE_API_BASE` on the deployed page and nobody
-has to configure anything. Left unset, the sign-in card asks for the API URL
-once and remembers it — without that, the field lives in Settings, which is
-behind the sign-in screen nobody can get past.
+Sign-in goes *through* the API, so the page needs the API's origin before anyone
+can log in. The dashboard and apps/api are two deployments on two origins, so
+there is nothing to infer from the page's own URL.
+
+**This is a build input, not a user input.** `scripts/assembleSite.mjs` reads
+`ENGINE_API_BASE` from the environment and writes it into `app/index.html`:
+
+```bash
+ENGINE_API_BASE=https://engine-api.<you>.workers.dev pnpm --filter @engine/dashboard build
+```
+
+`getApiBaseUrl()` resolves it from three places, most specific first:
+
+| Source | For |
+|---|---|
+| `localStorage['engine.apiBaseUrl']` (Settings) | The escape hatch — pointing a local page at a deployed API, or vice versa. |
+| `window.ENGINE_API_BASE` | Deployed builds. Written in by the build above. |
+| `http://localhost:8787` when the page is on a loopback host | Local development. `wrangler dev` always serves apps/api there, so `pnpm build` + `wrangler dev` needs no configuration at all. |
+
+A build with `ENGINE_API_BASE` unset **warns loudly and still succeeds**, because
+that is exactly right for a local build. On a *deployed* build it means a site
+nobody can sign in to, and the build log is the only place that appears — so
+check for the warning in CI output before shipping.
+
+Two earlier attempts, recorded because the reasoning matters. The URL originally
+lived only in Settings, which broke the moment sign-in started going through the
+API: Settings is behind the sign-in screen, so a fresh browser could not reach
+the one field it needed. Putting the field on the sign-in card fixed the
+deadlock but asked three teammates to know a deployment detail that is the same
+for all of them and fixed at deploy time. Knowing the API origin is the build's
+job.
 
 ### Notes worth keeping
 

@@ -10,6 +10,44 @@ versions.
 
 ---
 
+## 2026-09-07 — The sign-in screen is email and password, full stop (`ENGINE_API_BASE`)
+
+### Changed
+- **Removed the API URL field from the sign-in card.** It was added a day
+  earlier to break a real deadlock — sign-in goes through the API, and the API
+  URL lived only in Settings, which is behind the sign-in screen — but it solved
+  it in the wrong place. The value is the same for every user and fixed at
+  deploy time; asking three teammates to know a deployment detail is not a
+  login form. The card is email, password, one button.
+- **The build supplies it instead.** `scripts/assembleSite.mjs` reads
+  `ENGINE_API_BASE` from the environment and writes
+  `window.ENGINE_API_BASE` into `app/index.html`. Escaped via `JSON.stringify`
+  plus `<` → `\u003c`, so a value cannot close the script tag early.
+- **`getApiBaseUrl()` now resolves from three sources**, most specific first:
+  Settings (the escape hatch), the baked-in global (deployed builds), then
+  `http://localhost:8787` when the page is itself on a loopback host — which is
+  where `wrangler dev` always serves apps/api. Local development needs no
+  configuration at all now.
+- A build with `ENGINE_API_BASE` unset warns loudly and still succeeds: correct
+  for a local build, and on a deployed one the build log is the only place that
+  fact can surface. The sign-in error for that case names the cause
+  (`ENGINE_API_BASE`) rather than sending the reader to a Settings field they
+  cannot reach.
+
+### Verified
+- From a cleared `localStorage` on a build with **nothing configured**: the card
+  renders exactly two fields (`auth-email`, `auth-password`), and signing in
+  reaches the shell with no value ever written to `engine.apiBaseUrl` — the
+  loopback fallback did it.
+- Precedence checked in the live page: loopback default →
+  `http://localhost:8787`; a baked global overrides it; a Settings value
+  overrides that; removing both returns to the default.
+- Injection checked both ways: unset prints the warning and emits no script tag;
+  set emits `window.ENGINE_API_BASE="…"` with the trailing slash stripped.
+- 20 packages green, build clean.
+
+---
+
 ## 2026-09-06 — Three users can actually sign in (`packages/auth`, `POST /auth/login`)
 
 ### Added
