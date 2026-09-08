@@ -20,10 +20,12 @@ import {
   fetchPlatformClient,
   savePlatformClient,
   clearPlatformClient,
+  fetchPlatformUsers,
+  setUserRole,
 } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
-import type { PlatformClientView } from '../types.js';
+import type { PlatformClientView, PlatformUser } from '../types.js';
 
 /** Copy-to-clipboard for the one value a vendor compares byte for byte. */
 function copyableUri(uri: string, ctx: AppContext): HTMLElement {
@@ -172,6 +174,100 @@ function clientForm(view: PlatformClientView, ctx: AppContext, reload: () => voi
   ]);
 }
 
+
+/* ── Users ───────────────────────────────────────────────────────────────── */
+
+/**
+ * Who can sign in, and which of them work on Engine.
+ *
+ * Two roles, and the split is narrower than it sounds. A **user** is a
+ * customer: their own accounts and projects, nothing else. An **admin** works
+ * on Engine and additionally sees this screen, the OAuth client above, and the
+ * platform readiness report.
+ *
+ * What an admin deliberately does *not* get is other customers' data. Every
+ * project screen still goes through account membership, for admins and users
+ * alike. Support access is a separate decision that needs a recorded reason
+ * per access, not a role flag.
+ */
+function userRow(u: PlatformUser, selfIsOnly: boolean, ctx: AppContext, reload: () => void): HTMLElement {
+  const isAdmin = u.platformRole === 'admin';
+  const toggle = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      const next = isAdmin ? 'user' : 'admin';
+      if (
+        next === 'admin' &&
+        !window.confirm(`Make ${u.email ?? u.id} a platform admin? They will be able to replace Engine’s OAuth client and create further admins.`)
+      ) {
+        return;
+      }
+      try {
+        await setUserRole(u.id, next);
+        ctx.toast(`${u.email ?? u.id} is now a platform ${next}.`);
+        reload();
+      } catch (err) {
+        ctx.toast(readableError(err));
+      }
+    },
+  }, [isAdmin ? 'Make user' : 'Make admin']);
+
+  return el('div', { class: 'intg-assign' }, [
+    el('div', { class: 'intg-assign-main' }, [
+      el('div', { class: 'intg-assign-label' }, [u.email ?? u.id]),
+      el('div', { class: 'num' }, [
+        u.name ? `${u.name} · ` : '',
+        isAdmin ? 'admin' : 'user',
+        u.hasCredential ? '' : ' · no password set',
+      ]),
+    ]),
+    // The last admin cannot be demoted and neither can you demote yourself;
+    // the API refuses both. Hiding the control on the only-admin row saves a
+    // click that can only fail.
+    isAdmin && selfIsOnly ? el('span', { class: 'num' }, ['only admin']) : toggle,
+  ]);
+}
+
+async function usersPanel(ctx: AppContext): Promise<HTMLElement> {
+  const host = el('div', {}, []);
+  const render = async () => {
+    host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
+    let data: { users: PlatformUser[]; adminCount: number };
+    try {
+      data = await fetchPlatformUsers();
+    } catch (err) {
+      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
+      return;
+    }
+    host.replaceChildren(
+      el('section', { class: 'panel' }, [
+        el('header', {}, [
+          el('h3', {}, ['Users']),
+          infoCard('What the two roles mean', {
+            title: 'Admin and user',
+            body: [
+              'A user is a customer: their own accounts and projects, nothing else.',
+              'An admin also sees this screen, Engine’s OAuth client, and the platform readiness report.',
+              'An admin does not get access to other customers’ data. Every project screen still checks account membership.',
+            ],
+          }),
+          el('span', { class: 'more' }, [`${data.adminCount} admin${data.adminCount === 1 ? '' : 's'}`]),
+        ]),
+        el('div', { class: 'intg-body' }, [
+          el('div', { class: 'intg-assigns' }, data.users.map((u) =>
+            userRow(u, data.adminCount <= 1, ctx, () => void render()),
+          )),
+          el('div', { class: 'fhint num' }, [
+            'New sign-in accounts are created with `pnpm db:user --email <address> --role admin|user`.',
+          ]),
+        ]),
+      ]),
+    );
+  };
+  await render();
+  return host;
+}
+
 /**
  * The Platform section, or nothing.
  *
@@ -226,6 +322,7 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
             : null,
         ].filter(Boolean) as HTMLElement[]),
       ]),
+      await usersPanel(ctx),
     );
   };
 

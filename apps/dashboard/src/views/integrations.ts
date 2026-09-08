@@ -1,7 +1,7 @@
 import { el } from '../dom.js';
 import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
-import { fetchIntegrations } from '../api.js';
+import { fetchIntegrations, fetchPlatformAccess } from '../api.js';
 import { googleIntegrationsSection } from './googleIntegrations.js';
 import { platformSection } from './platform.js';
 import type { AppContext } from '../context.js';
@@ -92,6 +92,29 @@ export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
     // the customer's own connections because that is what almost every visit
     // is for; an administrator sets the client once and never returns.
     await platformSection(ctx),
+    ...(await platformWiring()),
+  ]);
+}
+
+/**
+ * The deployment's own vendor keys — admin-only.
+ *
+ * `/health/integrations` names environment variables and says which are
+ * missing. That is operator information, and the API now answers 404 to a
+ * customer. Rendering the panel anyway would replace it with "Could not read
+ * integration readiness", which is a worse thing to show than nothing: it
+ * reports a failure at something the customer never asked for.
+ */
+async function platformWiring(): Promise<HTMLElement[]> {
+  let isAdmin = false;
+  try {
+    isAdmin = (await fetchPlatformAccess()).isAdmin;
+  } catch {
+    return [];
+  }
+  if (!isAdmin) return [];
+
+  return [
     el('div', { class: 'settings-sec' }, ['Platform wiring']),
     el('section', { class: 'panel' }, [
       el('header', {}, [
@@ -107,5 +130,5 @@ export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
       ]),
       el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),
-  ]);
+  ];
 }
