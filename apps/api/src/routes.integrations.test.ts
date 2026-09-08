@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { signOAuthState } from '@engine/auth';
 import { app } from './index.js';
 import { isInvited, parseAllowedEmails } from './middleware/auth.js';
-import { isPlatformAdmin } from './repositories/platformCredentials.js';
+import { isBootstrapAdmin } from './repositories/platformCredentials.js';
 
 /**
  * The integration routes' contract at the boundary, driven through the real
@@ -290,14 +290,26 @@ describe('AUTH_MODE=disabled', () => {
     return app.request(new Request(url), {}, e);
   }
 
+  /**
+   * "The auth layer let this through", not "the endpoint returned data".
+   *
+   * `/health/integrations` is admin-gated now, so a bypassed-auth request from
+   * loopback reaches the admin check and gets 404. 401 and 503 are the two
+   * statuses the auth layer itself produces, so their absence is exactly the
+   * claim these tests make — and it stays true if the endpoint's own rules
+   * change again.
+   */
+  function expectAuthBypassed(res: Response): void {
+    expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(503);
+  }
+
   it('is honoured for a loopback request, so local dev still works', async () => {
-    const res = await get('http://localhost:8787/health/integrations', disabled);
-    expect(res.status).toBe(200);
+    expectAuthBypassed(await get('http://localhost:8787/health/integrations', disabled));
   });
 
   it('is honoured on 127.0.0.1 too', async () => {
-    const res = await get('http://127.0.0.1:8787/health/integrations', disabled);
-    expect(res.status).toBe(200);
+    expectAuthBypassed(await get('http://127.0.0.1:8787/health/integrations', disabled));
   });
 
   it('is refused on a deployed hostname rather than opening the API', async () => {
@@ -546,6 +558,10 @@ describe('platform administration', () => {
   it('answers 404 rather than 403 to a non-admin', async () => {
     // A 403 confirms the screen exists and that this deployment has
     // administrators, to someone who by definition is not one.
+    //
+    // The gate reads users.platform_role, and the database is unreachable in
+    // this harness — which is itself the property under test further down:
+    // a failed role read denies rather than falling back to the env list.
     for (const [path, init] of [
       ['/platform/oauth-clients/google', {}],
       ['/platform/oauth-clients/google', { method: 'DELETE' }],
@@ -567,27 +583,69 @@ describe('platform administration', () => {
   });
 });
 
-describe('isPlatformAdmin', () => {
+describe('isBootstrapAdmin', () => {
+  /**
+   * Only the bootstrap path is unit-testable without a database: the real check
+   * reads `users.platform_role` and falls back to this list only for a user
+   * with no row yet. What is asserted here is the fallback's own behaviour.
+   */
   it('matches case-insensitively and ignores surrounding space', () => {
     const env = { PLATFORM_ADMIN_EMAILS: ' Ops@Engine.test , boss@engine.test ' };
-    expect(isPlatformAdmin('ops@engine.test', env)).toBe(true);
-    expect(isPlatformAdmin('  BOSS@ENGINE.TEST ', env)).toBe(true);
+    expect(isBootstrapAdmin('ops@engine.test', env)).toBe(true);
+    expect(isBootstrapAdmin('  BOSS@ENGINE.TEST ', env)).toBe(true);
   });
 
   it('refuses everyone when the list is unset or empty', () => {
     // The dangerous default would be "unset means open".
-    expect(isPlatformAdmin('ops@engine.test', {})).toBe(false);
-    expect(isPlatformAdmin('ops@engine.test', { PLATFORM_ADMIN_EMAILS: '' })).toBe(false);
-    expect(isPlatformAdmin('ops@engine.test', { PLATFORM_ADMIN_EMAILS: '  ,  ' })).toBe(false);
+    expect(isBootstrapAdmin('ops@engine.test', {})).toBe(false);
+    expect(isBootstrapAdmin('ops@engine.test', { PLATFORM_ADMIN_EMAILS: '' })).toBe(false);
+    expect(isBootstrapAdmin('ops@engine.test', { PLATFORM_ADMIN_EMAILS: '  ,  ' })).toBe(false);
   });
 
   it('refuses a caller with no email at all', () => {
-    expect(isPlatformAdmin(undefined, { PLATFORM_ADMIN_EMAILS: 'ops@engine.test' })).toBe(false);
+    expect(isBootstrapAdmin(undefined, { PLATFORM_ADMIN_EMAILS: 'ops@engine.test' })).toBe(false);
   });
 
   it('does not match a substring or a lookalike domain', () => {
     const env = { PLATFORM_ADMIN_EMAILS: 'ops@engine.test' };
-    expect(isPlatformAdmin('ops@engine.test.evil.com', env)).toBe(false);
-    expect(isPlatformAdmin('notops@engine.test', env)).toBe(false);
+    expect(isBootstrapAdmin('ops@engine.test.evil.com', env)).toBe(false);
+    expect(isBootstrapAdmin('notops@engine.test', env)).toBe(false);
+  });
+});
+
+describe('the platform admin gate under failure', () => {
+  const ADMIN_ENV = { ...CLIENT_ENV, PLATFORM_ADMIN_EMAILS: 'ops@engine.test' } as const;
+
+  it('denies when the role cannot be read, rather than falling back to the env list', async () => {
+    // DATABASE_URL points nowhere here. The tempting fallback — "cannot read
+    // the role, so trust PLATFORM_ADMIN_EMAILS" — would let an admin who was
+    // demoted in the product back in whenever the database hiccupped.
+    const res = await request('/platform/users', {}, ADMIN_ENV);
+    expect(res.status).toBe(404);
+  });
+
+  it('reports isAdmin false rather than erroring when the role cannot be read', async () => {
+    // This drives whether the nav entry renders. A 500 here would put a red
+    // banner on every screen for a failure a customer cannot act on.
+    const res = await request('/platform/access', {}, ADMIN_ENV);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { isAdmin: boolean }).isAdmin).toBe(false);
+  });
+
+  it('hides the platform readiness report from a non-admin', async () => {
+    // It names environment variables and says which are missing. That is
+    // operator information; a customer gains nothing they can act on.
+    const res = await request('/health/integrations', {}, ADMIN_ENV);
+    expect(res.status).toBe(404);
+  });
+
+  it('refuses a role change with an invalid role', async () => {
+    const res = await request(
+      '/platform/users/some-user/role',
+      { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{"role":"superuser"}' },
+      ADMIN_ENV,
+    );
+    // 404 from the admin gate, which runs first — the body is never reached.
+    expect(res.status).toBe(404);
   });
 });
