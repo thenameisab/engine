@@ -1,5 +1,6 @@
 import { el } from '../dom.js';
 import { logoTile } from '../logo.js';
+import { infoCard } from '../hovercard.js';
 import { fetchIntegrations } from '../api.js';
 import { googleIntegrationsSection } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
@@ -82,17 +83,22 @@ export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Integrations']),
-      el('p', {}, ['Connect your Google accounts and choose which property or location each project reads.']),
+      // No subtitle. It said "connect your accounts and choose which property
+      // each project reads", which is what the cards below already show.
     ]),
     await googleIntegrationsSection(ctx),
     el('div', { class: 'settings-sec' }, ['Platform wiring']),
     el('section', { class: 'panel' }, [
       el('header', {}, [
         el('h3', {}, ['External integrations']),
+        infoCard('What platform wiring means', {
+          title: 'Our keys, not yours',
+          body: [
+            'Whether this deployment has its own vendor keys wired — SERP, LLM, billing.',
+            'Separate from the connections above, which belong to your account and only you can revoke.',
+          ],
+        }),
         el('span', { class: 'more' }, ['from /health/integrations']),
-      ]),
-      el('div', { class: 'fhint num intg-wrap' }, [
-        'Whether this deployment has its own vendor keys wired \u2014 SERP, LLM, billing. Separate from the Google connections above, which are yours.',
       ]),
       el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),

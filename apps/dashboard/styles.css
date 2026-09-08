@@ -244,6 +244,18 @@ a { color: inherit; text-decoration: none; }
 .intg-assign-label { font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
 .intg-assign .num { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
 .intg-assign .btn { flex: none; }
+/* Short chips carrying a fact plus a hover card, in place of the paragraph
+   each of them used to be. */
+.intg-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.intg-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px;
+  border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 11.5px; font-weight: 550; color: var(--text-muted); }
+.intg-badge.warn { color: var(--watch); border-color: color-mix(in srgb, var(--watch) 34%, var(--border));
+  background: color-mix(in srgb, var(--watch) 8%, var(--surface-2)); }
+/* One line, read at a glance; the reason is behind the trigger beside it. */
+.intg-alert { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 550;
+  color: var(--watch); }
+
 /* API-key connect form. Sits inside the card body, so it inherits the panel's
    padding and reads as part of the provider rather than a separate dialog. */
 .intg-apikey { display: flex; flex-direction: column; gap: 10px; padding: 12px;
@@ -251,11 +263,6 @@ a { color: inherit; text-decoration: none; }
 .intg-apikey .form-row { display: flex; flex-direction: column; gap: 4px; }
 .intg-apikey .label { display: flex; align-items: center; gap: 6px; }
 .intg-apikey input.field { width: 100%; }
-/* Vendor-side setup the customer must do first. Compact, because it is
-   reference text people read once and then stop seeing. */
-.intg-setup { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-muted); }
-.intg-setup li { margin: 2px 0; }
-
 .intg-picker:empty { display: none; }
 .intg-picker .form { padding: 0; }
 .intg-body .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -272,6 +279,14 @@ a { color: inherit; text-decoration: none; }
 .btn { padding: 8px 16px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s var(--ease); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { background: var(--accent-hover); }
+/* A disabled button must look disabled.
+   Without this rule a disabled .btn renders in full primary blue with
+   cursor:pointer, so it invites a click the browser then silently swallows —
+   the "dead click" that made the Integrations screen look broken rather than
+   unconfigured. .card-act and .auth-btn already had this; .btn did not. */
+.btn[disabled], .btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary[disabled]:hover, .btn.primary:disabled:hover { background: var(--accent); }
+.btn[disabled]:hover, .btn:disabled:hover { background: var(--surface); }
 
 /* SERP Inspector */
 .serp-form { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -548,3 +563,28 @@ select.field { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ── Hover cards ─────────────────────────────────────────────────────────
+   Explanation on demand, so a screen can keep the two or three things a
+   person needs to act and move the rest behind an affordance. See
+   src/hovercard.ts for the interaction rules. */
+.hovercard-trigger { width: 15px; height: 15px; flex: none; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-faint);
+  font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 1; cursor: help;
+  display: inline-grid; place-items: center; vertical-align: middle;
+  transition: color .12s var(--ease), border-color .12s var(--ease); }
+.hovercard-trigger:hover, .hovercard-trigger:focus-visible { color: var(--text); border-color: var(--text-faint); }
+.has-hovercard { cursor: help; }
+
+/* Fixed, not absolute: the trigger sits inside panels with their own overflow,
+   and an absolutely positioned card is clipped by the first scrolling ancestor. */
+.hovercard { position: fixed; z-index: 60; max-width: 22rem; padding: 12px 14px;
+  border-radius: var(--r); background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop); font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+.hovercard-title { font-size: 12.5px; font-weight: 650; color: var(--text); margin-bottom: 5px; }
+.hovercard p { margin: 0 0 6px; }
+.hovercard p:last-child, .hovercard ul:last-child { margin-bottom: 0; }
+.hovercard ul { margin: 0 0 6px; padding-left: 16px; }
+.hovercard li { margin: 2px 0; }
+.hovercard a { color: var(--accent); font-weight: 550; }
+.hovercard a:hover { text-decoration: underline; }

@@ -1,5 +1,6 @@
 import { el } from '../dom.js';
 import { logoTile } from '../logo.js';
+import { infoCard, type HoverCardContent } from '../hovercard.js';
 import {
   getAccountId,
   fetchProviderCatalog,
@@ -36,6 +37,12 @@ import type {
  * status vocabulary and the resource picker — only the connect control differs,
  * which is the whole point of the registry carrying `authKind`.
  *
+ * Copy rule, applied here first: a sentence stays on the card only if it is
+ * needed to make the next decision. Everything else — why a button is
+ * disabled, what a vendor gates behind an access request, which APIs to enable
+ * — moved into hover cards. Four stacked paragraphs per provider buried the
+ * two things a person came to do under text they had already read.
+ *
  * Three states per provider, and they are genuinely distinct:
  *   - the deployment has no OAuth client, so nothing can be connected;
  *   - no account is connected yet;
@@ -50,13 +57,33 @@ const STATUS_LABEL: Record<IntegrationConnection['status'], string> = {
   revoked: 'Disconnected',
 };
 
-/** A short, plain description of what is wrong, or null when nothing is. */
-function healthProblem(connection: IntegrationConnection): string | null {
+/**
+ * What is wrong, as a short line plus the explanation behind it.
+ *
+ * Split because the two have different jobs: the line has to be readable at a
+ * glance from across the card, and the explanation only matters once someone
+ * has decided to care about it.
+ */
+function healthProblem(
+  connection: IntegrationConnection,
+): { line: string; detail: string[] } | null {
   if (connection.status === 'needs_reauth') {
-    return 'The provider revoked this grant. Reconnect to resume syncing.';
+    return {
+      line: 'Reconnect needed',
+      detail: [
+        'The provider rejected the stored credential. That usually means access was revoked from the provider’s own account settings, or the password on that account changed.',
+        'Syncing has stopped and will not resume until this is reconnected.',
+      ],
+    };
   }
   if (connection.status === 'connected' && !connection.scopesSufficient) {
-    return 'Connected without the permission this needs — reconnect and accept all requested access.';
+    return {
+      line: 'Missing a permission',
+      detail: [
+        'This connected successfully but without one of the permissions it needs — a box was left unticked on the consent screen.',
+        'Reconnect and accept everything requested. Reads will keep failing until you do.',
+      ],
+    };
   }
   return null;
 }
@@ -167,6 +194,17 @@ function connectedAsLabel(connection: IntegrationConnection | undefined): string
   if (named) return named;
   const publicValues = Object.values(connection.publicFields ?? {});
   return publicValues[0] ?? null;
+}
+
+/**
+ * A short chip with its explanation one hover away.
+ *
+ * The alternative — which this replaces — was a paragraph per fact stacked
+ * down the card. Two or three words carry the same signal at a glance, and the
+ * sentence is still there for anyone who wants it.
+ */
+function badge(text: string, tone: 'warn' | '', label: string, content: HoverCardContent): HTMLElement {
+  return el('span', { class: `intg-badge ${tone}`.trim() }, [text, infoCard(label, content)]);
 }
 
 /**
@@ -390,7 +428,10 @@ function providerCard(input: ProviderCardInput): HTMLElement {
           ? [
               el('label', { class: 'flabel' }, ['Location entity']),
               entityInput,
-              el('div', { class: 'fhint num' }, ['A location is an entity in Engine. Paste the entity id this listing maps to.']),
+              infoCard('What an entity id is', {
+                title: 'A location is an entity in Engine',
+                body: ['Paste the id of the entity this listing maps to. Entities are managed on the Entities screen.'],
+              }),
             ]
           : []),
         el('div', { class: 'form-actions' }, [assign]),
@@ -441,6 +482,67 @@ function providerCard(input: ProviderCardInput): HTMLElement {
     ]),
   );
 
+  /**
+   * Facts about this provider that are worth flagging but not worth a
+   * paragraph. Each is a short chip; the sentence that used to sit on the card
+   * is now the chip's hover card.
+   */
+  const badges: HTMLElement[] = [];
+
+  if (!oauthConfigured && !isApiKey) {
+    // Only an OAuth provider is blocked by a missing OAuth client. Showing this
+    // on an API-key card would send a customer to an administrator over
+    // something with no bearing on what they are doing.
+    badges.push(
+      badge('Not configured', 'warn', `Why ${entry.name} cannot be connected`, {
+        title: 'This deployment has no OAuth client',
+        body: ['Connecting is disabled until an administrator configures one. Nothing you do on this screen will change that.'],
+        list: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
+      }),
+    );
+  }
+  if (entry.availability === 'planned') {
+    badges.push(
+      badge('Coming soon', '', `About ${entry.name} support`, {
+        body: ['This provider is on the roadmap and cannot be connected yet.'],
+      }),
+    );
+  }
+  if (entry.requiresAccessRequest) {
+    // Stated up front rather than discovered as a 403 weeks later.
+    badges.push(
+      badge('Needs vendor approval', 'warn', `${entry.name} access request`, {
+        title: 'Zero quota until approved',
+        body: [
+          'The provider gates this API behind an access request, not just an enable toggle, and approval takes weeks.',
+          'Connecting will succeed before that. Reads will not.',
+        ],
+      }),
+    );
+  }
+  if (entry.writes) {
+    badges.push(
+      badge('Grants write access', '', `What ${entry.name} can change`, {
+        title: 'This connection can write',
+        body: [
+          'The provider offers no read-only equivalent, so connecting grants write access.',
+          'Nothing is written until you approve a fix in the Fix Queue.',
+        ],
+      }),
+    );
+  }
+  const setup = entry.setupSteps ?? entry.requiredApis ?? [];
+  if (setup.length > 0) {
+    badges.push(
+      badge('Setup required', '', `${entry.name} setup steps`, {
+        title: 'Do these at the provider first',
+        body: ['Each one otherwise arrives as a 403 that does not explain itself.'],
+        list: setup,
+        link: entry.docsUrl ? { href: entry.docsUrl, label: 'Provider documentation' } : undefined,
+      }),
+    );
+  }
+
   return el('section', { class: `panel intg-provider ${state}` }, [
     el('header', {}, [
       logoTile(entry.logoDomain, entry.name),
@@ -458,41 +560,18 @@ function providerCard(input: ProviderCardInput): HTMLElement {
           ])
         : null,
 
-      problem ? el('div', { class: 'fq-note warn' }, [problem]) : null,
-
-      // Only an OAuth provider is blocked by a missing OAuth client. Showing
-      // this on an API-key card would tell a customer to go and ask an
-      // administrator for something that has no bearing on what they are doing.
-      !oauthConfigured && !isApiKey
-        ? el('div', { class: 'fq-note' }, [
-            'This deployment has no Google OAuth client configured, so nothing can be connected yet. An administrator needs to set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.',
+      // One line, not a paragraph. The reason sits behind the affordance.
+      problem
+        ? el('div', { class: 'intg-alert' }, [
+            problem.line,
+            infoCard(`Why ${entry.name} needs attention`, { title: problem.line, body: problem.detail }),
           ])
         : null,
 
-      entry.availability === 'planned'
-        ? el('div', { class: 'fq-note' }, ['Coming soon. This provider cannot be connected yet.'])
-        : null,
-
-      // Stated up front rather than discovered as a 403 later.
-      entry.requiresAccessRequest
-        ? el('div', { class: 'fq-note' }, [
-            'The provider grants this API zero quota until it approves an access request, which takes weeks. Connecting will succeed before that; reads will not.',
-          ])
-        : null,
-
-      entry.writes
-        ? el('div', { class: 'fhint num' }, [
-            'Connecting grants write access — the provider offers no read-only equivalent. Nothing is written until you approve a fix in the Fix Queue.',
-          ])
-        : null,
-
-      // Setup the customer must do at the vendor first. Each one otherwise
-      // arrives as a 403 that does not explain itself.
-      (entry.setupSteps ?? entry.requiredApis ?? []).length > 0
-        ? el('ul', { class: 'intg-setup' }, (entry.setupSteps ?? entry.requiredApis).map((step) =>
-            el('li', {}, [step]),
-          ))
-        : null,
+      // The badges replace four stacked notes. Each is two or three words with
+      // its explanation one hover away, so the card stays scannable and none of
+      // the detail is lost.
+      badges.length > 0 ? el('div', { class: 'intg-badges' }, badges) : null,
 
       assignmentRows.length > 0
         ? el('div', { class: 'intg-assigns' }, assignmentRows)
