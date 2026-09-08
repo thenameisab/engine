@@ -1,6 +1,7 @@
 import { el } from '../dom.js';
 import { logoTile } from '../logo.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
+import { readableError } from '../errors.js';
 import {
   getAccountId,
   fetchProviderCatalog,
@@ -86,32 +87,6 @@ function healthProblem(
     };
   }
   return null;
-}
-
-/**
- * A message worth showing a person.
- *
- * `request` throws `"<status> <raw body>"`, so an unhandled error renders the
- * API's JSON straight into the page — which is both ugly and leaks internals.
- * This pulls out the `error` field the API always sends, and names the two
- * statuses that mean something specific here rather than repeating a number.
- */
-function readableError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const match = /^(\d{3})\s+([\s\S]*)$/.exec(raw);
-  if (!match) return raw;
-  const [, status, body] = match;
-  let detail = body.trim();
-  try {
-    const parsed = JSON.parse(detail) as { error?: string };
-    if (parsed.error) detail = parsed.error;
-  } catch {
-    /* not JSON — show the body as-is */
-  }
-  if (status === '403') return `${detail}. Pick the right client from the Clients grid.`;
-  if (status === '404') return `${detail}.`;
-  if (status === '503') return detail;
-  return detail || `Request failed (${status}).`;
 }
 
 function relativeTime(iso: string | undefined): string {

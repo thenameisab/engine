@@ -1,0 +1,313 @@
+/**
+ * Engine's own OAuth client credentials (migration 0019), and who may change
+ * them.
+ *
+ * The distinction this file exists to hold:
+ *
+ *   A **customer credential** is the customer's grant. They create it, assign
+ *   it, revoke it, and nobody else can. That is `integrations.ts`.
+ *
+ *   A **platform credential** is Engine's identity to a vendor. One per vendor
+ *   for the whole deployment. Every customer consents to this same OAuth app,
+ *   exactly as they would with Zapier or HubSpot.
+ *
+ * Getting these the wrong way round is what made the Integrations screen
+ * unusable: it asked a *customer* to supply something only an *operator* can
+ * have, through a channel (`wrangler secret put`) no customer will ever have.
+ */
+import {
+  sealCredential,
+  openCredential,
+  type Keyring,
+} from '@engine/integrations';
+import type { Db } from '../db.js';
+
+/** Vendors that can have a platform OAuth client. */
+export type PlatformVendor = 'google';
+
+const VENDORS: readonly string[] = ['google'];
+
+export function isPlatformVendor(value: string): value is PlatformVendor {
+  return VENDORS.includes(value);
+}
+
+/**
+ * A platform credential as the admin screen may see it.
+ *
+ * Deliberately has no secret field. The screen shows *which* client is
+ * configured and lets it be replaced; it can never read the secret back, so a
+ * compromised admin session cannot exfiltrate one that was set earlier.
+ */
+export interface PlatformClientStatus {
+  vendor: PlatformVendor;
+  clientId: string;
+  redirectUri: string;
+  configured: boolean;
+  configuredBy?: string;
+  configuredAt: string;
+  updatedAt: string;
+}
+
+interface PlatformRow {
+  vendor: PlatformVendor;
+  client_id: string;
+  client_secret_sealed: string;
+  key_version: string;
+  redirect_uri: string;
+  state_secret_sealed: string | null;
+  configured_by: string | null;
+  configured_at: Date;
+  updated_at: Date;
+}
+
+function toStatus(row: PlatformRow): PlatformClientStatus {
+  return {
+    vendor: row.vendor,
+    clientId: row.client_id,
+    redirectUri: row.redirect_uri,
+    configured: true,
+    configuredBy: row.configured_by ?? undefined,
+    configuredAt: row.configured_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+/** Seal a platform secret bound to its vendor, so a row cannot be moved. */
+function aadVendor(vendor: string): string {
+  return `platform:${vendor}`;
+}
+
+/**
+ * Who may configure Engine's own credentials.
+ *
+ * `PLATFORM_ADMIN_EMAILS` rather than the existing `ALLOWED_EMAILS` invite
+ * list, and the difference matters: the invite list is who may *use* Engine,
+ * and reusing it would make every customer a platform admin the moment one is
+ * invited. Unset means nobody, not everybody — an unconfigured deployment
+ * refuses rather than opening the screen to the first person who finds it.
+ */
+export function isPlatformAdmin(email: string | undefined, env: { PLATFORM_ADMIN_EMAILS?: string }): boolean {
+  if (!email) return false;
+  const list = (env.PLATFORM_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (list.length === 0) return false;
+  return list.includes(email.trim().toLowerCase());
+}
+
+export async function getPlatformClientStatus(
+  db: Db,
+  vendor: PlatformVendor,
+): Promise<PlatformClientStatus | null> {
+  const rows = await db<PlatformRow[]>`select * from platform_credentials where vendor = ${vendor}`;
+  return rows[0] ? toStatus(rows[0]) : null;
+}
+
+export interface SetPlatformClientInput {
+  vendor: PlatformVendor;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  actorUserId: string;
+}
+
+export async function setPlatformClient(
+  db: Db,
+  keyring: Keyring,
+  input: SetPlatformClientInput,
+): Promise<PlatformClientStatus> {
+  const sealed = await sealCredential(keyring, aadVendor(input.vendor), input.vendor, {
+    kind: 'oauth2',
+    refreshToken: input.clientSecret,
+  });
+
+  const existing = await getPlatformClientStatus(db, input.vendor);
+
+  const [row] = await db<PlatformRow[]>`
+    insert into platform_credentials (
+      vendor, client_id, client_secret_sealed, key_version, redirect_uri, configured_by
+    )
+    values (
+      ${input.vendor}, ${input.clientId}, ${sealed.sealed}, ${sealed.keyVersion},
+      ${input.redirectUri}, ${input.actorUserId}
+    )
+    on conflict (vendor) do update set
+      client_id = excluded.client_id,
+      client_secret_sealed = excluded.client_secret_sealed,
+      key_version = excluded.key_version,
+      redirect_uri = excluded.redirect_uri,
+      configured_by = excluded.configured_by,
+      updated_at = now()
+    returning *
+  `;
+
+  await recordPlatformEvent(db, {
+    vendor: input.vendor,
+    type: existing ? 'rotated' : 'configured',
+    actorUserId: input.actorUserId,
+    // Client id only. It is public, and it is the one value that makes the
+    // trail useful — "which app was this pointing at in March".
+    detail: `client_id=${input.clientId}`,
+  });
+  return toStatus(row);
+}
+
+/**
+ * Remove Engine's client for a vendor.
+ *
+ * Customers' stored grants are left alone. They become unusable, because a
+ * refresh needs the client that issued them, and they become usable again the
+ * moment the same client is restored — which is the right behaviour for an
+ * operator who cleared it by mistake.
+ */
+export async function clearPlatformClient(
+  db: Db,
+  vendor: PlatformVendor,
+  actorUserId: string,
+): Promise<boolean> {
+  const rows = await db`delete from platform_credentials where vendor = ${vendor} returning vendor`;
+  if (rows.length === 0) return false;
+  await recordPlatformEvent(db, { vendor, type: 'cleared', actorUserId });
+  return true;
+}
+
+/**
+ * The OAuth client for a vendor, opened for use.
+ *
+ * The one function that returns the secret, and the only caller is the request
+ * path that must present it to the vendor's token endpoint.
+ */
+export interface ResolvedPlatformClient {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}
+
+export async function resolvePlatformClient(
+  db: Db,
+  keyring: Keyring,
+  vendor: PlatformVendor,
+): Promise<ResolvedPlatformClient | null> {
+  const rows = await db<PlatformRow[]>`select * from platform_credentials where vendor = ${vendor}`;
+  const row = rows[0];
+  if (!row) return null;
+  const opened = await openCredential(keyring, aadVendor(vendor), vendor, {
+    kind: 'oauth2',
+    sealed: row.client_secret_sealed,
+    keyVersion: row.key_version,
+    public: {},
+  });
+  /* c8 ignore next -- sealed as 'oauth2' above, so this is always the branch. */
+  if (opened.credential.kind !== 'oauth2') return null;
+  return {
+    clientId: row.client_id,
+    clientSecret: opened.credential.refreshToken,
+    redirectUri: row.redirect_uri,
+  };
+}
+
+/**
+ * The secret that signs OAuth `state`, generated on first use.
+ *
+ * Previously `OAUTH_STATE_SECRET`, set by hand. There is no reason a human
+ * should choose it: it is machine-generated randomness with no meaning outside
+ * this deployment, and asking someone to invent one invites a weak value.
+ *
+ * Generated lazily and stored sealed, so the first consent flow after
+ * configuring a client creates it and every later flow reuses it. Rotating it
+ * only invalidates consent links that are already in flight, which expire in
+ * ten minutes anyway.
+ */
+export async function ensureStateSecret(
+  db: Db,
+  keyring: Keyring,
+  vendor: PlatformVendor,
+): Promise<string | null> {
+  const rows = await db<PlatformRow[]>`select * from platform_credentials where vendor = ${vendor}`;
+  const row = rows[0];
+  if (!row) return null;
+
+  if (row.state_secret_sealed) {
+    const opened = await openCredential(keyring, aadVendor(`${vendor}:state`), vendor, {
+      kind: 'oauth2',
+      sealed: row.state_secret_sealed,
+      keyVersion: row.key_version,
+      public: {},
+    });
+    /* c8 ignore next */
+    if (opened.credential.kind === 'oauth2') return opened.credential.refreshToken;
+  }
+
+  const generated = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const sealed = await sealCredential(keyring, aadVendor(`${vendor}:state`), vendor, {
+    kind: 'oauth2',
+    refreshToken: generated,
+  });
+  // `where state_secret_sealed is null` so two concurrent first flows cannot
+  // each generate one and have the loser's signed states fail to verify.
+  const updated = await db<{ state_secret_sealed: string }[]>`
+    update platform_credentials
+    set state_secret_sealed = ${sealed.sealed}, updated_at = now()
+    where vendor = ${vendor} and state_secret_sealed is null
+    returning state_secret_sealed
+  `;
+  if (updated.length > 0) return generated;
+
+  // Someone else won the race; use theirs.
+  return ensureStateSecret(db, keyring, vendor);
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/* ── Audit ───────────────────────────────────────────────────────────────── */
+
+export interface PlatformEventInput {
+  vendor: string;
+  type: 'configured' | 'rotated' | 'cleared';
+  actorUserId: string;
+  detail?: string;
+}
+
+export async function recordPlatformEvent(db: Db, input: PlatformEventInput): Promise<void> {
+  try {
+    await db`
+      insert into platform_credential_events (vendor, event_type, actor, detail)
+      values (${input.vendor}, ${input.type}, ${`user:${input.actorUserId}`}, ${input.detail ?? null})
+    `;
+  } catch {
+    // Same trade as the per-account trail: losing an event must not fail the
+    // operation that produced it.
+  }
+}
+
+export interface PlatformEventRow {
+  id: string;
+  vendor: string;
+  type: string;
+  actor: string;
+  detail?: string;
+  occurredAt: string;
+}
+
+export async function listPlatformEvents(db: Db, limit = 50): Promise<PlatformEventRow[]> {
+  const rows = await db<
+    { id: string; vendor: string; event_type: string; actor: string; detail: string | null; occurred_at: Date }[]
+  >`
+    select * from platform_credential_events
+    order by occurred_at desc
+    limit ${Math.min(Math.max(limit, 1), 200)}
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    vendor: r.vendor,
+    type: r.event_type,
+    actor: r.actor,
+    detail: r.detail ?? undefined,
+    occurredAt: r.occurred_at.toISOString(),
+  }));
+}

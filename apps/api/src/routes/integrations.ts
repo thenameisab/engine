@@ -34,6 +34,7 @@ import {
   isIntegrationError,
   type IntegrationProvider,
   type ApiKeyCredential,
+  type Keyring,
 } from '@engine/integrations';
 import { GoogleApiError } from '@engine/connectors';
 // Importing for the side effect: this registers the Google listers against the
@@ -47,6 +48,15 @@ import { getAccountRole, upsertUser, getProjectAccountId, isAccountMember } from
 import { markGscConnected } from '../repositories/onboarding.js';
 import { syncGsc, syncGa4, syncGbp } from '../repositories/googleSync.js';
 import { startFlow, claimFlow, keyringFrom } from '../repositories/oauthFlows.js';
+import {
+  isPlatformAdmin,
+  isPlatformVendor,
+  getPlatformClientStatus,
+  setPlatformClient,
+  clearPlatformClient,
+  listPlatformEvents,
+  ensureStateSecret,
+} from '../repositories/platformCredentials.js';
 import {
   listConnections,
   getConnection,
@@ -74,8 +84,19 @@ export interface IntegrationsEnv extends AuthEnv {
   ENCRYPTION_KEY?: string;
   /** Keyring form: `version:key` pairs, newest first. Supersedes ENCRYPTION_KEY. */
   ENCRYPTION_KEYS?: string;
-  /** Signs the OAuth `state` parameter. */
+  /**
+   * Signs the OAuth `state` parameter. Optional now — one is generated and
+   * stored with the platform client when this is unset. Kept as an override.
+   */
   OAUTH_STATE_SECRET?: string;
+  /**
+   * Comma-separated emails permitted to configure Engine's own OAuth client.
+   *
+   * Deliberately not `ALLOWED_EMAILS`, which is who may *use* Engine: reusing
+   * it would make every customer a platform administrator the moment one is
+   * invited. Unset means nobody.
+   */
+  PLATFORM_ADMIN_EMAILS?: string;
   /** Where to send the browser after a callback. Defaults to the referring dashboard origin. */
   DASHBOARD_URL?: string;
 }
@@ -140,6 +161,30 @@ function integrationErrorResponse(c: Context<Env>, error: IntegrationError) {
   const headers: Record<string, string> =
     error.retryAfterSeconds !== undefined ? { 'retry-after': String(error.retryAfterSeconds) } : {};
   return c.json({ error: error.message, reason: error.reason, provider: error.providerId }, status, headers);
+}
+
+/**
+ * The secret that signs OAuth `state`.
+ *
+ * Generated and stored alongside the platform client, so nobody has to invent
+ * one — it is machine randomness with no meaning outside this deployment, and
+ * asking a human to choose it invites a weak value. `OAUTH_STATE_SECRET` stays
+ * as an override for a deployment already configured that way, and it wins
+ * because an operator who set it explicitly meant to.
+ */
+async function resolveStateSecret(
+  env: IntegrationsEnv,
+  db: Db,
+  keyring: Keyring,
+): Promise<string | undefined> {
+  if (env.OAUTH_STATE_SECRET) return env.OAUTH_STATE_SECRET;
+  try {
+    return (await ensureStateSecret(db, keyring, 'google')) ?? undefined;
+  } catch {
+    // Unreachable database. Reported as "no secret" so the caller answers 503
+    // rather than minting an unsigned state.
+    return undefined;
+  }
 }
 
 /** Owner-only guard for the account-scoped mutating routes. */
@@ -237,12 +282,15 @@ integrationsRoutes.get('/accounts/:accountId/integrations', async (c) => {
   }
 
   const gsc = getProvider('gsc');
+  // A missing or unusable keyring is not an error here — it means nothing can
+  // be connected, which is exactly what `oauthConfigured: false` says.
+  const keyring = await keyringFrom(c.env).catch(() => undefined);
   return c.json({
     connections: await listConnections(db, accountId),
-    // Named for the Google client because that is what every OAuth provider
-    // live today uses; `clientFor` is the one place that changes when a second
-    // vendor arrives.
-    oauthConfigured: Boolean(gsc && clientFor(gsc, c.env)),
+    // Engine's own OAuth client, from `platform_credentials` first and the
+    // environment second. `clientFor` is the one place that changes when a
+    // second vendor arrives.
+    oauthConfigured: Boolean(gsc && (await clientFor(gsc, c.env, db, keyring))),
   });
 });
 
@@ -281,17 +329,6 @@ integrationsRoutes.post('/accounts/:accountId/integrations/:provider/connect-url
     );
   }
 
-  const client = clientFor(provider, c.env);
-  if (!client) {
-    return c.json(
-      { error: 'OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI)' },
-      503,
-    );
-  }
-  if (!c.env.OAUTH_STATE_SECRET) {
-    return c.json({ error: 'OAUTH_STATE_SECRET is not configured — refusing to start an unsigned OAuth flow' }, 503);
-  }
-
   let keyring;
   try {
     keyring = await keyringFrom(c.env);
@@ -300,6 +337,36 @@ integrationsRoutes.post('/accounts/:accountId/integrations/:provider/connect-url
   }
 
   const db = createDb(c.env.DATABASE_URL);
+
+  // Deployment configuration is resolved before the membership check, and the
+  // order is deliberate. `clientFor` and `resolveStateSecret` both swallow a
+  // database failure and report "not configured"; `requireOwner` throws. Put
+  // the throwing call first and an unreachable database turns a deployment
+  // that was never configured into a 500, which tells the operator nothing.
+  //
+  // The old version answered 503 without touching the database at all. That is
+  // no longer possible — Engine's OAuth client now lives in a table, which is
+  // the entire point of the change — but a 503 naming the real cause is.
+  const client = await clientFor(provider, c.env, db, keyring);
+  if (!client) {
+    return c.json(
+      {
+        error:
+          'Engine’s OAuth client has not been configured. An administrator sets it once under Settings → Platform.',
+        reason: 'platform-client-missing',
+      },
+      503,
+    );
+  }
+
+  const stateSecret = await resolveStateSecret(c.env, db, keyring);
+  if (!stateSecret) {
+    return c.json(
+      { error: 'Could not obtain a signing secret for the consent link.', reason: 'state-secret-unavailable' },
+      503,
+    );
+  }
+
   const guard = await requireOwner(c, db, accountId);
   if ('error' in guard) return guard.error;
 
@@ -312,9 +379,9 @@ integrationsRoutes.post('/accounts/:accountId/integrations/:provider/connect-url
   // inside the signer and the row has to reference the same one.
   const state = await signOAuthState(
     { accountId, userId, provider: provider.id, returnTo: body.returnTo },
-    c.env.OAUTH_STATE_SECRET,
+    stateSecret,
   );
-  const verified = await verifyOAuthState(state, c.env.OAUTH_STATE_SECRET);
+  const verified = await verifyOAuthState(state, stateSecret);
   /* c8 ignore next -- we just signed it with the same secret. */
   if (!verified.ok) return c.json({ error: 'could not mint a connection link' }, 500);
 
@@ -418,7 +485,18 @@ integrationsRoutes.get('/oauth/google/callback', async (c) => {
   const state = c.req.query('state');
   if (!code || !state) return callbackPage(c, 'error', 'The redirect was missing its code or state.');
 
-  const verified = await verifyOAuthState(state, c.env.OAUTH_STATE_SECRET);
+  // The database is needed before the state can be checked now, because the
+  // signing secret lives there. Built early and reused below.
+  const db = createDb(c.env.DATABASE_URL);
+  let keyring;
+  try {
+    keyring = await keyringFrom(c.env);
+  } catch {
+    return callbackPage(c, 'error', 'ENCRYPTION_KEY is not configured — the credential cannot be stored.');
+  }
+  const stateSecret = await resolveStateSecret(c.env, db, keyring);
+
+  const verified = await verifyOAuthState(state, stateSecret);
   if (!verified.ok) {
     const message =
       verified.reason === 'expired'
@@ -444,17 +522,8 @@ integrationsRoutes.get('/oauth/google/callback', async (c) => {
     return callbackPage(c, 'error', 'Unknown provider in the connection link.');
   }
 
-  const client = clientFor(provider, c.env);
-  if (!client) return callbackPage(c, 'error', 'OAuth is not configured on this deployment.');
-
-  let keyring;
-  try {
-    keyring = await keyringFrom(c.env);
-  } catch {
-    return callbackPage(c, 'error', 'ENCRYPTION_KEY is not configured — the credential cannot be stored.');
-  }
-
-  const db = createDb(c.env.DATABASE_URL);
+  const client = await clientFor(provider, c.env, db, keyring);
+  if (!client) return callbackPage(c, 'error', 'Engine’s OAuth client is not configured on this deployment.');
 
   // Claim the flow before the exchange. This is what makes a state single-use:
   // a replayed callback finds the row already consumed and stops here, rather
@@ -884,4 +953,128 @@ integrationsRoutes.delete('/projects/:projectId/integrations/assignments/:assign
   const removed = await unassignResource(db, projectId, assignmentId);
   if (!removed) return c.json({ error: 'assignment not found on this project', assignmentId }, 404);
   return c.json({ removed: true, assignmentId });
+});
+
+/* ── Platform administration ────────────────────────────────────────────── */
+
+/**
+ * Engine's own OAuth client, configured in the product.
+ *
+ * These routes exist because the previous answer to "how do I connect Google?"
+ * was five `wrangler secret put` commands. That is a one-time operator task,
+ * not a deployment detail, and pushing it into a terminal made the Integrations
+ * screen look broken to everyone who could not reach one.
+ *
+ * A customer must never see any of this. The gate is `PLATFORM_ADMIN_EMAILS`,
+ * checked on every route rather than once at a parent — a guard that is applied
+ * in three of four handlers is not a guard.
+ */
+async function requirePlatformAdmin(c: Context<Env>): Promise<{ error: Response } | { ok: true }> {
+  const user = c.get('user');
+  if (!isPlatformAdmin(user.email, c.env)) {
+    // 404, not 403. A 403 confirms the screen exists and that this deployment
+    // has administrators, to someone who by definition is not one.
+    return { error: c.json({ error: 'not found' }, 404) };
+  }
+  return { ok: true };
+}
+
+/**
+ * Whether the caller may see the platform screen at all.
+ *
+ * Answered for every signed-in user, because the dashboard has to decide
+ * whether to render the nav entry. It reveals only whether *you* are an
+ * administrator, which you already know.
+ */
+integrationsRoutes.get('/platform/access', (c) =>
+  c.json({ isAdmin: isPlatformAdmin(c.get('user').email, c.env) }),
+);
+
+/** What is configured, and the redirect URI to register with the vendor. */
+integrationsRoutes.get('/platform/oauth-clients/:vendor', async (c) => {
+  const guard = await requirePlatformAdmin(c);
+  if ('error' in guard) return guard.error;
+  const vendor = c.req.param('vendor');
+  if (!isPlatformVendor(vendor)) return c.json({ error: 'unknown vendor', field: 'vendor' }, 400);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const stored = await getPlatformClientStatus(db, vendor);
+
+  // The URI the operator must register with the vendor, derived from this
+  // request rather than typed by hand — a mistyped redirect URI is the single
+  // most common setup failure, and the vendor compares it byte for byte.
+  const suggestedRedirectUri = new URL('/oauth/google/callback', new URL(c.req.url).origin).toString();
+
+  return c.json({
+    vendor,
+    client: stored,
+    suggestedRedirectUri,
+    // True when the deployment is still configured the old way. Surfaced so
+    // the screen can say "configured by environment variable" instead of
+    // "not configured", which would be wrong and alarming.
+    configuredByEnvironment: Boolean(
+      !stored && c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET && c.env.GOOGLE_REDIRECT_URI,
+    ),
+    events: await listPlatformEvents(db, 20),
+  });
+});
+
+/** Set or rotate Engine's client for a vendor. */
+integrationsRoutes.put('/platform/oauth-clients/:vendor', async (c) => {
+  const guard = await requirePlatformAdmin(c);
+  if ('error' in guard) return guard.error;
+  const vendor = c.req.param('vendor');
+  if (!isPlatformVendor(vendor)) return c.json({ error: 'unknown vendor', field: 'vendor' }, 400);
+
+  let keyring;
+  try {
+    keyring = await keyringFrom(c.env);
+  } catch {
+    return c.json({ error: 'ENCRYPTION_KEY is not configured — the client secret cannot be stored' }, 503);
+  }
+
+  const raw = await c.req.json<unknown>().catch(() => null);
+  if (raw === null || typeof raw !== 'object') return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { clientId?: unknown; clientSecret?: unknown; redirectUri?: unknown };
+
+  if (typeof body.clientId !== 'string' || body.clientId.trim() === '') {
+    return c.json({ error: 'clientId is required', field: 'clientId' }, 400);
+  }
+  if (typeof body.clientSecret !== 'string' || body.clientSecret.trim() === '') {
+    return c.json({ error: 'clientSecret is required', field: 'clientSecret' }, 400);
+  }
+  if (typeof body.redirectUri !== 'string' || !/^https:\/\/[^\s]+$/.test(body.redirectUri.trim())) {
+    // https only. An OAuth redirect carries an authorization code, and a
+    // vendor will refuse a plaintext URI anyway — better to say so here than
+    // to store a value that fails at consent time.
+    return c.json({ error: 'redirectUri must be an https URL', field: 'redirectUri' }, 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+
+  const status = await setPlatformClient(db, keyring, {
+    vendor,
+    clientId: body.clientId.trim(),
+    clientSecret: body.clientSecret.trim(),
+    redirectUri: body.redirectUri.trim(),
+    actorUserId: user.id,
+  });
+  return c.json({ client: status });
+});
+
+/** Remove Engine's client. Customers' stored grants are left in place. */
+integrationsRoutes.delete('/platform/oauth-clients/:vendor', async (c) => {
+  const guard = await requirePlatformAdmin(c);
+  if ('error' in guard) return guard.error;
+  const vendor = c.req.param('vendor');
+  if (!isPlatformVendor(vendor)) return c.json({ error: 'unknown vendor', field: 'vendor' }, 400);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  const removed = await clearPlatformClient(db, vendor, user.id);
+  if (!removed) return c.json({ error: `${vendor} is not configured`, vendor }, 404);
+  return c.json({ cleared: true, vendor });
 });

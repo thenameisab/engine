@@ -444,3 +444,36 @@ export interface IntegrationEvent {
   metadata: Record<string, unknown>;
   occurredAt: string;
 }
+
+/* ── Platform administration (operator-only) ───────────────────────────── */
+
+/** Engine's own OAuth client for a vendor. Never carries the secret. */
+export interface PlatformClient {
+  vendor: string;
+  clientId: string;
+  redirectUri: string;
+  configured: boolean;
+  configuredBy?: string;
+  configuredAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformCredentialEvent {
+  id: string;
+  vendor: string;
+  type: string;
+  actor: string;
+  detail?: string;
+  occurredAt: string;
+}
+
+/** `GET /platform/oauth-clients/:vendor`. */
+export interface PlatformClientView {
+  vendor: string;
+  client: PlatformClient | null;
+  /** Derived from the request origin, so it cannot be mistyped. */
+  suggestedRedirectUri: string;
+  /** True when this deployment still supplies the client as Worker config. */
+  configuredByEnvironment: boolean;
+  events: PlatformCredentialEvent[];
+}

@@ -198,6 +198,11 @@ app.use('*', (c, next) => {
 app.use('/health/integrations', requireAuth);
 app.use('/projects/*', requireAuth);
 app.use('/accounts/*', requireAuth);
+// Engine's own OAuth client lives behind these. The handlers check
+// PLATFORM_ADMIN_EMAILS, but that check reads the authenticated user's email —
+// without this line there is no authenticated user for it to read, and the
+// admin gate is comparing against nothing.
+app.use('/platform/*', requireAuth);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
