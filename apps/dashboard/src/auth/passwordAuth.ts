@@ -29,7 +29,11 @@ interface LoginResponse {
 export async function signInWithPassword(email: string, password: string): Promise<SessionUser> {
   const base = getApiBaseUrl();
   if (!base) {
-    throw new Error('No API URL is configured. Set it in Settings, or ask whoever deployed this build.');
+    // Only reachable on a deployed build assembled without ENGINE_API_BASE — a
+    // local page falls back to wrangler dev's port. Nothing the person reading
+    // this can fix, so the message names the actual cause rather than sending
+    // them to a Settings field they cannot reach anyway.
+    throw new Error('This build was deployed without an API address (ENGINE_API_BASE). Sign-in cannot work until it is rebuilt with one.');
   }
 
   let res: Response;
