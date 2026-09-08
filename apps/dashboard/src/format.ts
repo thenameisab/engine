@@ -4,6 +4,7 @@
  * the fiddly bits are verifiable in isolation.
  */
 import type {
+  ProviderCatalogEntry, IntegrationConnection,
   ApiAuditRequest,
   AccountCard,
   ActionCard,
@@ -135,6 +136,42 @@ export function auditRequestStatusLine(r: ApiAuditRequest | null): AuditRequestS
     case 'done':
       return null;
   }
+}
+
+export interface IntegrationTileState {
+  /** The pill text on the tile. */
+  label: string;
+  /** Semantic colour token, or null for plain. */
+  tone: 'good' | 'watch' | 'muted' | null;
+  /** Connected first, then connectable, then blocked, then coming soon. */
+  sort: number;
+}
+
+/**
+ * One status per provider tile, in the customer's words. The order it implies
+ * puts what already works at the top and what nobody can act on at the bottom.
+ * An OAuth provider whose client the workspace has not registered reads as
+ * "Needs setup" to an administrator, who can fix it, and "Not available yet"
+ * to everyone else, who cannot.
+ */
+export function integrationTileState(
+  entry: Pick<ProviderCatalogEntry, 'availability' | 'authKind'>,
+  connection: Pick<IntegrationConnection, 'status' | 'scopesSufficient'> | undefined,
+  opts: { oauthConfigured: boolean; isAdmin: boolean },
+): IntegrationTileState {
+  if (entry.availability === 'planned') return { label: 'Coming soon', tone: 'muted', sort: 3 };
+  if (connection?.status === 'connected') {
+    return connection.scopesSufficient === false
+      ? { label: 'Missing a permission', tone: 'watch', sort: 0 }
+      : { label: 'Connected', tone: 'good', sort: 0 };
+  }
+  if (connection?.status === 'needs_reauth') return { label: 'Reconnect needed', tone: 'watch', sort: 0 };
+  if (entry.authKind !== 'api_key' && !opts.oauthConfigured) {
+    return opts.isAdmin
+      ? { label: 'Needs setup', tone: 'watch', sort: 2 }
+      : { label: 'Not available yet', tone: 'muted', sort: 2 };
+  }
+  return { label: 'Not connected', tone: null, sort: 1 };
 }
 
 export interface OnboardingDefaults {

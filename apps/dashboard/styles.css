@@ -238,6 +238,50 @@ a { color: inherit; text-decoration: none; }
 .intg-top .logo-tile img { width: 16px; height: 16px; }
 
 .intg-providers { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Integrations gallery ─────────────────────────────────────────────── */
+.intg-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.intg-tile { text-align: left; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text); font-family: var(--font); cursor: pointer;
+  transition: border-color .12s var(--ease), background .12s var(--ease); }
+.intg-tile:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.intg-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.intg-tile.good { border-color: color-mix(in srgb, var(--good) 30%, var(--border)); }
+.intg-tile.watch { border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
+.intg-tile-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.intg-tile-name { font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.intg-tile-purpose { font-size: 12.5px; color: var(--text-muted); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.intg-pill { flex: none; font-family: var(--mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); background: var(--surface-2); }
+.intg-pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 30%, transparent); background: color-mix(in srgb, var(--good) 10%, transparent); }
+.intg-pill.watch { color: var(--watch); border-color: color-mix(in srgb, var(--watch) 34%, transparent); background: color-mix(in srgb, var(--watch) 12%, transparent); }
+.intg-pill.muted { color: var(--text-faint); background: transparent; }
+.intg-center { display: flex; justify-content: center; padding: 0 16px 16px; }
+
+/* The connect panel inside the dialog. */
+.intg-panel { display: flex; flex-direction: column; gap: 12px; }
+.intg-panel .intg-purpose { max-width: none; }
+.intg-primary .btn { width: 100%; padding: 11px 16px; font-size: 13.5px; }
+.intg-note { font-size: 13px; color: var(--text-muted); padding: 10px 12px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--border); }
+.intg-note.warn { color: var(--watch); border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
+.intg-section { display: flex; flex-direction: column; gap: 8px; }
+.intg-panel .intg-apikey { padding: 0; border: 0; background: none; }
+.intg-replace summary { cursor: pointer; font-size: 12.5px; color: var(--text-muted); }
+.intg-replace[open] summary { margin-bottom: 8px; }
+.intg-dialog-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+/* ── Dialog ───────────────────────────────────────────────────────────── */
+.dialog-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px;
+  background: color-mix(in srgb, #000 45%, transparent); opacity: 0; transition: opacity .14s var(--ease); overflow-y: auto; }
+.dialog-overlay.in { opacity: 1; }
+.dialog { width: min(560px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 24px 60px color-mix(in srgb, #000 30%, transparent); transform: translateY(6px); transition: transform .14s var(--ease); outline: none; }
+.dialog-overlay.in .dialog { transform: none; }
+.dialog-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.dialog-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; margin: 0; flex: 1; min-width: 0; }
+.dialog-close { margin-left: auto; flex: none; }
+.dialog-body { padding: 16px; }
 /* space-between is right for a two-child header; with a logo ahead of the
    title it would strand the mark at the far edge, and with three children it
    spreads them across the panel. Pack from the start wherever a header carries

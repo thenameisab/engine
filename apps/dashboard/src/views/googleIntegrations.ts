@@ -1,7 +1,9 @@
 import { el } from '../dom.js';
 import { logoTile } from '../logo.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
+import { openDialog, type DialogHandle } from '../dialog.js';
 import { readableError } from '../errors.js';
+import { integrationTileState } from '../format.js';
 import {
   getAccountId,
   fetchProviderCatalog,
@@ -11,13 +13,14 @@ import {
   disconnectProvider,
   connectApiKey,
   fetchProjectIntegrations,
+  fetchPlatformAccess,
   assignProviderResource,
   unassignProviderResource,
   syncProvider,
 } from '../api.js';
 import type { AppContext } from '../context.js';
 import type {
-  GoogleProviderId,
+  ProviderId,
   ProviderCatalogEntry,
   IntegrationConnection,
   IntegrationAssignment,
@@ -27,36 +30,22 @@ import type {
 /**
  * The screen where a customer connects their own accounts.
  *
- * The existing Integrations block (`views/integrations.ts`) reports whether
- * *we* have wired a vendor key — it reads `/health/integrations` and shows
- * "SERPER_API_KEY missing". That is an operator view, and it stays. This is a
- * different thing: the customer's own grant, which they create, assign, and
- * revoke themselves.
+ * A gallery of every provider, each a tile with one status word. Clicking a
+ * tile opens one panel that does the one thing that provider needs: a sign-in
+ * button for a consent flow, a key form for a pasted key, a "coming soon" note
+ * for a planned one. Once connected, the same panel is where the property or
+ * site is chosen, synced, and disconnected.
  *
- * Two ways in, because the registry now has both. An OAuth provider opens a
- * consent popup; an API-key provider shows a form. They share the card, the
- * status vocabulary and the resource picker — only the connect control differs,
- * which is the whole point of the registry carrying `authKind`.
+ * Nothing operator-facing renders here. Engine's own OAuth client and the
+ * deployment's vendor keys live under Settings. When the OAuth client is
+ * missing, an administrator's tile says "Needs setup" and the panel links
+ * there; a customer's tile says "Not available yet" and the panel says who to
+ * ask. Neither is a disabled button with the reason hidden behind a hover.
  *
- * Copy rule, applied here first: a sentence stays on the card only if it is
- * needed to make the next decision. Everything else — why a button is
- * disabled, what a vendor gates behind an access request, which APIs to enable
- * — moved into hover cards. Four stacked paragraphs per provider buried the
- * two things a person came to do under text they had already read.
- *
- * Three states per provider, and they are genuinely distinct:
- *   - the deployment has no OAuth client, so nothing can be connected;
- *   - no account is connected yet;
- *   - connected, but the vendor revoked the grant, or the user unticked a scope.
- * Collapsing any pair of them produces a screen that says "not connected" when
- * the real answer is "reconnect" or "ask your administrator".
+ * Copy rule: a sentence stays on screen only if it is needed to make the next
+ * decision. Vendor caveats (an access request, write access, APIs to enable)
+ * are short chips with the sentence one hover away.
  */
-
-const STATUS_LABEL: Record<IntegrationConnection['status'], string> = {
-  connected: 'Connected',
-  needs_reauth: 'Reconnect needed',
-  revoked: 'Disconnected',
-};
 
 /**
  * What is wrong, as a short line plus the explanation behind it.
@@ -142,16 +131,6 @@ function openConsentPopup(url: string): Promise<'connected' | 'cancelled' | 'clo
       if (popup.closed) finish('closed');
     }, 500);
   });
-}
-
-interface ProviderCardInput {
-  ctx: AppContext;
-  accountId: string;
-  entry: ProviderCatalogEntry;
-  connection: IntegrationConnection | undefined;
-  assignments: IntegrationAssignment[];
-  oauthConfigured: boolean;
-  reload: () => void;
 }
 
 /**
@@ -272,21 +251,113 @@ function apiKeyForm(input: {
   ]);
 }
 
-function providerCard(input: ProviderCardInput): HTMLElement {
-  const { ctx, accountId, entry, connection, assignments, oauthConfigured, reload } = input;
+interface ProviderPanelInput {
+  ctx: AppContext;
+  accountId: string;
+  entry: ProviderCatalogEntry;
+  connection: IntegrationConnection | undefined;
+  assignments: IntegrationAssignment[];
+  oauthConfigured: boolean;
+  isAdmin: boolean;
+  reload: () => void;
+}
+
+/** The status pill shared by the tile and the panel header. */
+function statusPill(text: string, tone: 'good' | 'watch' | 'muted' | null): HTMLElement {
+  return el('span', { class: `intg-pill${tone ? ` ${tone}` : ''}` }, [text]);
+}
+
+/**
+ * Facts about a provider worth flagging but not worth a paragraph. Each is a
+ * short chip; the sentence is its hover card.
+ */
+function providerBadges(entry: ProviderCatalogEntry): HTMLElement[] {
+  const badges: HTMLElement[] = [];
+  if (entry.requiresAccessRequest) {
+    // Stated up front rather than discovered as a 403 weeks later.
+    badges.push(
+      badge('Needs vendor approval', 'warn', `${entry.name} access request`, {
+        title: 'Zero quota until approved',
+        body: [
+          'The provider gates this API behind an access request, not just an enable toggle, and approval takes weeks.',
+          'Connecting will succeed before that. Reads will not.',
+        ],
+      }),
+    );
+  }
+  if (entry.writes) {
+    badges.push(
+      badge('Grants write access', '', `What ${entry.name} can change`, {
+        title: 'This connection can write',
+        body: [
+          'The provider offers no read-only equivalent, so connecting grants write access.',
+          'Nothing is written until you approve a fix in the Fix Queue.',
+        ],
+      }),
+    );
+  }
+  const setup = entry.setupSteps ?? entry.requiredApis ?? [];
+  if (setup.length > 0) {
+    badges.push(
+      badge('Setup required', '', `${entry.name} setup steps`, {
+        title: 'Do these at the provider first',
+        body: ['Each one otherwise arrives as a 403 that does not explain itself.'],
+        list: setup,
+        link: entry.docsUrl ? { href: entry.docsUrl, label: 'Provider documentation' } : undefined,
+      }),
+    );
+  }
+  return badges;
+}
+
+/**
+ * The connect panel for one provider. What it shows depends on one question:
+ * can this person connect it right now? If yes, the primary action is the
+ * first thing in the panel. If no, the reason is, in words, with the one thing
+ * that would change it.
+ */
+function providerPanel(input: ProviderPanelInput): HTMLElement {
+  const { ctx, accountId, entry, connection, assignments, oauthConfigured, isAdmin, reload } = input;
   const live = connection?.status === 'connected';
   const problem = connection ? healthProblem(connection) : null;
-  const state: IntegrationConnection['status'] | 'absent' = connection?.status ?? 'absent';
-
-  // An API-key provider has no consent screen, so the OAuth button would be
-  // both useless and misleading. `authKind` from the registry is what decides.
   const isApiKey = entry.authKind === 'api_key';
+  const vendor = entry.vendor ?? 'the provider';
 
-  const connectButton = el('button', {
-    class: live ? 'btn' : 'btn primary',
-    // Spread rather than `disabled: undefined` — the `el` helper writes every
-    // attribute it is given, so an undefined value would render disabled="".
-    ...(oauthConfigured ? {} : { disabled: 'true' }),
+  const purpose = el('p', { class: 'intg-purpose' }, [entry.purpose]);
+  const docs = entry.docsUrl
+    ? el('a', { class: 'linklike', href: entry.docsUrl, target: '_blank', rel: 'noopener' }, [`${entry.name} documentation ↗`])
+    : null;
+
+  /* ── Blocked cases: say why, and what changes it ─────────────────────── */
+
+  if (entry.availability === 'planned') {
+    return el('div', { class: 'intg-panel' }, [
+      purpose,
+      el('div', { class: 'intg-note' }, ['Coming soon. This integration is on the roadmap and cannot be connected yet.']),
+      docs,
+    ]);
+  }
+
+  if (!isApiKey && !oauthConfigured && !live) {
+    return el('div', { class: 'intg-panel' }, [
+      purpose,
+      el('div', { class: 'intg-note warn' }, [
+        isAdmin
+          ? `Sign-in with ${vendor} is not set up for this workspace yet. Register Engine's ${vendor} app once under Settings, and every client can connect from here.`
+          : `Sign-in with ${vendor} is not set up for this workspace yet. Ask your administrator to finish the setup.`,
+      ]),
+      isAdmin
+        ? el('div', { class: 'form-actions' }, [
+            el('button', { class: 'btn primary', onclick: () => ctx.navigate('settings') }, [`Finish ${vendor} setup`]),
+          ])
+        : null,
+    ]);
+  }
+
+  /* ── Connect / reconnect ───────────────────────────────────────────────── */
+
+  const signIn = el('button', {
+    class: live ? 'btn' : 'btn primary intg-signin',
     onclick: async () => {
       try {
         const url = await fetchConnectUrl(accountId, entry.id, window.location.hash || '/');
@@ -305,7 +376,7 @@ function providerCard(input: ProviderCardInput): HTMLElement {
         ctx.toast(`Could not start the connection: ${readableError(err)}`);
       }
     },
-  }, [live || state === 'needs_reauth' ? 'Reconnect' : `Connect ${entry.name}`]);
+  }, [live || connection?.status === 'needs_reauth' ? `Reconnect ${vendor}` : `Sign in with ${vendor}`]);
 
   const disconnectButton = connection && connection.status !== 'revoked'
     ? el('button', {
@@ -355,7 +426,7 @@ function providerCard(input: ProviderCardInput): HTMLElement {
     if (resources.length === 0) {
       pickerHost.replaceChildren(
         el('div', { class: 'fq-note' }, [
-          `This Google account can see no ${entry.resourceNoun}s. Check you connected the account that owns them.`,
+          `This ${vendor} account can see no ${entry.resourceNoun}s. Check you connected the account that owns them.`,
         ]),
       );
       return;
@@ -422,7 +493,9 @@ function providerCard(input: ProviderCardInput): HTMLElement {
   };
 
   const pickButton = live
-    ? el('button', { class: 'btn', onclick: () => void loadPicker() }, [`Choose ${entry.resourceNoun}`])
+    ? el('button', { class: assignments.length === 0 ? 'btn primary' : 'btn', onclick: () => void loadPicker() }, [
+        assignments.length === 0 ? `Choose a ${entry.resourceNoun}` : `Choose another ${entry.resourceNoun}`,
+      ])
     : null;
 
   /* ── What is already assigned ─────────────────────────────────────────── */
@@ -464,173 +537,160 @@ function providerCard(input: ProviderCardInput): HTMLElement {
     ]),
   );
 
-  /**
-   * Facts about this provider that are worth flagging but not worth a
-   * paragraph. Each is a short chip; the sentence that used to sit on the card
-   * is now the chip's hover card.
-   */
-  const badges: HTMLElement[] = [];
+  const badges = providerBadges(entry);
+  const connectedAs = connectedAsLabel(connection);
 
-  if (!oauthConfigured && !isApiKey) {
-    // Only an OAuth provider is blocked by a missing OAuth client. Showing this
-    // on an API-key card would send a customer to an administrator over
-    // something with no bearing on what they are doing.
-    badges.push(
-      badge('Not configured', 'warn', `Why ${entry.name} cannot be connected`, {
-        title: 'This deployment has no OAuth client',
-        body: ['Connecting is disabled until an administrator configures one. Nothing you do on this screen will change that.'],
-        list: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
-      }),
-    );
-  }
-  if (entry.availability === 'planned') {
-    badges.push(
-      badge('Coming soon', '', `About ${entry.name} support`, {
-        body: ['This provider is on the roadmap and cannot be connected yet.'],
-      }),
-    );
-  }
-  if (entry.requiresAccessRequest) {
-    // Stated up front rather than discovered as a 403 weeks later.
-    badges.push(
-      badge('Needs vendor approval', 'warn', `${entry.name} access request`, {
-        title: 'Zero quota until approved',
-        body: [
-          'The provider gates this API behind an access request, not just an enable toggle, and approval takes weeks.',
-          'Connecting will succeed before that. Reads will not.',
-        ],
-      }),
-    );
-  }
-  if (entry.writes) {
-    badges.push(
-      badge('Grants write access', '', `What ${entry.name} can change`, {
-        title: 'This connection can write',
-        body: [
-          'The provider offers no read-only equivalent, so connecting grants write access.',
-          'Nothing is written until you approve a fix in the Fix Queue.',
-        ],
-      }),
-    );
-  }
-  const setup = entry.setupSteps ?? entry.requiredApis ?? [];
-  if (setup.length > 0) {
-    badges.push(
-      badge('Setup required', '', `${entry.name} setup steps`, {
-        title: 'Do these at the provider first',
-        body: ['Each one otherwise arrives as a 403 that does not explain itself.'],
-        list: setup,
-        link: entry.docsUrl ? { href: entry.docsUrl, label: 'Provider documentation' } : undefined,
-      }),
-    );
-  }
+  return el('div', { class: 'intg-panel' }, [
+    purpose,
+    badges.length > 0 ? el('div', { class: 'intg-badges' }, badges) : null,
 
-  return el('section', { class: `panel intg-provider ${state}` }, [
-    el('header', {}, [
+    // The primary action first, once, and only when it is the next step.
+    !live && !isApiKey ? el('div', { class: 'intg-primary' }, [signIn]) : null,
+    !live && isApiKey ? apiKeyForm({ ctx, accountId, entry, connected: false, reload }) : null,
+
+    live && connectedAs
+      ? el('div', { class: 'fhint num' }, [`Connected as ${connectedAs} · ${relativeTime(connection?.connectedAt)}`])
+      : null,
+    problem
+      ? el('div', { class: 'intg-alert' }, [
+          problem.line,
+          infoCard(`Why ${entry.name} needs attention`, { title: problem.line, body: problem.detail }),
+        ])
+      : null,
+
+    live
+      ? el('div', { class: 'intg-section' }, [
+          el('div', { class: 'flabel' }, ['This project reads from']),
+          assignmentRows.length > 0
+            ? el('div', { class: 'intg-assigns' }, assignmentRows)
+            : el('div', { class: 'fhint num' }, [`No ${entry.resourceNoun} chosen for this project yet.`]),
+          pickerHost,
+        ])
+      : null,
+
+    live || connection?.status === 'needs_reauth'
+      ? el('div', { class: 'form-actions' }, [
+          pickButton,
+          isApiKey ? null : signIn,
+          disconnectButton,
+        ].filter(Boolean) as HTMLElement[])
+      : null,
+    live && isApiKey
+      ? el('details', { class: 'intg-replace' }, [
+          el('summary', {}, [`Replace the ${entry.name} key`]),
+          apiKeyForm({ ctx, accountId, entry, connected: true, reload }),
+        ])
+      : null,
+    docs,
+  ].filter(Boolean) as HTMLElement[]);
+}
+
+/** One tile in the gallery. The whole tile is the button that opens the panel. */
+function providerTile(entry: ProviderCatalogEntry, state: { label: string; tone: 'good' | 'watch' | 'muted' | null }, onOpen: () => void): HTMLElement {
+  return el('button', { class: `intg-tile${state.tone ? ` ${state.tone}` : ''}`, 'aria-haspopup': 'dialog', onclick: onOpen }, [
+    el('div', { class: 'intg-tile-top' }, [
       logoTile(entry.logoDomain, entry.name),
-      el('h3', {}, [entry.name]),
-      el('span', { class: `intg-status ${state === 'connected' && connection?.scopesSufficient ? 'configured' : state === 'absent' ? 'missing' : 'partial'}` }, [
-        connection ? STATUS_LABEL[connection.status] : 'Not connected',
-      ]),
+      el('span', { class: 'intg-tile-name' }, [entry.name]),
+      statusPill(state.label, state.tone),
     ]),
-    el('div', { class: 'intg-body' }, [
-      el('p', { class: 'intg-purpose' }, [entry.purpose]),
-
-      connection && connectedAsLabel(connection)
-        ? el('div', { class: 'fhint num' }, [
-            `Connected as ${connectedAsLabel(connection)} · ${relativeTime(connection.connectedAt)}`,
-          ])
-        : null,
-
-      // One line, not a paragraph. The reason sits behind the affordance.
-      problem
-        ? el('div', { class: 'intg-alert' }, [
-            problem.line,
-            infoCard(`Why ${entry.name} needs attention`, { title: problem.line, body: problem.detail }),
-          ])
-        : null,
-
-      // The badges replace four stacked notes. Each is two or three words with
-      // its explanation one hover away, so the card stays scannable and none of
-      // the detail is lost.
-      badges.length > 0 ? el('div', { class: 'intg-badges' }, badges) : null,
-
-      assignmentRows.length > 0
-        ? el('div', { class: 'intg-assigns' }, assignmentRows)
-        : live
-          ? el('div', { class: 'fhint num' }, [`No ${entry.resourceNoun} assigned to this project yet.`])
-          : null,
-
-      pickerHost,
-
-      isApiKey && entry.availability !== 'planned'
-        ? apiKeyForm({ ctx, accountId, entry, connected: Boolean(live), reload })
-        : null,
-
-      el(
-        'div',
-        { class: 'form-actions' },
-        [isApiKey ? null : connectButton, pickButton, disconnectButton].filter(Boolean) as HTMLElement[],
-      ),
-    ].filter(Boolean) as HTMLElement[]),
+    el('div', { class: 'intg-tile-purpose' }, [entry.purpose]),
   ]);
 }
 
 /**
- * The whole Google-integrations block, embedded in Settings.
- *
- * Needs an account (the credential is account-scoped) and a project (the
- * assignment is project-scoped), so it says which one is missing rather than
- * rendering an empty shell.
+ * The gallery, plus the one open panel. Every action inside the panel calls
+ * `reload`, which refetches and re-renders both the tiles and the panel's
+ * content in place, so the dialog stays open across connect, choose, sync and
+ * disconnect.
  */
-export async function googleIntegrationsSection(ctx: AppContext): Promise<HTMLElement> {
+export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement> {
   const accountId = getAccountId();
-  const host = el('div', { class: 'intg-providers' }, []);
+  const host = el('div', { class: 'intg-gallery' }, []);
 
   if (!accountId) {
     return el('section', { class: 'panel' }, [
-      el('header', {}, [el('h3', {}, ['Google integrations'])]),
       el('div', { class: 'fq-note' }, [
-        'Pick a client from the Clients grid first — a Google connection belongs to an account.',
+        'Choose a client first. Connections belong to a client, and every site of that client can use them.',
+      ]),
+      el('div', { class: 'intg-center' }, [
+        el('button', { class: 'btn primary', onclick: () => ctx.navigate('clients') }, ['Go to Clients']),
       ]),
     ]);
   }
 
+  let openId: ProviderId | null = null;
+  let dialog: DialogHandle | null = null;
+
   const render = async () => {
-    host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
+    let catalog: ProviderCatalogEntry[];
+    let connections: IntegrationConnection[];
+    let oauthConfigured: boolean;
+    let assignments: IntegrationAssignment[];
+    let isAdmin: boolean;
     try {
-      const [catalog, connectionState, projectState] = await Promise.all([
-        fetchProviderCatalog(),
+      const [cat, connectionState, projectState, access] = await Promise.all([
+        fetchProviderCatalog(true),
         fetchConnections(accountId),
         // A project may not be selected or reachable; assignments are then
-        // simply unknown, which must not blank out the connect buttons.
+        // simply unknown, which must not blank out the tiles.
         fetchProjectIntegrations().catch(() => ({ assignments: [] as IntegrationAssignment[], connections: [] })),
+        fetchPlatformAccess().catch(() => ({ isAdmin: false })),
       ]);
-
-      const byProvider = new Map<GoogleProviderId, IntegrationConnection>(
-        connectionState.connections.map((c) => [c.provider, c]),
-      );
-
-      host.replaceChildren(
-        ...catalog.map((entry) =>
-          providerCard({
-            ctx,
-            accountId,
-            entry,
-            connection: byProvider.get(entry.id),
-            assignments: projectState.assignments.filter((a) => a.provider === entry.id),
-            oauthConfigured: connectionState.oauthConfigured,
-            reload: () => void render(),
-          }),
-        ),
-      );
+      catalog = cat;
+      connections = connectionState.connections;
+      oauthConfigured = connectionState.oauthConfigured;
+      assignments = projectState.assignments;
+      isAdmin = access.isAdmin;
     } catch (err) {
-      host.replaceChildren(
-        el('div', { class: 'fq-note' }, [readableError(err)]),
+      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
+      return;
+    }
+
+    const byProvider = new Map<ProviderId, IntegrationConnection>(connections.map((c) => [c.provider, c]));
+    const panelFor = (entry: ProviderCatalogEntry) =>
+      providerPanel({
+        ctx,
+        accountId,
+        entry,
+        connection: byProvider.get(entry.id),
+        assignments: assignments.filter((a) => a.provider === entry.id),
+        oauthConfigured,
+        isAdmin,
+        reload: () => void render(),
+      });
+
+    const tiles = catalog
+      .map((entry) => ({ entry, state: integrationTileState(entry, byProvider.get(entry.id), { oauthConfigured, isAdmin }) }))
+      .sort((a, b) => a.state.sort - b.state.sort)
+      .map(({ entry, state }) =>
+        providerTile(entry, state, () => {
+          openId = entry.id;
+          dialog = openDialog({
+            title: el('div', { class: 'intg-dialog-title' }, [
+              logoTile(entry.logoDomain, entry.name),
+              el('h2', { class: 'dialog-title' }, [entry.name]),
+              statusPill(state.label, state.tone),
+            ]),
+            label: entry.name,
+            content: panelFor(entry),
+            onClose: () => {
+              openId = null;
+              dialog = null;
+            },
+          });
+        }),
       );
+    host.replaceChildren(...tiles);
+
+    // The panel that is open re-renders with the fresh state, so the customer
+    // sees "Connected" and the property picker without closing and reopening.
+    if (openId && dialog?.isOpen) {
+      const entry = catalog.find((e) => e.id === openId);
+      if (entry) dialog.setContent(panelFor(entry));
     }
   };
 
+  host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
   await render();
   return host;
 }
