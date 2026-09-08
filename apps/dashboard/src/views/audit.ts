@@ -1,56 +1,86 @@
 import { el } from '../dom.js';
 import { fetchAudit, fetchDeployTarget, proposeFix } from '../api.js';
 import type { AppContext } from '../context.js';
-import type { AuditData, DeployTarget, FindingRow } from '../types.js';
+import { groupFindings, pagePath } from '../format.js';
+import type { AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
 
 /**
- * One finding row. An auto-fixable finding gets a "Propose fix" button that
- * asks the API to generate the fix and drop it into the Fix Queue — the step
- * that used to be API-only. Disabled until the project has a deploy target
- * (where a fix would land), since the generator needs one.
+ * The "Propose fix" control for one page. It asks the API to generate the fix
+ * and drop it into the Fix Queue. Disabled until the project has a deploy
+ * target (where a fix would land), since the generator needs one.
+ *
+ * Its class is `frow-act`, not `card-act`: `card-act` is `width: 100%` for the
+ * Fix Queue cards, and inside a flex row that took the whole row and squeezed
+ * the title and URL to nothing.
  */
-function findingRow(f: FindingRow, hasTarget: boolean, ctx: AppContext): HTMLElement {
-  const right: (HTMLElement | null)[] = [
-    f.autoFixable ? el('span', { class: 'pill impact' }, ['auto-fixable']) : el('span', { class: 'pill effort' }, ['manual']),
-    el('span', { class: 'impact-n num' }, [`+${f.predictedImpact}`]),
-  ];
-
-  if (f.autoFixable) {
-    const btn = el('button', {
-      class: 'card-act',
-      ...(hasTarget ? {} : { disabled: 'true', title: 'Set a deploy target in Settings first' }),
-      onclick: async (e: Event) => {
-        e.stopPropagation();
-        btn.setAttribute('disabled', 'true');
-        btn.textContent = 'Proposing…';
-        try {
-          const { actions, note } = await proposeFix(f.id);
-          if (actions.length === 0) {
-            ctx.toast(note ?? 'No fix could be generated for this finding.');
-            btn.removeAttribute('disabled');
-            btn.textContent = 'Propose fix';
-            return;
-          }
-          ctx.toast(`Proposed ${actions.length} fix${actions.length === 1 ? '' : 'es'} → Fix Queue`);
-          btn.textContent = 'Proposed ✓';
-        } catch (err) {
-          ctx.toast(`Propose failed: ${(err as Error).message}`);
+function proposeButton(f: FindingRow, hasTarget: boolean, ctx: AppContext): HTMLElement {
+  const btn = el('button', {
+    class: 'frow-act',
+    ...(hasTarget ? {} : { disabled: 'true', title: 'Set a deploy target in Settings first' }),
+    onclick: async (e: Event) => {
+      e.stopPropagation();
+      btn.setAttribute('disabled', 'true');
+      btn.textContent = 'Proposing…';
+      try {
+        const { actions, note } = await proposeFix(f.id);
+        if (actions.length === 0) {
+          ctx.toast(note ?? 'No fix could be generated for this finding.');
           btn.removeAttribute('disabled');
           btn.textContent = 'Propose fix';
+          return;
         }
-      },
-    }, ['Propose fix']);
-    right.push(btn);
-  }
+        ctx.toast(`Proposed ${actions.length} fix${actions.length === 1 ? '' : 'es'} → Fix Queue`);
+        btn.textContent = 'Proposed ✓';
+      } catch (err) {
+        ctx.toast(`Propose failed: ${(err as Error).message}`);
+        btn.removeAttribute('disabled');
+        btn.textContent = 'Propose fix';
+      }
+    },
+  }, ['Propose fix']);
+  return btn;
+}
 
+/** One page inside an issue group: the path to scan by, the full URL under it. */
+function pageRow(f: FindingRow, hasTarget: boolean, ctx: AppContext): HTMLElement {
   return el('div', { class: 'frow' }, [
-    el('span', { class: `sev ${f.severity}` }, [f.severity]),
     el('div', { class: 'fmain' }, [
-      el('div', { class: 't' }, [f.title]),
-      el('div', { class: 'm' }, [f.url ? `${f.type} · ${f.url}` : f.type]),
+      el('div', { class: 't' }, [f.url ? pagePath(f.url) : 'Site-wide']),
+      el('div', { class: 'm', title: f.url }, [f.url || 'Not tied to one page']),
     ]),
-    ...right,
+    el('span', { class: 'impact-n num' }, [`+${f.predictedImpact}`]),
+    f.autoFixable ? proposeButton(f, hasTarget, ctx) : null,
   ]);
+}
+
+/**
+ * One issue type with every page it affects. Severity and the fixable pill are
+ * properties of the issue, so they appear once in the group head rather than
+ * on every row.
+ */
+function groupBlock(g: FindingGroup, hasTarget: boolean, ctx: AppContext): HTMLElement {
+  const pages = g.pageCount === 1 ? '1 page' : `${g.pageCount} pages`;
+  return el('div', { class: 'fgroup' }, [
+    el('div', { class: 'fgroup-head' }, [
+      el('span', { class: `sev ${g.severity}` }, [g.severity]),
+      el('div', { class: 'fmain' }, [
+        el('div', { class: 't' }, [g.title]),
+        el('div', { class: 'm' }, [pages]),
+      ]),
+      g.autoFixable
+        ? el('span', { class: 'pill impact' }, ['auto-fixable'])
+        : el('span', { class: 'pill effort' }, ['manual']),
+    ]),
+    el('div', { class: 'flist' }, g.findings.map((f) => pageRow(f, hasTarget, ctx))),
+  ]);
+}
+
+/** "3 issues on 7 pages": issue types, then distinct pages, both real counts. */
+function issueCount(rows: FindingRow[]): string {
+  const types = new Set(rows.map((f) => f.type)).size;
+  // Site-wide findings carry no URL and are not a page.
+  const pages = new Set(rows.map((f) => f.url).filter(Boolean)).size;
+  return `${types} issue${types === 1 ? '' : 's'} on ${pages} page${pages === 1 ? '' : 's'}`;
 }
 
 /**
@@ -108,7 +138,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
     el('section', { class: 'panel' }, [
       el('header', {}, [
         el('h3', {}, ['Findings']),
-        el('span', { class: 'more' }, [d.findings.length === 1 ? '1 issue' : `${d.findings.length} issues`]),
+        el('span', { class: 'more' }, [issueCount(d.findings)]),
       ]),
       d.findings.length === 0
         ? el('div', { class: 'fq-note' }, [
@@ -116,7 +146,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
               ? 'Run a crawl to populate the audit — findings appear here once one reports.'
               : 'No findings. The last crawl found nothing to fix.',
           ])
-        : el('div', { class: 'flist' }, d.findings.map((f) => findingRow(f, hasTarget, ctx))),
+        : el('div', { class: 'fgroups' }, groupFindings(d.findings).map((g) => groupBlock(g, hasTarget, ctx))),
     ]),
   ]);
 }

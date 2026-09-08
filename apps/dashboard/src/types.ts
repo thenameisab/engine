@@ -107,6 +107,20 @@ export interface FindingRow {
   url: string;
 }
 
+/**
+ * Findings that share an issue type, one entry per page. Severity and
+ * auto-fixability are properties of the issue type, so they live on the group;
+ * predicted impact depends on the page, so it stays on each finding.
+ */
+export interface FindingGroup {
+  type: string;
+  title: string;
+  severity: FindingRow['severity'];
+  autoFixable: boolean;
+  pageCount: number;
+  findings: FindingRow[];
+}
+
 export interface AuditData {
   /**
    * Null when the project has never been audited. The API reports the score of
