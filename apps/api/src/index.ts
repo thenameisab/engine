@@ -20,7 +20,17 @@ import {
   type StripeWebhookEvent,
 } from '@engine/billing';
 import { evaluateReadiness } from '@engine/config';
-import { verifyLocalCredentials, signLocalSession, localRosterSize } from '@engine/auth';
+import {
+  verifyLocalCredentials,
+  signLocalSession,
+  localRosterSize,
+  verifyPassword,
+  hashPassword,
+  needsRehash,
+  dummyHash,
+  type LocalUser,
+} from '@engine/auth';
+import { getCredentialByEmail, updatePasswordHash } from './repositories/userCredentials.js';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
 import { durationMs, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
@@ -191,6 +201,84 @@ app.use('/accounts/*', requireAuth);
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
 /**
+ * Resolve a presented credential to a user, from the database first and the
+ * `LOCAL_AUTH_USERS` secret second.
+ *
+ * **The database is authoritative once a row exists for that address.** A
+ * stored credential that fails to verify is a failed sign-in, full stop — it
+ * does not then get a second try against the environment roster. Without that
+ * rule, changing someone's password in the database would not actually change
+ * it: a stale roster entry left in the Worker secret would keep letting the
+ * old one through, and nothing would report the conflict.
+ *
+ * The roster remains as a fallback for addresses with no stored credential, so
+ * local development works with no database and the deployment did not have to
+ * be cut over in one step. It is the transition path, not the destination.
+ *
+ * Timing: a miss in the database spends one dummy derivation before falling
+ * through. PBKDF2 is deliberately slow, so returning early on "no such user"
+ * would make an unknown address measurably faster than a wrong password and
+ * turn this endpoint into a roster oracle over the network.
+ */
+type AuthOutcome =
+  | { kind: 'ok'; user: LocalUser }
+  | { kind: 'rejected' }
+  /** Nothing could answer the question — not "wrong password". */
+  | { kind: 'unavailable' };
+
+async function authenticate(
+  env: Env,
+  email: string | undefined,
+  password: string | undefined,
+): Promise<AuthOutcome> {
+  const address = (email ?? '').trim().toLowerCase();
+  const presented = password ?? '';
+  const rosterConfigured = localRosterSize(env.LOCAL_AUTH_USERS) > 0;
+
+  if (env.DATABASE_URL) {
+    let stored: Awaited<ReturnType<typeof getCredentialByEmail>> = null;
+    let reachable = true;
+    try {
+      stored = await getCredentialByEmail(createDb(env.DATABASE_URL), address);
+    } catch (err) {
+      reachable = false;
+      console.error('credential lookup failed', err);
+    }
+
+    if (stored) {
+      const ok = await verifyPassword(presented, stored.passwordHash);
+      if (!ok) return { kind: 'rejected' };
+      // Upgrade the work factor on the way past — this is the only moment the
+      // plaintext exists to re-derive from. Best effort: a failed re-hash must
+      // not fail the sign-in that just succeeded.
+      if (needsRehash(stored.passwordHash)) {
+        try {
+          await updatePasswordHash(createDb(env.DATABASE_URL), stored.user.id, await hashPassword(presented));
+        } catch (err) {
+          console.error('password re-hash failed', err);
+        }
+      }
+      return { kind: 'ok', user: stored.user };
+    }
+
+    // The credential store is the only configured source and it did not
+    // answer. Saying "those credentials are not valid" here would be a lie
+    // with a cost: the person retypes a correct password, doubts it, and the
+    // outage looks like their mistake. Same reasoning that removed the dev
+    // session bypass in August — unreachable is reported as unreachable.
+    if (!reachable && !rosterConfigured) return { kind: 'unavailable' };
+
+    // A real miss, not an outage. Spend a derivation before falling through:
+    // PBKDF2 is slow by design, so returning early here would make an unknown
+    // address measurably faster than a wrong password.
+    if (reachable) await verifyPassword(presented, dummyHash());
+  }
+
+  const user = verifyLocalCredentials(address, presented, env.LOCAL_AUTH_USERS);
+  return user ? { kind: 'ok', user } : { kind: 'rejected' };
+}
+
+/**
  * Credential sign-in for the fixed pre-alpha roster.
  *
  * Public by necessity — it is how a caller *becomes* authenticated — and the
@@ -210,9 +298,9 @@ app.get('/health', (c) => c.json({ status: 'ok' }));
 app.post('/auth/login', async (c) => {
   const secret = c.env.LOCAL_AUTH_SECRET;
   const rosterRaw = c.env.LOCAL_AUTH_USERS;
-  if (!secret || localRosterSize(rosterRaw) === 0) {
+  if (!secret || (!c.env.DATABASE_URL && localRosterSize(rosterRaw) === 0)) {
     return c.json(
-      { error: 'Credential sign-in is not configured on this deployment (LOCAL_AUTH_USERS / LOCAL_AUTH_SECRET).' },
+      { error: 'Credential sign-in is not configured on this deployment (LOCAL_AUTH_SECRET, and a database or LOCAL_AUTH_USERS).' },
       503,
     );
   }
@@ -223,8 +311,12 @@ app.post('/auth/login', async (c) => {
   if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
   const body = raw as { email: string; password: string };
 
-  const user = verifyLocalCredentials(body.email, body.password, rosterRaw);
-  if (!user) return c.json({ error: 'Those credentials are not valid.' }, 401);
+  const outcome = await authenticate(c.env, body.email, body.password);
+  if (outcome.kind === 'unavailable') {
+    return c.json({ error: 'Credential sign-in is temporarily unavailable on this deployment.' }, 503);
+  }
+  if (outcome.kind === 'rejected') return c.json({ error: 'Those credentials are not valid.' }, 401);
+  const user = outcome.user;
 
   const token = await signLocalSession(user, secret);
 
