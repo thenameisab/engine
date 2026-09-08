@@ -316,22 +316,53 @@ export interface Loaded<T> {
 
 /* ── Per-account Google integrations (GSC / GA4 / GBP) ─────────────────── */
 
-export type GoogleProviderId = 'gsc' | 'ga4' | 'gbp';
+/**
+ * A provider id is a plain string now, not a union of the three Google ones.
+ *
+ * The registry in `@engine/integrations` is the source of truth and it grows;
+ * a union here would have to be edited every time it does, which is exactly the
+ * coupling the registry exists to remove. The alias is kept so call sites still
+ * read as "a provider id" rather than "a string".
+ */
+export type GoogleProviderId = string;
+export type ProviderId = string;
+
+/** One field of an API-key provider's connect form. Never carries a value. */
+export interface ProviderField {
+  name: string;
+  label: string;
+  /** Sealed and never readable again. A non-secret field is shown back to the user. */
+  secret: boolean;
+  help?: string;
+  /** Anchored client-side, matching the server's own check. */
+  pattern?: string;
+}
 
 /** Mirrors the API's `/integrations/providers` catalogue entry. */
 export interface ProviderCatalogEntry {
-  id: GoogleProviderId;
+  id: ProviderId;
   name: string;
+  vendor?: string;
   purpose: string;
+  category?: string;
+  /** 'available' | 'beta' | 'planned'. Planned rows are shown but not connectable. */
+  availability?: 'available' | 'beta' | 'planned';
+  /** How this provider is connected: a consent flow, or a pasted key. */
+  authKind?: 'oauth2' | 'api_key';
+  /** Present for an api_key provider — the form to render. */
+  fields?: ProviderField[];
   scopes: string[];
-  /** 'property' or 'location' — what the picker is choosing. */
+  /** 'property', 'location', 'zone' — what the picker is choosing. */
   resourceNoun: string;
+  /** Vendor-side setup a human must do first. `requiredApis` is the older name. */
+  setupSteps?: string[];
   requiredApis: string[];
-  /** True when Google gates the API behind an access request, not just an enable toggle. */
+  /** True when the vendor gates the API behind an access request, not just a toggle. */
   requiresAccessRequest: boolean;
   writes: boolean;
-  /** Brand domain for the logo. All three Google providers share 'google.com'. */
+  /** Brand domain for the logo. */
   logoDomain: string;
+  docsUrl?: string;
 }
 
 /**
@@ -341,7 +372,19 @@ export interface ProviderCatalogEntry {
 export interface IntegrationConnection {
   id: string;
   accountId: string;
-  provider: GoogleProviderId;
+  provider: ProviderId;
+  /** 'oauth2' or 'api_key'. Absent once the credential has been cleared. */
+  credentialKind?: 'oauth2' | 'api_key';
+  /** Non-secret settings of an API-key credential — a site URL, a username. */
+  publicFields?: Record<string, string>;
+  /**
+   * Display label for the connected vendor account — an email for Google, a
+   * portal name elsewhere. `googleEmail` is the field's old name, kept
+   * optional so a dashboard build can read an API deploy of either vintage:
+   * the two halves are never updated in the same instant.
+   */
+  externalLabel?: string;
+  externalSubject?: string;
   googleEmail?: string;
   googleSubject?: string;
   grantedScopes: string[];
@@ -350,7 +393,7 @@ export interface IntegrationConnection {
   connectedAt: string;
   lastRefreshAt?: string;
   lastError?: string;
-  /** False when the user unticked a scope on Google's consent screen. */
+  /** False when the user unticked a scope on the consent screen. */
   scopesSufficient: boolean;
 }
 
@@ -386,4 +429,18 @@ export interface SyncOutcome {
   truncated: boolean;
   from: string;
   to: string;
+}
+
+/** One row of the integration audit trail (`/accounts/:id/integrations/events`). */
+export interface IntegrationEvent {
+  id: string;
+  provider: ProviderId;
+  /** 'connected' | 'refresh_failed' | 'disconnected' | … — see the API's registry. */
+  type: string;
+  /** 'user:<id>' or 'service:<name>'. A nightly sync is not the person who connected it. */
+  actor: string;
+  reason?: string;
+  detail?: string;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
 }

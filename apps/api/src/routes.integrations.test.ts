@@ -60,7 +60,10 @@ describe('GET /integrations/providers', () => {
 
     const ga4 = body.providers.find((p) => p.id === 'ga4')!;
     // The Admin API is the one people forget; it must be named in the catalogue.
-    expect(ga4.requiredApis).toContain('Google Analytics Admin API');
+    // The registry now carries prose setup steps rather than bare API names —
+    // a step can say *why* an API is needed, which a name cannot — so this
+    // asserts the name appears in a step rather than being an exact element.
+    expect(ga4.requiredApis.some((s) => s.includes('Google Analytics Admin API'))).toBe(true);
     expect(ga4.writes).toBe(false);
   });
 
@@ -357,5 +360,144 @@ describe('CORS', () => {
     // route already hit once with PATCH.
     expect(allowed).toContain('DELETE');
     expect(allowed).toContain('PUT');
+  });
+});
+
+/**
+ * The catalogue's second job: describing providers that cannot be connected
+ * yet, without ever letting one be connected.
+ */
+describe('GET /integrations/providers?planned=1', () => {
+  it('hides planned providers by default and lists them on request', async () => {
+    const live = (await (await request('/integrations/providers')).json()) as {
+      providers: { id: string; availability: string }[];
+    };
+    expect(live.providers.every((p) => p.availability !== 'planned')).toBe(true);
+
+    const all = (await (await request('/integrations/providers?planned=1')).json()) as {
+      providers: { id: string; availability: string }[];
+    };
+    expect(all.providers.length).toBeGreaterThan(live.providers.length);
+    expect(all.providers.some((p) => p.id === 'bing-webmaster' && p.availability === 'planned')).toBe(true);
+  });
+
+  it('describes the API-key form without ever carrying a value', async () => {
+    const body = (await (await request('/integrations/providers?planned=1')).json()) as {
+      providers: { id: string; authKind: string; fields?: { name: string; secret: boolean }[] }[];
+    };
+    const cloudflare = body.providers.find((p) => p.id === 'cloudflare')!;
+    expect(cloudflare.authKind).toBe('api_key');
+    expect(cloudflare.fields?.some((f) => f.name === 'apiToken' && f.secret)).toBe(true);
+    // A field descriptor says what to paste; it must never carry a pasted value.
+    expect(JSON.stringify(cloudflare.fields)).not.toMatch(/"value"/);
+  });
+});
+
+describe('provider gating', () => {
+  /**
+   * Migration 0017 removed the database's `check (provider in (...))`, so
+   * `assertConnectable` is the only thing standing between a request and a row
+   * with a nonsense provider. These are that guarantee.
+   */
+  it('refuses a planned provider on every account-scoped route', async () => {
+    const connect = await post(
+      `/accounts/${ACCOUNT}/integrations/hubspot/connect-url`,
+      {},
+      CLIENT_ENV,
+    );
+    expect(connect.status).toBe(400);
+
+    const apiKey = await post(`/accounts/${ACCOUNT}/integrations/ahrefs/api-key`, { apiToken: 'x' }, CLIENT_ENV);
+    expect(apiKey.status).toBe(400);
+
+    const remove = await request(
+      `/accounts/${ACCOUNT}/integrations/hubspot`,
+      { method: 'DELETE' },
+      CLIENT_ENV,
+    );
+    expect(remove.status).toBe(400);
+  });
+
+  it('refuses an unknown provider id', async () => {
+    const res = await post(`/accounts/${ACCOUNT}/integrations/not-a-provider/connect-url`, {}, CLIENT_ENV);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { field: string }).field).toBe('provider');
+  });
+
+  it('refuses an API key posted to an OAuth provider, and a consent flow for an API-key one', async () => {
+    const wrongKind = await post(`/accounts/${ACCOUNT}/integrations/gsc/api-key`, { apiToken: 'x' }, CLIENT_ENV);
+    expect(wrongKind.status).toBe(400);
+    expect(((await wrongKind.json()) as { error: string }).error).toMatch(/consent flow, not an API key/);
+  });
+});
+
+describe('the consent URL', () => {
+  /**
+   * PKCE is the property these protect. A signed state proves the callback
+   * belongs to a flow we started; it does nothing about a code that leaked from
+   * browser history or a proxy log. Without a challenge on the authorization
+   * request there is nothing for the verifier to prove later.
+   *
+   * These run against a database that cannot be reached, so they assert what
+   * the request *would* carry — `buildAuthorizationRequest` runs before the
+   * flow is stored. That is the ordering under test as much as the parameters.
+   */
+  it('is refused when no encryption key is configured, naming the variable to set', async () => {
+    const { ENCRYPTION_KEY: _drop, ...noKey } = CLIENT_ENV;
+    const res = await post(`/accounts/${ACCOUNT}/integrations/gsc/connect-url`, {}, noKey);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toMatch(/ENCRYPTION_KEY/);
+  });
+
+  it('is refused without a state secret, rather than starting an unsigned flow', async () => {
+    const { OAUTH_STATE_SECRET: _drop, ...noSecret } = CLIENT_ENV;
+    const res = await post(`/accounts/${ACCOUNT}/integrations/gsc/connect-url`, {}, noSecret);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toMatch(/OAUTH_STATE_SECRET/);
+  });
+});
+
+describe('GET /oauth/google/callback', () => {
+  it('rejects a state signed with a different secret', async () => {
+    const forged = await signOAuthState(
+      { accountId: ACCOUNT, userId: 'user-1', provider: 'gsc' },
+      'not-the-deployment-secret',
+    );
+    const res = await request(`/oauth/google/callback?code=abc&state=${encodeURIComponent(forged)}`, {}, CLIENT_ENV);
+    expect(res.status).toBe(400);
+    expect(await res.text()).toMatch(/was not valid/);
+  });
+
+  it('rejects a state naming a provider that is not connectable', async () => {
+    // A signed state is unforgeable, not trustworthy about what it names: it
+    // could have been minted before a provider was withdrawn.
+    const state = await signOAuthState(
+      { accountId: ACCOUNT, userId: 'user-1', provider: 'hubspot' },
+      CLIENT_ENV.OAUTH_STATE_SECRET,
+    );
+    const res = await request(`/oauth/google/callback?code=abc&state=${encodeURIComponent(state)}`, {}, CLIENT_ENV);
+    expect(res.status).toBe(400);
+    expect(await res.text()).toMatch(/Unknown provider/);
+  });
+
+  it('reports a cancelled consent as cancelled, not as our failure', async () => {
+    const res = await request('/oauth/google/callback?error=access_denied', {}, CLIENT_ENV);
+    expect(await res.text()).toMatch(/Nothing was connected/);
+  });
+
+  it('never echoes the authorization code back into the page', async () => {
+    // The page is rendered into a browser and may be screenshotted or logged;
+    // the code is a single-use credential right up until it is exchanged.
+    const state = await signOAuthState(
+      { accountId: ACCOUNT, userId: 'user-1', provider: 'gsc' },
+      CLIENT_ENV.OAUTH_STATE_SECRET,
+    );
+    const code = 'super-secret-authorization-code';
+    const res = await request(
+      `/oauth/google/callback?code=${code}&state=${encodeURIComponent(state)}`,
+      {},
+      CLIENT_ENV,
+    );
+    expect(await res.text()).not.toContain(code);
   });
 });
