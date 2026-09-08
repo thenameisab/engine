@@ -244,7 +244,9 @@ describe('POST /projects/:projectId/actions/generate-content', () => {
       context: { url: 'https://example.com/product', target: validTarget },
     });
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toContain('OPENAI_API_KEY');
+    // The message must not name the env var: it reaches a customer as a toast.
+    // The operator gets the variable name from the Worker log instead.
+    expect((await res.json()).error).toContain('not configured');
   });
 
   it('rejects a malformed body before any database call, once configured', async () => {

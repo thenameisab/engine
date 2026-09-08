@@ -46,11 +46,11 @@ function head(markup: string, label: string): HTMLElement {
   ]);
 }
 
-/** The source table each citation points at, shown as a short pillar tag. */
+/** Where each citation comes from, in the customer's words. */
 const SOURCE_LABEL: Record<CopilotCitationSource, string> = {
-  serp_positions: 'A1 · organic',
-  citation_events: 'A2 · AI',
-  findings: 'B1 · finding',
+  serp_positions: 'Search rankings',
+  citation_events: 'AI answers',
+  findings: 'Audit finding',
 };
 type CopilotCitationSource = CopilotAnswer['citations'][number]['source'];
 

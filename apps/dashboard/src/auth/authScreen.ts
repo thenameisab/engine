@@ -103,7 +103,7 @@ export function mountAuthScreen(root: HTMLElement): void {
     el('h1', { class: 'auth-title' }, ['Sign in']),
     el('p', { class: 'auth-sub' }, ['Your AI & search visibility — and the fixes that move it.']),
     form,
-    el('p', { class: 'auth-foot' }, ['Invite-only · pre-alpha access']),
+    el('p', { class: 'auth-foot' }, ['Invite-only access']),
   ]);
 
   root.append(el('div', { class: 'auth-screen' }, [el('div', { class: 'auth-center' }, [card])]));

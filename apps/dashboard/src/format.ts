@@ -132,7 +132,7 @@ const CONTRIBUTION_META: Record<
   },
   local: {
     label: 'Local SoV',
-    sub: () => 'not measured yet (B5, Phase 2)',
+    sub: () => 'not measured yet',
   },
 };
 

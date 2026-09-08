@@ -437,7 +437,8 @@ app.get('/health/integrations', async (c) => {
 app.post('/projects/:projectId/rank/poll', async (c) => {
   const connector = createSerpConnector(c.env as unknown as Record<string, string | undefined>);
   if (!connector) {
-    return c.json({ error: 'SERP provider not configured (set SERPER_API_KEY)' }, 503);
+    console.warn('SERP provider not configured: set SERPER_API_KEY');
+    return c.json({ error: 'Search-ranking lookups are not configured on this deployment.' }, 503);
   }
   const projectId = c.req.param('projectId');
   const body = await c.req.json<{ queries: SerpQuery[]; entityId?: string }>();
@@ -478,7 +479,10 @@ app.post('/projects/:projectId/rank/poll', async (c) => {
 app.post('/projects/:projectId/ai/poll', async (c) => {
   const connectors = createLlmConnectors(c.env as unknown as Record<string, string | undefined>);
   if (connectors.length === 0) {
-    return c.json({ error: 'No LLM engine configured (set OPENAI_API_KEY and/or GEMINI_API_KEY)' }, 503);
+    // The variable names belong in the Worker log, where the operator reads
+    // them, not in a message a customer sees as a toast.
+    console.warn('No LLM engine configured: set OPENAI_API_KEY and/or GEMINI_API_KEY');
+    return c.json({ error: 'AI-answer sampling is not configured on this deployment.' }, 503);
   }
   const projectId = c.req.param('projectId');
   const body = await c.req.json<{ query: PromptQuery; nSamples?: number }>();
@@ -1186,7 +1190,8 @@ app.post('/projects/:projectId/actions/generate', async (c) => {
  */
 app.post('/projects/:projectId/actions/generate-content', async (c) => {
   if (!c.env.OPENAI_API_KEY) {
-    return c.json({ error: 'Content rewrites are not configured (set OPENAI_API_KEY)' }, 503);
+    console.warn('Content rewrites are not configured: set OPENAI_API_KEY');
+    return c.json({ error: 'Content rewrites are not configured on this deployment.' }, 503);
   }
   const raw = await readJson(c);
   if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
@@ -1421,7 +1426,8 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     let detail = body.detail;
     if (to === 'deployed' && action.target.kind === 'github-pr') {
       if (!c.env.GITHUB_TOKEN) {
-        return c.json({ error: 'GitHub PR export is not configured (set GITHUB_TOKEN)' }, 503);
+        console.warn('GitHub PR export is not configured: set GITHUB_TOKEN');
+        return c.json({ error: 'Publishing to GitHub is not configured on this deployment.' }, 503);
       }
       try {
         const pr = await exportActionAsPr(c.env.GITHUB_TOKEN, action);
@@ -1598,7 +1604,8 @@ app.post('/billing/webhook', async (c) => {
 app.post('/accounts/:accountId/billing/checkout', async (c) => {
   const { STRIPE_SECRET_KEY, STRIPE_PRICE_TO_TIER } = c.env;
   if (!STRIPE_SECRET_KEY) {
-    return c.json({ error: 'Stripe checkout is not configured (set STRIPE_SECRET_KEY)' }, 503);
+    console.warn('Stripe checkout is not configured: set STRIPE_SECRET_KEY');
+    return c.json({ error: 'Billing is not configured on this deployment.' }, 503);
   }
 
   const raw = await readJson(c);

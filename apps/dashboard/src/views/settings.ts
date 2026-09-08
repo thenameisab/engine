@@ -200,7 +200,7 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
       el('div', { class: 'form' }, [
         el('label', { class: 'flabel' }, ['API base URL']),
         baseInput,
-        el('div', { class: 'fhint num' }, ['Where the dashboard reads live data from. Leave blank to explore with sample data.']),
+        el('div', { class: 'fhint num' }, ['Where the dashboard reads your data from. Leave blank to use this deployment’s default.']),
         el('label', { class: 'flabel' }, ['Project ID']),
         projInput,
         el('div', { class: 'fhint num' }, [

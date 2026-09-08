@@ -81,7 +81,7 @@ export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Fix Queue']),
-      el('p', { html: 'Every card is a real, persisted fix. Approve one to walk it through the lifecycle — each transition is written to Postgres with an audit entry.' }),
+      el('p', {}, ['Every card is a proposed fix for your site. Approve one to deploy it, then verify that it landed.']),
     ]),
     container,
   ]);
