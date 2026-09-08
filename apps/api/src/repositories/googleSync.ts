@@ -29,11 +29,19 @@ import {
   getProjectAssignment,
   listAssignments,
   ConnectionUnavailableError,
-  type GoogleClientEnv,
+  type OAuthClientEnv,
 } from './integrations.js';
+import { keyringFrom } from './oauthFlows.js';
 
-export interface SyncEnv extends GoogleClientEnv {
+/**
+ * `ENCRYPTION_KEYS` is the keyring form (`version:key` pairs, newest first);
+ * `ENCRYPTION_KEY` is the original single-key form and still works, loaded as
+ * version 'v1'. Both are read here so a sync running on a deployment that has
+ * not adopted rotation behaves exactly as before.
+ */
+export interface SyncEnv extends OAuthClientEnv {
   ENCRYPTION_KEY?: string;
+  ENCRYPTION_KEYS?: string;
 }
 
 export interface SyncResult {
@@ -123,7 +131,7 @@ export async function syncGsc(
   if (!assignment) return { error: 'no-assignment' };
 
   const { from, to } = window ?? defaultWindow('gsc', now);
-  const token = await getAccessToken(db, accountId, 'gsc', env, fetchImpl);
+  const token = await getAccessToken(db, accountId, 'gsc', await keyringFrom(env), env, fetchImpl);
 
   try {
     const [byQuery, byPage] = await Promise.all([
@@ -186,7 +194,7 @@ export async function syncGa4(
   if (!assignment) return { error: 'no-assignment' };
 
   const { from, to } = window ?? defaultWindow('ga4', now);
-  const token = await getAccessToken(db, accountId, 'ga4', env, fetchImpl);
+  const token = await getAccessToken(db, accountId, 'ga4', await keyringFrom(env), env, fetchImpl);
 
   try {
     const report = await ga4ChannelReport(token, assignment.resourceId, from, to, fetchImpl);
@@ -288,7 +296,7 @@ export async function syncGbp(
   const assignments = (await listAssignments(db, projectId)).filter((a) => a.provider === 'gbp');
   if (assignments.length === 0) return { error: 'no-assignment' };
 
-  const token = await getAccessToken(db, accountId, 'gbp', env, fetchImpl);
+  const token = await getAccessToken(db, accountId, 'gbp', await keyringFrom(env), env, fetchImpl);
 
   // Locations are addressed under their Business Profile account, and an
   // assignment records only the location. Build the map once: an agency with

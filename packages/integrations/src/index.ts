@@ -20,4 +20,5 @@ export * from './credentials.js';
 export * from './errors.js';
 export * from './redact.js';
 export * from './http.js';
+export * from './resources.js';
 export * from './audit.js';

@@ -7,6 +7,7 @@ import {
   fetchConnectUrl,
   fetchProviderResources,
   disconnectProvider,
+  connectApiKey,
   fetchProjectIntegrations,
   assignProviderResource,
   unassignProviderResource,
@@ -22,18 +23,23 @@ import type {
 } from '../types.js';
 
 /**
- * The screen where a customer connects their own Google accounts.
+ * The screen where a customer connects their own accounts.
  *
  * The existing Integrations block (`views/integrations.ts`) reports whether
  * *we* have wired a vendor key — it reads `/health/integrations` and shows
  * "SERPER_API_KEY missing". That is an operator view, and it stays. This is a
- * different thing: the customer's own Google grant, which they create, assign,
- * and revoke themselves.
+ * different thing: the customer's own grant, which they create, assign, and
+ * revoke themselves.
+ *
+ * Two ways in, because the registry now has both. An OAuth provider opens a
+ * consent popup; an API-key provider shows a form. They share the card, the
+ * status vocabulary and the resource picker — only the connect control differs,
+ * which is the whole point of the registry carrying `authKind`.
  *
  * Three states per provider, and they are genuinely distinct:
  *   - the deployment has no OAuth client, so nothing can be connected;
- *   - no Google account is connected yet;
- *   - connected, but Google revoked the grant, or the user unticked a scope.
+ *   - no account is connected yet;
+ *   - connected, but the vendor revoked the grant, or the user unticked a scope.
  * Collapsing any pair of them produces a screen that says "not connected" when
  * the real answer is "reconnect" or "ask your administrator".
  */
@@ -47,7 +53,7 @@ const STATUS_LABEL: Record<IntegrationConnection['status'], string> = {
 /** A short, plain description of what is wrong, or null when nothing is. */
 function healthProblem(connection: IntegrationConnection): string | null {
   if (connection.status === 'needs_reauth') {
-    return 'Google revoked this grant. Reconnect to resume syncing.';
+    return 'The provider revoked this grant. Reconnect to resume syncing.';
   }
   if (connection.status === 'connected' && !connection.scopesSufficient) {
     return 'Connected without the permission this needs — reconnect and accept all requested access.';
@@ -146,11 +152,115 @@ interface ProviderCardInput {
   reload: () => void;
 }
 
+/**
+ * Which vendor account this is, for the "Connected as" line.
+ *
+ * `externalLabel` is the current field; `googleEmail` was its name before the
+ * registry went vendor-neutral. Both are read because a Pages build and a
+ * Worker deploy never land in the same instant, and for an API-key provider
+ * neither exists — the first non-secret field (a site URL, an account id) is
+ * what distinguishes two connections of the same vendor.
+ */
+function connectedAsLabel(connection: IntegrationConnection | undefined): string | null {
+  if (!connection) return null;
+  const named = connection.externalLabel ?? connection.googleEmail;
+  if (named) return named;
+  const publicValues = Object.values(connection.publicFields ?? {});
+  return publicValues[0] ?? null;
+}
+
+/**
+ * The connect form for a provider that takes a pasted key.
+ *
+ * Rendered from the registry's field descriptors, so a new API-key provider
+ * needs no code here. Three deliberate properties:
+ *
+ *   - secret fields are `type="password"` and `autocomplete="off"`, so a
+ *     browser does not offer to save a customer's vendor credential into a
+ *     password manager keyed to *our* domain;
+ *   - the value is read at submit and never held anywhere that outlives it —
+ *     no localStorage, no module-level variable;
+ *   - the declared pattern is applied client-side as well as server-side. The
+ *     server's check is the real one; this one just turns a round trip into an
+ *     immediate answer.
+ */
+function apiKeyForm(input: {
+  ctx: AppContext;
+  accountId: string;
+  entry: ProviderCatalogEntry;
+  connected: boolean;
+  reload: () => void;
+}): HTMLElement {
+  const { ctx, accountId, entry, connected, reload } = input;
+  const fields = entry.fields ?? [];
+  const inputs = new Map<string, HTMLInputElement>();
+
+  const rows = fields.map((field) => {
+    const control = el('input', {
+      class: 'field',
+      type: field.secret ? 'password' : 'text',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      placeholder: field.help ?? '',
+    }) as HTMLInputElement;
+    inputs.set(field.name, control);
+    return el('div', { class: 'form-row' }, [
+      el('label', { class: 'label' }, [field.label, field.secret ? el('span', { class: 'tagband' }, ['secret']) : null]),
+      control,
+      field.help ? el('div', { class: 'fhint' }, [field.help]) : null,
+    ]);
+  });
+
+  const submit = el(
+    'button',
+    {
+      class: 'btn primary',
+      onclick: async () => {
+        const values: Record<string, string> = {};
+        for (const field of fields) {
+          const raw = (inputs.get(field.name)?.value ?? '').trim();
+          if (!raw) {
+            ctx.toast(`${field.label} is required.`);
+            return;
+          }
+          if (field.pattern && !new RegExp(`^(?:${field.pattern})$`).test(raw)) {
+            // Never echoes the value — it is the secret, and a toast is read
+            // over someone's shoulder as easily as anything else on screen.
+            ctx.toast(`${field.label} does not look right. Check you copied the whole value.`);
+            return;
+          }
+          values[field.name] = raw;
+        }
+        try {
+          await connectApiKey(accountId, entry.id, values);
+          // Cleared on success as well as being unstored: a key left in a DOM
+          // node is still a key on the page.
+          for (const control of inputs.values()) control.value = '';
+          ctx.toast(`${entry.name} connected.`);
+          reload();
+        } catch (err) {
+          ctx.toast(`Could not connect: ${readableError(err)}`);
+        }
+      },
+    },
+    [connected ? `Replace ${entry.name} key` : `Connect ${entry.name}`],
+  );
+
+  return el('div', { class: 'intg-apikey' }, [
+    ...rows,
+    el('div', { class: 'form-actions' }, [submit]),
+  ]);
+}
+
 function providerCard(input: ProviderCardInput): HTMLElement {
   const { ctx, accountId, entry, connection, assignments, oauthConfigured, reload } = input;
   const live = connection?.status === 'connected';
   const problem = connection ? healthProblem(connection) : null;
   const state: IntegrationConnection['status'] | 'absent' = connection?.status ?? 'absent';
+
+  // An API-key provider has no consent screen, so the OAuth button would be
+  // both useless and misleading. `authKind` from the registry is what decides.
+  const isApiKey = entry.authKind === 'api_key';
 
   const connectButton = el('button', {
     class: live ? 'btn' : 'btn primary',
@@ -183,11 +293,16 @@ function providerCard(input: ProviderCardInput): HTMLElement {
         onclick: async () => {
           if (!window.confirm(`Disconnect ${entry.name}? Syncing stops for every project using it.`)) return;
           try {
-            const { revokedAtGoogle } = await disconnectProvider(accountId, entry.id);
+            const { revokedAtVendor, revocationSupported } = await disconnectProvider(accountId, entry.id);
+            // Three outcomes, not two. A vendor with no revocation endpoint
+            // (an API key) has not "refused" — there was nothing to call, and
+            // saying access was revoked there would be a false promise.
             ctx.toast(
-              revokedAtGoogle
-                ? `${entry.name} disconnected and access revoked at Google.`
-                : `${entry.name} disconnected. Google reported the grant was already gone.`,
+              !revocationSupported
+                ? `${entry.name} disconnected. Revoke the key at ${entry.name} to fully sever access.`
+                : revokedAtVendor
+                  ? `${entry.name} disconnected and access revoked at the provider.`
+                  : `${entry.name} disconnected. The provider reported the grant was already gone.`,
             );
             reload();
           } catch (err) {
@@ -337,29 +452,46 @@ function providerCard(input: ProviderCardInput): HTMLElement {
     el('div', { class: 'intg-body' }, [
       el('p', { class: 'intg-purpose' }, [entry.purpose]),
 
-      connection?.googleEmail
-        ? el('div', { class: 'fhint num' }, [`Connected as ${connection.googleEmail} · ${relativeTime(connection.connectedAt)}`])
+      connection && connectedAsLabel(connection)
+        ? el('div', { class: 'fhint num' }, [
+            `Connected as ${connectedAsLabel(connection)} · ${relativeTime(connection.connectedAt)}`,
+          ])
         : null,
 
       problem ? el('div', { class: 'fq-note warn' }, [problem]) : null,
 
-      !oauthConfigured
+      // Only an OAuth provider is blocked by a missing OAuth client. Showing
+      // this on an API-key card would tell a customer to go and ask an
+      // administrator for something that has no bearing on what they are doing.
+      !oauthConfigured && !isApiKey
         ? el('div', { class: 'fq-note' }, [
             'This deployment has no Google OAuth client configured, so nothing can be connected yet. An administrator needs to set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.',
           ])
         : null,
 
+      entry.availability === 'planned'
+        ? el('div', { class: 'fq-note' }, ['Coming soon. This provider cannot be connected yet.'])
+        : null,
+
       // Stated up front rather than discovered as a 403 later.
       entry.requiresAccessRequest
         ? el('div', { class: 'fq-note' }, [
-            'Google grants this API zero quota until it approves an access request, which takes weeks. Connecting will succeed before that; reads will not.',
+            'The provider grants this API zero quota until it approves an access request, which takes weeks. Connecting will succeed before that; reads will not.',
           ])
         : null,
 
       entry.writes
         ? el('div', { class: 'fhint num' }, [
-            'Google offers no read-only scope here, so connecting grants write access. Nothing is written until you approve a fix in the Fix Queue.',
+            'Connecting grants write access — the provider offers no read-only equivalent. Nothing is written until you approve a fix in the Fix Queue.',
           ])
+        : null,
+
+      // Setup the customer must do at the vendor first. Each one otherwise
+      // arrives as a 403 that does not explain itself.
+      (entry.setupSteps ?? entry.requiredApis ?? []).length > 0
+        ? el('ul', { class: 'intg-setup' }, (entry.setupSteps ?? entry.requiredApis).map((step) =>
+            el('li', {}, [step]),
+          ))
         : null,
 
       assignmentRows.length > 0
@@ -370,7 +502,15 @@ function providerCard(input: ProviderCardInput): HTMLElement {
 
       pickerHost,
 
-      el('div', { class: 'form-actions' }, [connectButton, pickButton, disconnectButton].filter(Boolean) as HTMLElement[]),
+      isApiKey && entry.availability !== 'planned'
+        ? apiKeyForm({ ctx, accountId, entry, connected: Boolean(live), reload })
+        : null,
+
+      el(
+        'div',
+        { class: 'form-actions' },
+        [isApiKey ? null : connectButton, pickButton, disconnectButton].filter(Boolean) as HTMLElement[],
+      ),
     ].filter(Boolean) as HTMLElement[]),
   ]);
 }

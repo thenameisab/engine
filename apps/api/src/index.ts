@@ -51,6 +51,7 @@ import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
+import { keyringFrom } from './repositories/oauthFlows.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -1418,7 +1419,7 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
       try {
         const accountId = await getProjectAccountId(db, projectId);
         if (!accountId) return c.json({ error: 'project not found', projectId }, 404);
-        token = await getAccessToken(db, accountId, 'gbp', c.env);
+        token = await getAccessToken(db, accountId, 'gbp', await keyringFrom(c.env), c.env);
       } catch (err) {
         if (!(err instanceof ConnectionUnavailableError)) {
           return c.json({ error: `GBP deploy failed: ${(err as Error).message}` }, 502);

@@ -56,6 +56,9 @@ importers:
       '@engine/entity-audit':
         specifier: workspace:*
         version: link:../../packages/entity-audit
+      '@engine/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@engine/keywords':
         specifier: workspace:*
         version: link:../../packages/keywords

@@ -24,6 +24,7 @@
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",
     "@engine/entity-audit": "workspace:*",
+    "@engine/integrations": "workspace:*",
     "@engine/keywords": "workspace:*",
     "@engine/local": "workspace:*",
     "@engine/scoring": "workspace:*",

@@ -33,6 +33,8 @@ import type {
   DeployTarget,
   SerpInspectResult,
   GoogleProviderId,
+  ProviderId,
+  IntegrationEvent,
   ProviderCatalogEntry,
   IntegrationConnection,
   IntegrationAssignment,
@@ -472,15 +474,17 @@ export async function fetchReportUrl(accountId: string): Promise<string> {
   return URL.createObjectURL(new Blob([html], { type: 'text/html' }));
 }
 
-/* ── Per-account Google integrations ───────────────────────────────────── */
+/* ── Per-account customer integrations ─────────────────────────────────── */
 
 /**
  * The provider catalogue. Unauthenticated on the API side (a static product
  * description), but routed through `request` anyway so it obeys the same base
  * URL and timeout as everything else.
  */
-export async function fetchProviderCatalog(): Promise<ProviderCatalogEntry[]> {
-  const resp = await request<{ providers: ProviderCatalogEntry[] }>('/integrations/providers');
+export async function fetchProviderCatalog(includePlanned = false): Promise<ProviderCatalogEntry[]> {
+  const resp = await request<{ providers: ProviderCatalogEntry[] }>(
+    `/integrations/providers${includePlanned ? '?planned=1' : ''}`,
+  );
   return resp.providers;
 }
 
@@ -521,12 +525,44 @@ export async function fetchProviderResources(
 
 export async function disconnectProvider(
   accountId: string,
-  provider: GoogleProviderId,
-): Promise<{ revokedAtGoogle: boolean }> {
-  return request<{ disconnected: boolean; revokedAtGoogle: boolean }>(
-    `/accounts/${accountId}/integrations/${provider}`,
-    { method: 'DELETE' },
+  provider: ProviderId,
+): Promise<{ revokedAtVendor: boolean; revocationSupported: boolean }> {
+  const resp = await request<{
+    disconnected: boolean;
+    revokedAtVendor?: boolean;
+    revocationSupported?: boolean;
+    revokedAtGoogle?: boolean;
+  }>(`/accounts/${accountId}/integrations/${provider}`, { method: 'DELETE' });
+  // `revokedAtGoogle` is the field's old name. Read both so this build works
+  // against an API deploy of either vintage; a Pages build and a Worker deploy
+  // never land in the same instant.
+  const revokedAtVendor = resp.revokedAtVendor ?? resp.revokedAtGoogle ?? false;
+  return { revokedAtVendor, revocationSupported: resp.revocationSupported ?? true };
+}
+
+/**
+ * Connect a provider that takes a pasted API key.
+ *
+ * The second connect path, for vendors with no consent screen. The values go
+ * straight to the API and are never stored client-side — not in localStorage,
+ * not in a component that outlives the submit.
+ */
+export async function connectApiKey(
+  accountId: string,
+  provider: ProviderId,
+  fields: Record<string, string>,
+): Promise<IntegrationConnection> {
+  const resp = await request<{ connection: IntegrationConnection }>(
+    `/accounts/${accountId}/integrations/${provider}/api-key`,
+    { method: 'POST', body: JSON.stringify(fields) },
   );
+  return resp.connection;
+}
+
+/** The integration audit trail for this account. Owner-only on the API side. */
+export async function fetchIntegrationEvents(accountId: string): Promise<IntegrationEvent[]> {
+  const resp = await request<{ events: IntegrationEvent[] }>(`/accounts/${accountId}/integrations/events`);
+  return resp.events;
 }
 
 export async function fetchProjectIntegrations(): Promise<{
