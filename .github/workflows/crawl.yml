@@ -1,0 +1,63 @@
+name: Crawl queue
+
+# The audit runner (docs/46-Audit-Runner.md, Option A). A Cloudflare Worker
+# cannot start a browser, so "Run audit" in the product queues a request and
+# this workflow crawls it. It runs every 15 minutes and whenever the API
+# dispatches it, which the API does the moment a request is queued.
+#
+# Logs on a public repository are public. The runner prints request ids and
+# counts only; a customer's domain and any crawl error stay in the API.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# One pass at a time. A second trigger while a pass is running waits for it;
+# the queue's claim step is conditional anyway, so an overlap would only waste
+# minutes, never double-crawl.
+concurrency:
+  group: crawl-queue
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @engine/crawler exec playwright install --with-deps chromium
+
+      - name: Build the crawler and what it imports
+        run: pnpm turbo run build --filter=@engine/crawler
+
+      # ENGINE_API_BASE is the same repository variable the site build bakes in.
+      # ENGINE_API_TOKEN must equal the Worker's INTERNAL_API_TOKEN secret.
+      - name: Require the API origin and service token
+        env:
+          ENGINE_API_BASE: ${{ vars.ENGINE_API_BASE }}
+          ENGINE_API_TOKEN: ${{ secrets.ENGINE_API_TOKEN }}
+        run: |
+          if [ -z "$ENGINE_API_BASE" ] || [ -z "$ENGINE_API_TOKEN" ]; then
+            echo "::error::Set the ENGINE_API_BASE repository variable and the ENGINE_API_TOKEN" \
+                 "repository secret (equal to the Worker's INTERNAL_API_TOKEN). Without them the" \
+                 "runner cannot read the queue and every audit request stays queued."
+            exit 1
+          fi
+
+      - name: Drain the audit queue
+        env:
+          ENGINE_API_BASE: ${{ vars.ENGINE_API_BASE }}
+          ENGINE_API_TOKEN: ${{ secrets.ENGINE_API_TOKEN }}
+        run: node packages/crawler/dist/queueRunner.js

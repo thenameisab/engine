@@ -4,6 +4,7 @@
  * the fiddly bits are verifiable in isolation.
  */
 import type {
+  ApiAuditRequest,
   AccountCard,
   ActionCard,
   ApiAccount,
@@ -100,6 +101,40 @@ export function normalizeDomain(input: string): string {
     .replace(/^https?:\/\//, '')
     .replace(/^www\./, '')
     .replace(/\/.*$/, '');
+}
+
+export interface AuditRequestStatusLine {
+  text: string;
+  /** Semantic colour token name; null means plain text. */
+  tone: 'watch' | 'risk' | 'good' | null;
+  /** Whether the screen should keep polling. */
+  live: boolean;
+}
+
+function clockTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * One sentence for the Audit header about the newest request. `done` returns
+ * null: the findings below are the message. A `failed` line carries the API's
+ * error, which is the customer's to read (the runner's log never has it).
+ */
+export function auditRequestStatusLine(r: ApiAuditRequest | null): AuditRequestStatusLine | null {
+  if (!r) return null;
+  switch (r.status) {
+    case 'queued':
+      return { text: 'Audit queued. It usually starts within a few minutes.', tone: 'watch', live: true };
+    case 'running': {
+      const since = r.startedAt ? clockTime(r.startedAt) : '';
+      return { text: since ? `Audit running since ${since}.` : 'Audit running.', tone: 'watch', live: true };
+    }
+    case 'failed':
+      return { text: `The last audit failed: ${r.error ?? 'no reason was recorded'}`, tone: 'risk', live: false };
+    case 'done':
+      return null;
+  }
 }
 
 export interface OnboardingDefaults {

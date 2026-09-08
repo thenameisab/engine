@@ -465,6 +465,47 @@ export function checkCreateProjectBody(body: unknown): Invalid | null {
  * same open-redirect-adjacent reasoning applies. `companyName`/`primaryColor`
  * are free text — nothing downstream executes them as a URL or a query.
  */
+export const AUDIT_REQUEST_MAX_PAGES_DEFAULT = 50;
+export const AUDIT_REQUEST_MAX_PAGES_LIMIT = 500;
+
+/**
+ * `POST /projects/:id/audit-requests`. Both fields are optional: the product
+ * sends an empty body and the API picks the project's brand and the default
+ * page cap. `maxPages` is bounded because a runner spends real minutes per
+ * page and the queue is shared.
+ */
+export function checkAuditRequestBody(body: unknown): Invalid | null {
+  if (body === undefined || body === null) return null;
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(
+    optional(b.entityId, () => checkString(b.entityId, 'entityId')),
+    optional(b.maxPages, () => {
+      const bad = checkNumber(b.maxPages, 'maxPages');
+      if (bad) return bad;
+      const n = b.maxPages as number;
+      if (!Number.isInteger(n) || n < 1 || n > AUDIT_REQUEST_MAX_PAGES_LIMIT) {
+        return { field: 'maxPages', message: `expected an integer from 1 to ${AUDIT_REQUEST_MAX_PAGES_LIMIT}, got ${n}` };
+      }
+      return null;
+    }),
+  );
+}
+
+/** `POST /internal/audit-requests/:id/finish`: exactly one of `auditRunId` or `error`. */
+export function checkAuditRequestFinishBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  const hasRun = b.auditRunId !== undefined;
+  const hasError = b.error !== undefined;
+  if (hasRun === hasError) {
+    return { field: 'body', message: 'expected exactly one of auditRunId or error' };
+  }
+  return hasRun ? checkString(b.auditRunId, 'auditRunId') : checkString(b.error, 'error');
+}
+
 export function checkBrandingBody(body: unknown): Invalid | null {
   const invalid = checkObject(body, 'body');
   if (invalid) return invalid;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults } from './format.js';
-import type { ApiAction, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine } from './format.js';
+import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -349,5 +349,24 @@ describe('onboardingDefaults', () => {
   });
   it('yields an empty domain for an empty address, so the form can refuse it', () => {
     expect(onboardingDefaults('Acme', '   ').domain).toBe('');
+  });
+});
+
+describe('auditRequestStatusLine', () => {
+  const base: ApiAuditRequest = {
+    id: 'r', projectId: 'p', status: 'queued', maxPages: 50, error: null, auditRunId: null,
+    createdAt: '2026-09-08T10:00:00.000Z', startedAt: null, finishedAt: null,
+  };
+  it('is silent with no request, and after a finished one', () => {
+    expect(auditRequestStatusLine(null)).toBeNull();
+    expect(auditRequestStatusLine({ ...base, status: 'done' })).toBeNull();
+  });
+  it('keeps polling while queued or running', () => {
+    expect(auditRequestStatusLine(base)?.live).toBe(true);
+    expect(auditRequestStatusLine({ ...base, status: 'running', startedAt: base.createdAt })?.live).toBe(true);
+  });
+  it('shows the failure reason on the risk tone and stops polling', () => {
+    const line = auditRequestStatusLine({ ...base, status: 'failed', error: 'site unreachable' });
+    expect(line).toEqual({ text: 'The last audit failed: site unreachable', tone: 'risk', live: false });
   });
 });

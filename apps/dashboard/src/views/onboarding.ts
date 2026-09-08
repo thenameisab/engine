@@ -14,6 +14,7 @@ import {
   createProjectApi,
   createEntityApi,
   markDomainConnectedApi,
+  requestAudit,
   getAccountId,
   setAccountId,
   setProjectId,
@@ -150,7 +151,16 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
       } catch {
         // Bookkeeping for the onboarding KPIs; the site is set up either way.
       }
-      ctx.toast(`${d.siteName} is set up`);
+      // Queue the first audit so the customer lands on a screen that is doing
+      // something. If the queue refuses, the Audit screen has the button.
+      let queued = false;
+      try {
+        await requestAudit(project.id);
+        queued = true;
+      } catch {
+        /* handled by the toast below */
+      }
+      ctx.toast(queued ? `${d.siteName} is set up. First audit queued.` : `${d.siteName} is set up.`);
       ctx.navigate('audit');
     } catch (err) {
       showError(readableError(err));

@@ -158,6 +158,13 @@ export async function createProject(
   return toProject(row);
 }
 
+export async function getProject(db: Db, projectId: string): Promise<Project | null> {
+  const rows = await db<ProjectRow[]>`
+    select id, account_id, name, domain, created_at from projects where id = ${projectId}
+  `;
+  return rows[0] ? toProject(rows[0]) : null;
+}
+
 export async function listProjectsByAccount(db: Db, accountId: string): Promise<Project[]> {
   const rows = await db<ProjectRow[]>`
     select id, account_id, name, domain, created_at

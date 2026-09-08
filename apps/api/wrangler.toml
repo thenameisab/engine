@@ -35,6 +35,11 @@ crons = ["15 3 * * *"]
 #                         must reconnect.
 #   OAUTH_STATE_SECRET    Signs the OAuth `state` parameter, so a callback
 #                         cannot be redirected at another account.
+#   GITHUB_DISPATCH_TOKEN Fine-grained GitHub token with `actions: write` on
+#                         this repository. Lets "Run audit" start the crawl
+#                         workflow at once instead of at its 15-minute
+#                         schedule. Unset means schedule only. Platform-owned;
+#                         it never touches a customer's repository.
 #   STRIPE_WEBHOOK_SECRET Stripe webhook signing secret
 #   STRIPE_SECRET_KEY     Stripe secret key (optional — outbound calls only)
 #   SERPER_API_KEY        Serper.dev SERP API key (A1 rank tracking)

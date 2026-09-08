@@ -9,6 +9,7 @@
  * that says which happened.
  */
 import type {
+  ApiAuditRequest,
   AccountCard,
   ActionCard,
   ApiAccount,
@@ -253,6 +254,23 @@ export async function fetchAudit(): Promise<AuditData> {
     lastRunAt: resp.lastRunAt,
     pagesAudited: resp.pagesAudited,
   };
+}
+
+/**
+ * "Run audit": queue a crawl for the selected project, or the one named. The
+ * API answers 409 when one is already queued or running; callers read that
+ * through `readableError` as a plain sentence.
+ */
+export async function requestAudit(projectId = requireProjectId()): Promise<{ request: ApiAuditRequest; dispatched: boolean }> {
+  return request<{ request: ApiAuditRequest; dispatched: boolean }>(`/projects/${projectId}/audit-requests`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
+export async function fetchLatestAuditRequest(): Promise<ApiAuditRequest | null> {
+  const resp = await request<{ request: ApiAuditRequest | null }>(`/projects/${requireProjectId()}/audit-requests/latest`);
+  return resp.request;
 }
 
 const TRANSITION_PATH: Record<Exclude<ActionStatus, 'proposed'>, string> = {
