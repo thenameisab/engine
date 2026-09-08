@@ -226,9 +226,17 @@ a { color: inherit; text-decoration: none; }
 
 .intg-providers { display: flex; flex-direction: column; gap: 12px; }
 /* space-between is right for a two-child header; with a logo ahead of the
-   title it would strand the mark at the far edge. Pack from the start and let
-   .intg-status keep its margin-left:auto. */
-.intg-provider > header { justify-content: flex-start; gap: 10px; }
+   title it would strand the mark at the far edge, and with three children it
+   spreads them across the panel. Pack from the start wherever a header carries
+   a logo, and let .intg-status keep its margin-left:auto.
+
+   :has() rather than a hand-applied class, so a new panel with a logo gets the
+   right layout without anyone remembering. A browser without :has() drops the
+   rule and falls back to the old centring — worse, not broken. */
+.intg-provider > header,
+.panel > header:has(.logo-tile) { justify-content: flex-start; gap: 10px; }
+/* The trailing affordance sits at the far end, where .intg-status would. */
+.panel > header:has(.logo-tile) > .hovercard-trigger:last-child { margin-left: auto; }
 .intg-provider .intg-status { margin-left: auto; }
 .intg-provider.needs_reauth { border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
 .intg-provider.connected { border-color: color-mix(in srgb, var(--good) 26%, var(--border)); }
@@ -244,6 +252,16 @@ a { color: inherit; text-decoration: none; }
 .intg-assign-label { font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
 .intg-assign .num { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
 .intg-assign .btn { flex: none; }
+/* The one value a vendor compares byte for byte, next to a copy button —
+   retyping it is the most common setup failure. */
+.copyfield { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.copyfield code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+  padding: 6px 8px; border-radius: var(--r-sm); background: var(--surface-2);
+  border: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); }
+.copyfield .btn { flex: none; padding: 6px 12px; }
+/* A settled state reads green; the warn tone is the default for .intg-alert. */
+.intg-alert.ok { color: var(--good); }
+
 /* Short chips carrying a fact plus a hover card, in place of the paragraph
    each of them used to be. */
 .intg-badges { display: flex; flex-wrap: wrap; gap: 6px; }

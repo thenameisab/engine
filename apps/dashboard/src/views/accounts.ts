@@ -10,10 +10,21 @@ import { fetchAccounts, createAccountApi, createProjectApi, setAccountId, setPro
 import type { AppContext } from '../context.js';
 import type { AccountCard, ApiProject } from '../types.js';
 
-function projectRow(p: ApiProject, ctx: AppContext): HTMLElement {
+/**
+ * `accountId` as well as `projectId`, and the pairing is the fix.
+ *
+ * Selecting a project used to set only the project id. Every project-scoped
+ * screen worked, and every account-scoped one did not: Integrations reported
+ * "Pick a client from the Clients grid first" to a customer who had just
+ * picked one from the Clients grid. The two ids are set together here because
+ * a project belongs to exactly one account, so there is no state in which
+ * knowing the project and not the account is correct.
+ */
+function projectRow(p: ApiProject, accountId: string, ctx: AppContext): HTMLElement {
   return el('button', {
     class: 'client-project',
     onclick: () => {
+      setAccountId(accountId);
       setProjectId(p.id);
       ctx.toast(`Switched to ${p.name}`);
       ctx.navigate('pulse');
@@ -46,7 +57,7 @@ function accountCard(a: AccountCard, ctx: AppContext, onNewProject: (accountId: 
     ]),
     a.projects.length === 0
       ? el('div', { class: 'fq-note' }, ['No projects yet for this client.'])
-      : el('div', { class: 'client-projects' }, a.projects.map((p) => projectRow(p, ctx))),
+      : el('div', { class: 'client-projects' }, a.projects.map((p) => projectRow(p, a.id, ctx))),
     el('div', { class: 'client-actions' }, [
       el('button', {
         class: 'linklike',

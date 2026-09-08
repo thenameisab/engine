@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { signOAuthState } from '@engine/auth';
 import { app } from './index.js';
 import { isInvited, parseAllowedEmails } from './middleware/auth.js';
+import { isPlatformAdmin } from './repositories/platformCredentials.js';
 
 /**
  * The integration routes' contract at the boundary, driven through the real
@@ -87,17 +88,24 @@ describe('POST /accounts/:accountId/integrations/:provider/connect-url', () => {
     expect((await res.json() as { field: string }).field).toBe('provider');
   });
 
-  it('503s when no OAuth client is configured, naming the missing vars', async () => {
+  it('503s when nothing is configured, naming what the operator must set', async () => {
+    // The message no longer names GOOGLE_CLIENT_ID, because that is no longer
+    // how a client is configured — it is set on the platform admin screen. The
+    // property under test is unchanged: a deployment that cannot complete a
+    // flow refuses to start one, and says what is missing.
     const res = await post(`/accounts/${ACCOUNT}/integrations/gsc/connect-url`, {});
     expect(res.status).toBe(503);
-    expect((await res.json() as { error: string }).error).toMatch(/GOOGLE_CLIENT_ID/);
+    expect((await res.json() as { error: string }).error).toMatch(/ENCRYPTION_KEY/);
   });
 
-  it('refuses to start an unsigned flow when OAUTH_STATE_SECRET is missing', async () => {
+  it('refuses to start an unsigned flow when no signing secret can be obtained', async () => {
+    // OAUTH_STATE_SECRET is optional now — one is generated and stored with the
+    // platform client. Here the database is unreachable, so neither source can
+    // supply one, and the flow must be refused rather than signed with nothing.
     const { OAUTH_STATE_SECRET: _omitted, ...withoutSecret } = CLIENT_ENV;
     const res = await post(`/accounts/${ACCOUNT}/integrations/gsc/connect-url`, {}, withoutSecret);
     expect(res.status).toBe(503);
-    expect((await res.json() as { error: string }).error).toMatch(/OAUTH_STATE_SECRET/);
+    expect(((await res.json()) as { reason: string }).reason).toBe('state-secret-unavailable');
   });
 
   it('refuses to start a flow it could not store the result of', async () => {
@@ -449,11 +457,22 @@ describe('the consent URL', () => {
     expect(((await res.json()) as { error: string }).error).toMatch(/ENCRYPTION_KEY/);
   });
 
-  it('is refused without a state secret, rather than starting an unsigned flow', async () => {
+  it('is refused when no signing secret can be obtained, rather than signed with nothing', async () => {
     const { OAUTH_STATE_SECRET: _drop, ...noSecret } = CLIENT_ENV;
     const res = await post(`/accounts/${ACCOUNT}/integrations/gsc/connect-url`, {}, noSecret);
     expect(res.status).toBe(503);
-    expect(((await res.json()) as { error: string }).error).toMatch(/OAUTH_STATE_SECRET/);
+    expect(((await res.json()) as { reason: string }).reason).toBe('state-secret-unavailable');
+  });
+
+  it('refuses when Engine has no OAuth client, before checking membership', async () => {
+    // Ordering matters: clientFor and resolveStateSecret both swallow a
+    // database failure and report "not configured", while requireOwner throws.
+    // If the throwing call ran first, an unconfigured deployment would answer
+    // 500 instead of naming its own missing configuration.
+    const { GOOGLE_CLIENT_ID: _a, GOOGLE_CLIENT_SECRET: _b, GOOGLE_REDIRECT_URI: _c, ...noClient } = CLIENT_ENV;
+    const res = await post(`/accounts/${ACCOUNT}/integrations/gsc/connect-url`, {}, noClient);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { reason: string }).reason).toBe('platform-client-missing');
   });
 });
 
@@ -499,5 +518,76 @@ describe('GET /oauth/google/callback', () => {
       CLIENT_ENV,
     );
     expect(await res.text()).not.toContain(code);
+  });
+});
+
+/**
+ * Engine's own OAuth client, and who may configure it.
+ *
+ * This is the boundary that was previously enforced by "you need Cloudflare
+ * access". Now it is a code path, so the gate has to be tested rather than
+ * assumed.
+ */
+describe('platform administration', () => {
+  const ADMIN_ENV = { ...CLIENT_ENV, PLATFORM_ADMIN_EMAILS: 'ops@engine.test, boss@engine.test' } as const;
+
+  it('reports non-admins as non-admins', async () => {
+    // AUTH_MODE=disabled gives a stub user whose email is not on the list.
+    const res = await request('/platform/access', {}, ADMIN_ENV);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { isAdmin: boolean }).isAdmin).toBe(false);
+  });
+
+  it('treats an unset admin list as nobody, not everybody', async () => {
+    const res = await request('/platform/access', {}, CLIENT_ENV);
+    expect(((await res.json()) as { isAdmin: boolean }).isAdmin).toBe(false);
+  });
+
+  it('answers 404 rather than 403 to a non-admin', async () => {
+    // A 403 confirms the screen exists and that this deployment has
+    // administrators, to someone who by definition is not one.
+    for (const [path, init] of [
+      ['/platform/oauth-clients/google', {}],
+      ['/platform/oauth-clients/google', { method: 'DELETE' }],
+    ] as const) {
+      const res = await request(path, init, ADMIN_ENV);
+      expect(res.status).toBe(404);
+    }
+    const put = await request(
+      '/platform/oauth-clients/google',
+      { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{}' },
+      ADMIN_ENV,
+    );
+    expect(put.status).toBe(404);
+  });
+
+  it('never returns a client secret from any platform route', async () => {
+    const text = await (await request('/platform/oauth-clients/google', {}, ADMIN_ENV)).text();
+    expect(text).not.toContain(CLIENT_ENV.GOOGLE_CLIENT_SECRET);
+  });
+});
+
+describe('isPlatformAdmin', () => {
+  it('matches case-insensitively and ignores surrounding space', () => {
+    const env = { PLATFORM_ADMIN_EMAILS: ' Ops@Engine.test , boss@engine.test ' };
+    expect(isPlatformAdmin('ops@engine.test', env)).toBe(true);
+    expect(isPlatformAdmin('  BOSS@ENGINE.TEST ', env)).toBe(true);
+  });
+
+  it('refuses everyone when the list is unset or empty', () => {
+    // The dangerous default would be "unset means open".
+    expect(isPlatformAdmin('ops@engine.test', {})).toBe(false);
+    expect(isPlatformAdmin('ops@engine.test', { PLATFORM_ADMIN_EMAILS: '' })).toBe(false);
+    expect(isPlatformAdmin('ops@engine.test', { PLATFORM_ADMIN_EMAILS: '  ,  ' })).toBe(false);
+  });
+
+  it('refuses a caller with no email at all', () => {
+    expect(isPlatformAdmin(undefined, { PLATFORM_ADMIN_EMAILS: 'ops@engine.test' })).toBe(false);
+  });
+
+  it('does not match a substring or a lookalike domain', () => {
+    const env = { PLATFORM_ADMIN_EMAILS: 'ops@engine.test' };
+    expect(isPlatformAdmin('ops@engine.test.evil.com', env)).toBe(false);
+    expect(isPlatformAdmin('notops@engine.test', env)).toBe(false);
   });
 });

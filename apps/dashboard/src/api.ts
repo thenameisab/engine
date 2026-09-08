@@ -35,6 +35,8 @@ import type {
   GoogleProviderId,
   ProviderId,
   IntegrationEvent,
+  PlatformClient,
+  PlatformClientView,
   ProviderCatalogEntry,
   IntegrationConnection,
   IntegrationAssignment,
@@ -624,4 +626,36 @@ export async function syncProvider(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/* ── Platform administration ───────────────────────────────────────────── */
+
+/**
+ * Whether the signed-in user may configure Engine's own credentials.
+ *
+ * Asked for every user so the dashboard can decide whether to render the
+ * section. It reveals only whether *you* are an administrator, which you
+ * already know; the API answers 404 to everyone else on the routes themselves.
+ */
+export async function fetchPlatformAccess(): Promise<{ isAdmin: boolean }> {
+  return request<{ isAdmin: boolean }>('/platform/access');
+}
+
+export async function fetchPlatformClient(vendor: string): Promise<PlatformClientView> {
+  return request<PlatformClientView>(`/platform/oauth-clients/${vendor}`);
+}
+
+export async function savePlatformClient(
+  vendor: string,
+  body: { clientId: string; clientSecret: string; redirectUri: string },
+): Promise<PlatformClient> {
+  const resp = await request<{ client: PlatformClient }>(`/platform/oauth-clients/${vendor}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+  return resp.client;
+}
+
+export async function clearPlatformClient(vendor: string): Promise<void> {
+  await request<{ cleared: boolean }>(`/platform/oauth-clients/${vendor}`, { method: 'DELETE' });
 }

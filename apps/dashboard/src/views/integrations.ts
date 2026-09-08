@@ -3,6 +3,7 @@ import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
 import { fetchIntegrations } from '../api.js';
 import { googleIntegrationsSection } from './googleIntegrations.js';
+import { platformSection } from './platform.js';
 import type { AppContext } from '../context.js';
 import type { ReadinessReport, IntegrationReadiness } from '../types.js';
 
@@ -87,6 +88,10 @@ export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
       // each project reads", which is what the cards below already show.
     ]),
     await googleIntegrationsSection(ctx),
+    // Operator-only, and it renders nothing for everyone else. Placed after
+    // the customer's own connections because that is what almost every visit
+    // is for; an administrator sets the client once and never returns.
+    await platformSection(ctx),
     el('div', { class: 'settings-sec' }, ['Platform wiring']),
     el('section', { class: 'panel' }, [
       el('header', {}, [

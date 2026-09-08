@@ -40,6 +40,7 @@ import {
   type IntegrationEventType,
 } from '@engine/integrations';
 import { toJsonb, type Db } from '../db.js';
+import { resolvePlatformClient } from './platformCredentials.js';
 
 /** What the UI and the sync jobs may see. Deliberately has no secret field. */
 export interface IntegrationConnection {
@@ -357,16 +358,42 @@ export interface OAuthClientEnv {
 }
 
 /**
- * The OAuth client credentials for a provider.
+ * The OAuth client credentials for a provider, from the database first.
  *
- * Still keyed off the `GOOGLE_*` variables, because every OAuth provider live
- * today is Google's and inventing `HUBSPOT_CLIENT_ID` before HubSpot exists
- * would be configuration nobody sets. When the second OAuth vendor ships, this
- * function is the one place that changes: a per-vendor lookup, with the routes
- * and the repository untouched.
+ * This is Engine's own identity to the vendor, not a customer's credential —
+ * every customer consents to this same app. It used to come only from
+ * `GOOGLE_*` Worker secrets, which meant registering Engine's Google app
+ * required a terminal and Cloudflare access. It is now configurable on the
+ * platform admin screen and stored in `platform_credentials` (migration 0019).
+ *
+ * The environment is kept as a fallback rather than removed, for two reasons:
+ * a deployment already configured that way keeps working with no migration
+ * step, and local development can set three variables in `.dev.vars` without
+ * standing up an admin session first.
+ *
+ * When a second OAuth vendor ships, this stays the one place that changes —
+ * the routes and the rest of the repository never learn which vendor is which.
  */
-export function clientFor(provider: IntegrationProvider, env: OAuthClientEnv) {
+export async function clientFor(
+  provider: IntegrationProvider,
+  env: OAuthClientEnv,
+  db?: Db,
+  keyring?: Keyring,
+): Promise<{ clientId: string; clientSecret: string; redirectUri: string } | null> {
   if (provider.vendor !== 'Google') return null;
+
+  if (db && keyring) {
+    try {
+      const stored = await resolvePlatformClient(db, keyring, 'google');
+      if (stored) return stored;
+    } catch {
+      // An unreachable database or a key dropped from the keyring must not
+      // make a deployment that is configured by environment stop working.
+      // Falling through is the safe direction here: the fallback is equally
+      // authentic, just configured elsewhere.
+    }
+  }
+
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) return null;
   return {
     clientId: env.GOOGLE_CLIENT_ID,
@@ -504,11 +531,11 @@ export async function getAccessToken(
   if (provider.auth.kind !== 'oauth2') {
     throw new ConnectionUnavailableError('unconfigured', `${provider.name} does not use an access token`);
   }
-  const client = clientFor(provider, env);
+  const client = await clientFor(provider, env, db, keyring);
   if (!client) {
     throw new ConnectionUnavailableError(
       'unconfigured',
-      `${provider.name} OAuth is not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI)`,
+      `${provider.name} is not connectable yet — an administrator has not configured Engine's OAuth client`,
     );
   }
 
@@ -620,7 +647,7 @@ export async function disconnect(
   let revocationSupported = provider?.auth.kind === 'oauth2' && Boolean(provider.auth.revocationUrl);
 
   if (provider && provider.auth.kind === 'oauth2') {
-    const client = clientFor(provider, env);
+    const client = await clientFor(provider, env, db, keyring);
     try {
       const rows = await db<{ secret_sealed: string; key_version: string | null }[]>`
         select cr.secret_sealed, cr.key_version
