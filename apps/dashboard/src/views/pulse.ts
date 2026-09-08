@@ -60,9 +60,8 @@ function emptyPanel(): HTMLElement {
   return el('section', { class: 'panel hero' }, [
     el('div', { class: 'label' }, ['Unified Visibility Score']),
     el('div', { class: 'fq-note' }, [
-      'No visibility data yet. Poll rank tracking (A1) and AI-visibility coverage (A2) for this ' +
-        'project’s entities to populate Pulse — the score appears once at least one keyword or ' +
-        'prompt has been sampled.',
+      'No visibility data yet. The score appears once search rankings and AI answers have been ' +
+        'sampled for this project’s keywords and prompts.',
     ]),
   ]);
 }

@@ -69,8 +69,8 @@ function applyThemeIcon(btn: HTMLElement): void {
 
 function railFoot(): HTMLElement {
   const user = getUser();
-  const label = user?.name || 'Internal';
-  const sub = user?.email || 'pre-alpha build';
+  const label = user?.name || 'Your account';
+  const sub = user?.email || 'Signed in';
   const signOutBtn = el('button', {
     class: 'signout',
     title: 'Sign out',

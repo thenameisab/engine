@@ -28,11 +28,11 @@ const GAP_LABELS: Record<GapType, string> = {
 };
 
 const GAP_BLURB: Record<GapType, string> = {
-  'keyword-gap': 'Keywords a competitor ranks for that you don’t (A1).',
-  'citation-gap': 'Prompts a competitor is cited for that you aren’t (A2) — the GEO-native gap.',
+  'keyword-gap': 'Keywords a competitor ranks for that you don’t.',
+  'citation-gap': 'Prompts where AI answers cite a competitor and not you.',
   'content-gap': 'Topics/sources they cover that you don’t.',
-  'entity-gap': 'Competitors whose entity is understood better than yours (B3).',
-  'backlink-gap': 'Referring domains they have that you don’t (A6).',
+  'entity-gap': 'Competitors whose brand search engines and AI understand better than yours.',
+  'backlink-gap': 'Referring domains they have that you don’t.'
 };
 
 const ORDER: GapType[] = ['keyword-gap', 'citation-gap', 'content-gap', 'entity-gap', 'backlink-gap'];

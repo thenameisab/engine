@@ -115,18 +115,17 @@ async function platformWiring(): Promise<HTMLElement[]> {
   if (!isAdmin) return [];
 
   return [
-    el('div', { class: 'settings-sec' }, ['Platform wiring']),
+    el('div', { class: 'settings-sec' }, ['Platform setup']),
     el('section', { class: 'panel' }, [
       el('header', {}, [
-        el('h3', {}, ['External integrations']),
-        infoCard('What platform wiring means', {
+        el('h3', {}, ['Vendor keys']),
+        infoCard('What vendor keys are', {
           title: 'Our keys, not yours',
           body: [
             'Whether this deployment has its own vendor keys wired — SERP, LLM, billing.',
             'Separate from the connections above, which belong to your account and only you can revoke.',
           ],
         }),
-        el('span', { class: 'more' }, ['from /health/integrations']),
       ]),
       el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),

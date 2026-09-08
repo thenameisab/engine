@@ -271,6 +271,7 @@ describe('toPulseData', () => {
     expect(organic.low).toBeUndefined();
     expect(organic.sub).toContain('3 kw tracked');
     const local = data.contributions.find((c) => c.key === 'local')!;
-    expect(local.sub).toContain('Phase 2');
+    // Customer-facing text: says what is true and carries no phase code.
+    expect(local.sub).toBe('not measured yet');
   });
 });
