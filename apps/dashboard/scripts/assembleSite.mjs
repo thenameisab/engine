@@ -60,7 +60,8 @@ writeFileSync(join(app, 'index.html'), appHtml());
  * only place that fact appears.
  */
 function appHtml() {
-  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  let html = readFileSync(join(root, 'index.html'), 'utf8');
+  html = withLogoToken(html);
   const base = (process.env.ENGINE_API_BASE ?? '').trim().replace(/\/$/, '');
   if (!base) {
     console.warn(
@@ -78,6 +79,26 @@ function appHtml() {
     process.exit(1);
   }
   console.log(`assembleSite: ENGINE_API_BASE = ${base}`);
+  return html.replace('<body>', `<body>\n${tag}`);
+}
+
+/**
+ * Optional override for the logo.dev publishable key.
+ *
+ * Unlike ENGINE_API_BASE this warns about nothing when unset, because
+ * src/logo.ts ships a working default — the key is publishable, so a build
+ * with no configuration still renders logos. Set ENGINE_LOGO_TOKEN only to
+ * bill logo requests to a different logo.dev account.
+ */
+function withLogoToken(html) {
+  const value = (process.env.ENGINE_LOGO_TOKEN ?? '').trim();
+  if (!value) return html;
+  if (!html.includes('<body>')) {
+    console.error('assembleSite: index.html has no <body> to inject ENGINE_LOGO_TOKEN before.');
+    process.exit(1);
+  }
+  const tag = `  <script>window.ENGINE_LOGO_TOKEN=${JSON.stringify(value).replace(/</g, '\\u003c')};</script>\n`;
+  console.log('assembleSite: ENGINE_LOGO_TOKEN set (overriding the built-in publishable key)');
   return html.replace('<body>', `<body>\n${tag}`);
 }
 

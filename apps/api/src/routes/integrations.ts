@@ -144,6 +144,7 @@ integrationsRoutes.get('/integrations/providers', (c) =>
       requiredApis: p.requiredApis,
       requiresAccessRequest: p.requiresAccessRequest,
       writes: p.writes,
+      logoDomain: p.logoDomain,
     })),
   }),
 );

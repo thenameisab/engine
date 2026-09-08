@@ -1,4 +1,5 @@
 import { el } from '../dom.js';
+import { logoTile } from '../logo.js';
 import {
   getAccountId,
   fetchProviderCatalog,
@@ -327,6 +328,7 @@ function providerCard(input: ProviderCardInput): HTMLElement {
 
   return el('section', { class: `panel intg-provider ${state}` }, [
     el('header', {}, [
+      logoTile(entry.logoDomain, entry.name),
       el('h3', {}, [entry.name]),
       el('span', { class: `intg-status ${state === 'connected' && connection?.scopesSufficient ? 'configured' : state === 'absent' ? 'missing' : 'partial'}` }, [
         connection ? STATUS_LABEL[connection.status] : 'Not connected',
