@@ -29,3 +29,88 @@ jobs:
       - run: pnpm turbo run build
 
       - run: pnpm turbo run test
+
+  # ── Publish to Cloudflare Pages ────────────────────────────────────────────
+  # Merging used to deploy nothing: this file ran typecheck/build/test and
+  # stopped, so the live site served whatever build was last uploaded by hand
+  # (for a stretch, one from July, which is why a merged login fix appeared not
+  # to work). This job closes that gap.
+  #
+  # `needs: build` means a red build is never published, and the push/ref guard
+  # means a pull request never is either — a PR must be able to run CI without
+  # touching production.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One deploy at a time, newest wins: two quick merges must not race to
+    # decide which build ends up live.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # ENGINE_API_BASE is a repository *variable*, not a secret. It is written
+      # into a public page, so it is not confidential — and a secret would be
+      # masked in the log, hiding the one place this value can be checked.
+      #
+      # Unset is a hard failure here, unlike in assembleSite.mjs, which only
+      # warns. That asymmetry is deliberate: a local build without it is
+      # correct (the app falls back to http://localhost:8787), a deployed one
+      # is a site nobody can sign in to, because sign-in goes through the API.
+      - name: Require ENGINE_API_BASE
+        env:
+          ENGINE_API_BASE: ${{ vars.ENGINE_API_BASE }}
+        run: |
+          if [ -z "$ENGINE_API_BASE" ]; then
+            echo "::error::ENGINE_API_BASE repository variable is not set. Set it under" \
+                 "Settings → Secrets and variables → Actions → Variables to the deployed" \
+                 "API origin (e.g. https://engine-api.<subdomain>.workers.dev). Without it" \
+                 "the published site cannot reach the API and nobody can sign in."
+            exit 1
+          fi
+
+      - name: Build the site
+        env:
+          ENGINE_API_BASE: ${{ vars.ENGINE_API_BASE }}
+        run: pnpm turbo run build --filter=@engine/dashboard
+
+      # Assert the artifact, not the intent. The failure this guards against is
+      # silent: turbo runs tasks in strict env mode, so an ENGINE_API_BASE that
+      # is not declared in turbo.json's `env` is stripped before assembleSite
+      # ever sees it, and the build still succeeds — with no API origin baked
+      # in. Checking the file is the only check that cannot be fooled by that.
+      - name: Verify the API origin was baked in
+        env:
+          ENGINE_API_BASE: ${{ vars.ENGINE_API_BASE }}
+        run: |
+          expected="${ENGINE_API_BASE%/}"
+          if ! grep -qF "window.ENGINE_API_BASE=\"$expected\"" apps/dashboard/site/app/index.html; then
+            echo "::error::apps/dashboard/site/app/index.html does not carry" \
+                 "window.ENGINE_API_BASE=\"$expected\". Refusing to publish a site that" \
+                 "cannot reach the API. Check turbo.json's build.env and assembleSite.mjs."
+            exit 1
+          fi
+          echo "Baked API origin: $expected"
+
+      # Direct Upload to the one Pages project (engine-7vv). --branch=main
+      # makes this a production deployment rather than a preview.
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '3.114.17'
+          command: pages deploy apps/dashboard/site --project-name=engine-7vv --branch=main

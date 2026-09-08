@@ -64,6 +64,37 @@ into its output. Nothing here needs a project of its own.
 
 - Build output directory: **`apps/dashboard/site`**
 
+### It deploys itself now
+
+`.github/workflows/ci.yml` publishes on every push to `main`, after typecheck,
+build and tests pass. Before this existed, merging deployed nothing and the
+live site served the last hand-uploaded build — for a stretch, one from July,
+which is why a login fix that had already merged appeared not to work. If the
+site ever looks stale again, check the `deploy` job first, not the code.
+
+It needs three things configured on the repository, none of which live in git:
+
+| Name | Where | Value |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Actions **secret** | A Cloudflare API token with the **Cloudflare Pages: Edit** permission |
+| `CLOUDFLARE_ACCOUNT_ID` | Actions **secret** | The Cloudflare account id that owns `engine-7vv` |
+| `ENGINE_API_BASE` | Actions **variable** | The deployed API origin, e.g. `https://engine-api.<subdomain>.workers.dev` |
+
+`ENGINE_API_BASE` is a *variable* rather than a secret on purpose. It is
+written into a public page, so it is not confidential, and a secret would be
+masked in the build log — hiding the one place its value can be checked.
+
+Unset, the deploy **fails** rather than publishing. `assembleSite.mjs` only
+warns, which is right for a local build (the app falls back to
+`http://localhost:8787`), but a deployed build without it is a site nobody can
+sign in to, because sign-in goes through the API. The job then re-reads the
+assembled `app/index.html` and refuses to publish unless the origin is really
+baked in — asserting the artifact, not the intent, because the way this fails
+is silent (see `turbo.json`'s `build.env`).
+
+The API Worker (`apps/api`) is **not** deployed by this workflow; it is still
+`wrangler deploy` by hand. `ENGINE_API_BASE` must point at wherever that lives.
+
 | URL | Serves | Source |
 |---|---|---|
 | `/` | landing page | `apps/web/index.html` |
