@@ -62,9 +62,12 @@ CI publishes to the **`engineai`** Pages project. It serves `apps/dashboard`,
 and `apps/dashboard/scripts/assembleSite.mjs` assembles the whole public
 surface into its output. Nothing here needs a project of its own.
 
-There is also an older `engine-7vv` project, which is what `engine-7vv.pages.dev`
-still serves and what the rest of this repo's docs referred to. Treat `engineai`
-as the live one and `engine-7vv` as legacy.
+`engineai` is the project **name**; `engine-7vv.pages.dev` is the hostname it
+serves. They are one project, not two — the name was changed at some point and
+the `pages.dev` subdomain, which is fixed when a project is created, was not.
+So `--project-name` takes `engineai` while every URL in these docs correctly
+says `engine-7vv.pages.dev`. Cloudflare's own PR comments show both at once:
+"Deploying **engineai**" above a preview URL under `engine-7vv.pages.dev`.
 
 **`engineai` is also connected to this repo through Cloudflare's own git
 integration** — it has posted a "Cloudflare Pages" check on every PR since at
