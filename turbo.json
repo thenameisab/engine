@@ -3,7 +3,19 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      // Turbo 2 runs tasks in strict env mode: a variable not named here is
+      // stripped from the task's environment. ENGINE_API_BASE is read by
+      // apps/dashboard/scripts/assembleSite.mjs to bake the API origin into
+      // the deployed page, so without this line `turbo run build` silently
+      // produced a site with no API origin — the script warned, but the
+      // warning is indistinguishable from a genuine local build.
+      // Declaring it here also makes it part of the cache key, so changing
+      // the value re-runs the build instead of restoring a stale site.
+      "env": ["ENGINE_API_BASE"],
+      // site/** is a build output too (assembleSite writes it). Left out, a
+      // cache hit restores dist/ but not the assembled site, and the deploy
+      // step publishes whatever happened to be on disk.
+      "outputs": ["dist/**", "site/**"]
     },
     "dev": {
       "cache": false,
