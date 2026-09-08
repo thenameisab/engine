@@ -78,15 +78,18 @@ function aadVendor(vendor: string): string {
 }
 
 /**
- * Who may configure Engine's own credentials.
+ * The bootstrap admin list, from the environment.
  *
- * `PLATFORM_ADMIN_EMAILS` rather than the existing `ALLOWED_EMAILS` invite
- * list, and the difference matters: the invite list is who may *use* Engine,
- * and reusing it would make every customer a platform admin the moment one is
- * invited. Unset means nobody, not everybody — an unconfigured deployment
- * refuses rather than opening the screen to the first person who finds it.
+ * Someone has to be the first admin, and they cannot be promoted through a
+ * screen only an admin can reach. `PLATFORM_ADMIN_EMAILS` breaks that circle
+ * and does nothing else — once a real admin exists, promotion happens in the
+ * product and this can be emptied.
+ *
+ * Deliberately not `ALLOWED_EMAILS`: that is who may *use* Engine, and reusing
+ * it would make every customer a platform admin the moment one is invited.
+ * Unset means nobody, not everybody.
  */
-export function isPlatformAdmin(email: string | undefined, env: { PLATFORM_ADMIN_EMAILS?: string }): boolean {
+export function isBootstrapAdmin(email: string | undefined, env: { PLATFORM_ADMIN_EMAILS?: string }): boolean {
   if (!email) return false;
   const list = (env.PLATFORM_ADMIN_EMAILS ?? '')
     .split(',')
@@ -94,6 +97,125 @@ export function isPlatformAdmin(email: string | undefined, env: { PLATFORM_ADMIN
     .filter(Boolean);
   if (list.length === 0) return false;
   return list.includes(email.trim().toLowerCase());
+}
+
+/**
+ * Whether this person works on Engine.
+ *
+ * The stored role wins, and the environment list is only a bootstrap. Checked
+ * in that order rather than the reverse: an admin *demoted* in the product must
+ * actually lose access, and an env list that overrode the database would keep
+ * letting them in until someone edited a Cloudflare variable.
+ *
+ * The exception is a user with no row yet — their first sign-in has not run
+ * `upsertUser`. Falling back to the env list there is what makes the very first
+ * bootstrap work at all.
+ */
+export async function isPlatformAdmin(
+  db: Db,
+  user: { id: string; email?: string },
+  env: { PLATFORM_ADMIN_EMAILS?: string },
+): Promise<boolean> {
+  const rows = await db<{ platform_role: string }[]>`
+    select platform_role from users where id = ${user.id}
+  `;
+  if (rows[0]) return rows[0].platform_role === 'admin';
+  return isBootstrapAdmin(user.email, env);
+}
+
+/* ── Users and roles ─────────────────────────────────────────────────────── */
+
+export type PlatformRole = 'admin' | 'user';
+
+export interface PlatformUser {
+  id: string;
+  email?: string;
+  name?: string;
+  platformRole: PlatformRole;
+  /** True when this person can sign in with a password. */
+  hasCredential: boolean;
+  createdAt: string;
+}
+
+/** Everyone who can sign in, for the admin Users screen. */
+export async function listUsers(db: Db): Promise<PlatformUser[]> {
+  const rows = await db<
+    { id: string; email: string | null; name: string | null; platform_role: PlatformRole; created_at: Date; has_credential: boolean }[]
+  >`
+    select u.id, u.email, u.name, u.platform_role, u.created_at,
+           (c.user_id is not null) as has_credential
+    from users u
+    left join user_credentials c on c.user_id = u.id
+    order by u.platform_role, u.created_at
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    email: r.email ?? undefined,
+    name: r.name ?? undefined,
+    platformRole: r.platform_role,
+    hasCredential: r.has_credential,
+    createdAt: r.created_at.toISOString(),
+  }));
+}
+
+export type SetRoleResult =
+  | { ok: true; from: PlatformRole; to: PlatformRole }
+  | { ok: false; reason: 'not-found' | 'last-admin' | 'self' };
+
+/**
+ * Change someone's platform role.
+ *
+ * Two refusals, both of which prevent a state nobody can recover from without
+ * database access:
+ *
+ *   **self** — an admin cannot demote themselves. It is almost always a
+ *   misclick, and on a one-admin deployment it locks the platform screens for
+ *   everyone.
+ *
+ *   **last-admin** — the final admin cannot be demoted by anyone. Zero admins
+ *   means Engine's OAuth client can never be changed again through the product.
+ *
+ * The count and the update are one transaction, so two concurrent demotions
+ * cannot each see two admins and both proceed.
+ */
+export async function setPlatformRole(
+  db: Db,
+  subjectUserId: string,
+  toRole: PlatformRole,
+  actorUserId: string,
+): Promise<SetRoleResult> {
+  if (subjectUserId === actorUserId && toRole === 'user') return { ok: false, reason: 'self' };
+
+  return (await db.begin(async (tx) => {
+    const rows = await tx<{ platform_role: PlatformRole }[]>`
+      select platform_role from users where id = ${subjectUserId} for update
+    `;
+    if (!rows[0]) return { ok: false, reason: 'not-found' } as SetRoleResult;
+    const from = rows[0].platform_role;
+    if (from === toRole) return { ok: true, from, to: toRole } as SetRoleResult;
+
+    if (from === 'admin' && toRole === 'user') {
+      const [{ count }] = await tx<{ count: string }[]>`
+        select count(*)::text as count from users where platform_role = 'admin'
+      `;
+      if (Number(count) <= 1) return { ok: false, reason: 'last-admin' } as SetRoleResult;
+    }
+
+    await tx`update users set platform_role = ${toRole} where id = ${subjectUserId}`;
+    await tx`
+      insert into user_role_events (subject_user_id, actor_user_id, from_role, to_role)
+      values (${subjectUserId}, ${actorUserId}, ${from}, ${toRole})
+    `;
+    return { ok: true, from, to: toRole } as SetRoleResult;
+  })) as SetRoleResult;
+}
+
+/** How many platform admins exist. Used to warn when a deployment has none. */
+export async function countAdmins(db: Db): Promise<number> {
+  const [{ count }] = await db<{ count: string }[]>`
+    select count(*)::text as count from users where platform_role = 'admin'
+  `;
+  return Number(count);
 }
 
 export async function getPlatformClientStatus(

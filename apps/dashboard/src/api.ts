@@ -37,6 +37,7 @@ import type {
   IntegrationEvent,
   PlatformClient,
   PlatformClientView,
+  PlatformUser,
   ProviderCatalogEntry,
   IntegrationConnection,
   IntegrationAssignment,
@@ -658,4 +659,16 @@ export async function savePlatformClient(
 
 export async function clearPlatformClient(vendor: string): Promise<void> {
   await request<{ cleared: boolean }>(`/platform/oauth-clients/${vendor}`, { method: 'DELETE' });
+}
+
+/** Everyone who can sign in. Admin-only; the API answers 404 to anyone else. */
+export async function fetchPlatformUsers(): Promise<{ users: PlatformUser[]; adminCount: number }> {
+  return request<{ users: PlatformUser[]; adminCount: number }>('/platform/users');
+}
+
+export async function setUserRole(userId: string, role: 'admin' | 'user'): Promise<void> {
+  await request<{ userId: string }>(`/platform/users/${encodeURIComponent(userId)}/role`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
+  });
 }
