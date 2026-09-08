@@ -67,7 +67,15 @@ describe('customer OAuth credentials', () => {
 
     const credentials = tableBody(combined, 'integration_credentials');
     expect(credentials).not.toBeNull();
+    // 0014 created this as `refresh_token_sealed`; 0017 renamed it to
+    // `secret_sealed` once an API key could live here too. Asserting the
+    // original name would pass forever by reading history — the create-table
+    // body never changes — while saying nothing about the live schema. So the
+    // column is asserted as created, *and* the rename is asserted separately.
     expect(credentials).toMatch(/refresh_token_sealed\s+text\s+not\s+null/i);
+    expect(combined).toMatch(
+      /alter\s+table\s+integration_credentials\s+rename\s+column\s+refresh_token_sealed\s+to\s+secret_sealed/i,
+    );
     // Primary key, so a second credential for one connection is rejected rather
     // than leaving two tokens where only one is ever read.
     expect(credentials).toMatch(/connection_id\s+uuid\s+primary\s+key/i);
