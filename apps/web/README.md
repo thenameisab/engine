@@ -58,9 +58,24 @@ and the OAuth callback allowlist (see below).
 
 ## Deploy (Cloudflare Pages)
 
-There is **one** Pages project (`engine-7vv`). It builds `apps/dashboard`, and
-`apps/dashboard/scripts/assembleSite.mjs` assembles the whole public surface
-into its output. Nothing here needs a project of its own.
+CI publishes to the **`engineai`** Pages project. It serves `apps/dashboard`,
+and `apps/dashboard/scripts/assembleSite.mjs` assembles the whole public
+surface into its output. Nothing here needs a project of its own.
+
+`engineai` is the project **name**; `engine-7vv.pages.dev` is the hostname it
+serves. They are one project, not two — the name was changed at some point and
+the `pages.dev` subdomain, which is fixed when a project is created, was not.
+So `--project-name` takes `engineai` while every URL in these docs correctly
+says `engine-7vv.pages.dev`. Cloudflare's own PR comments show both at once:
+"Deploying **engineai**" above a preview URL under `engine-7vv.pages.dev`.
+
+**`engineai` is also connected to this repo through Cloudflare's own git
+integration** — it has posted a "Cloudflare Pages" check on every PR since at
+least #59. Two paths can therefore publish to it. Keep Cloudflare's automatic
+deployments **disabled** for the project (project → Settings → Builds → branch
+control) so CI is the only publisher: it is the path that bakes
+`ENGINE_API_BASE` in and refuses to publish without it, and a Cloudflare-side
+build has neither guard.
 
 - Build output directory: **`apps/dashboard/site`**
 

@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "typescript": "^5.7.0",
+    "wrangler": "^3.99.0",
     "vitest": "^2.1.0",
     "@engine/web": "workspace:*"
   }
