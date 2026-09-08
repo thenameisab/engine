@@ -30,6 +30,58 @@ jobs:
 
       - run: pnpm turbo run test
 
+  # ── Publish the API Worker ─────────────────────────────────────────────────
+  # The dashboard is useless without this: sign-in goes through the API, so a
+  # published page pointing at a Worker that does not exist is a login screen
+  # that can only fail. Deploying both from the same green commit keeps them
+  # from drifting apart.
+  #
+  # This deploys CODE ONLY. The Worker's secrets (DATABASE_URL,
+  # LOCAL_AUTH_SECRET, LOCAL_AUTH_USERS, and the optional vendor keys listed in
+  # apps/api/wrangler.toml) are set once against the Worker itself, with
+  # `wrangler secret put` or the Cloudflare dashboard, and survive every later
+  # deploy. They are deliberately NOT passed through CI: that would put the
+  # database URL and three people's passwords in a second system to leak from.
+  # Until they exist, POST /auth/login answers "Credential sign-in is not
+  # configured on this deployment" — a clear message, not a crash.
+  deploy-api:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: api-deploy
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # wrangler bundles from src/index.ts directly, but that file's @engine/*
+      # imports resolve to those packages' dist/, so the workspace has to be
+      # built first or the bundle fails on unresolved modules.
+      - name: Build the packages the Worker imports
+        run: pnpm turbo run build --filter=@engine/api
+
+      # The API token needs "Workers Scripts: Edit" on top of the
+      # "Cloudflare Pages: Edit" the other deploy job uses.
+      - name: Publish to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '3.114.17'
+          workingDirectory: apps/api
+          command: deploy
+
   # ── Publish to Cloudflare Pages ────────────────────────────────────────────
   # Merging used to deploy nothing: this file ran typecheck/build/test and
   # stopped, so the live site served whatever build was last uploaded by hand
@@ -40,7 +92,10 @@ jobs:
   # means a pull request never is either — a PR must be able to run CI without
   # touching production.
   deploy:
-    needs: build
+    # Also waits on deploy-api, so the API is live before the page that points
+    # at it is. Publishing a dashboard whose backend failed to deploy is the
+    # exact failure this whole workflow exists to stop.
+    needs: [build, deploy-api]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # One deploy at a time, newest wins: two quick merges must not race to

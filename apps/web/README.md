@@ -92,8 +92,33 @@ assembled `app/index.html` and refuses to publish unless the origin is really
 baked in — asserting the artifact, not the intent, because the way this fails
 is silent (see `turbo.json`'s `build.env`).
 
-The API Worker (`apps/api`) is **not** deployed by this workflow; it is still
-`wrangler deploy` by hand. `ENGINE_API_BASE` must point at wherever that lives.
+### The API Worker deploys too
+
+The same workflow's `deploy-api` job runs `wrangler deploy` on `apps/api`, and
+the Pages job waits on it — publishing a dashboard whose backend failed to
+deploy is the failure this is all here to stop. The token therefore needs
+**Workers Scripts: Edit** as well as **Cloudflare Pages: Edit**.
+
+It deploys **code only**. The Worker's secrets are set once against the Worker
+itself (`wrangler secret put`, or the Cloudflare dashboard) and survive every
+later deploy. They are deliberately not routed through CI, which would put the
+database URL and three people's passwords in a second system to leak from. The
+minimum for anyone to sign in:
+
+| Secret | Without it |
+|---|---|
+| `DATABASE_URL` | Every DB-backed route fails |
+| `LOCAL_AUTH_SECRET` | `POST /auth/login` → "Credential sign-in is not configured on this deployment" |
+| `LOCAL_AUTH_USERS` | same |
+
+`AUTH_JWKS_URL` is already a plaintext var in `wrangler.toml`, and CORS
+defaults to `*`, so neither blocks a first deploy. Everything else in
+`wrangler.toml`'s secret catalogue gates only its own feature.
+
+`ENGINE_API_BASE` must equal the Worker's deployed origin. `wrangler deploy`
+prints it — that output is the authoritative source, not a guess about the
+account subdomain. `GOOGLE_REDIRECT_URI` must be that same origin plus
+`/oauth/google/callback`, byte for byte.
 
 | URL | Serves | Source |
 |---|---|---|
