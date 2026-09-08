@@ -16,6 +16,8 @@ import { integrationsView } from './views/integrations.js';
 import { settingsView } from './views/settings.js';
 import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
+import { onboardingView } from './views/onboarding.js';
+import { getProjectId } from './api.js';
 
 interface Route {
   id: string;
@@ -43,7 +45,18 @@ const ROUTES: Route[] = [
  * nav rail — dispatchable, but not one of the rail's `navItems`. Kept out of
  * `ROUTES` so the rail doesn't grow a link nobody navigates to directly.
  */
-const HIDDEN_ROUTES: Route[] = [{ id: 'report', label: 'Branded report', iconMarkup: ICONS.doc, view: reportView }];
+const HIDDEN_ROUTES: Route[] = [
+  { id: 'report', label: 'Branded report', iconMarkup: ICONS.doc, view: reportView },
+  { id: 'get-started', label: 'Get started', iconMarkup: ICONS.check, view: onboardingView },
+];
+
+/**
+ * Routes that read the selected project. With none selected each of them
+ * used to render its own error banner ("No project selected…"); the shell
+ * now sends the user to Get started instead, which offers existing sites or
+ * creates one.
+ */
+const PROJECT_ROUTES = new Set(['pulse', 'serp', 'fix-queue', 'audit', 'entity-graph', 'competitors', 'offsite', 'local']);
 
 const ALL_ROUTES = [...ROUTES, ...HIDDEN_ROUTES];
 
@@ -182,6 +195,10 @@ export function mountShell(root: HTMLElement): void {
 
   async function renderRoute(): Promise<void> {
     const id = currentRouteId();
+    if (PROJECT_ROUTES.has(id) && !getProjectId()) {
+      location.hash = '#/get-started';
+      return;
+    }
     const route = ALL_ROUTES.find((r) => r.id === id)!;
     navItems.forEach((n) => n.classList.toggle('on', n.getAttribute('data-route') === id));
     (document.getElementById('crumb') as HTMLElement).textContent = route.label;

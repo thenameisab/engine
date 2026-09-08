@@ -77,6 +77,7 @@ function groupBlock(g: FindingGroup, hasTarget: boolean, ctx: AppContext): HTMLE
 
 /** "3 issues on 7 pages": issue types, then distinct pages, both real counts. */
 function issueCount(rows: FindingRow[]): string {
+  if (rows.length === 0) return 'none yet';
   const types = new Set(rows.map((f) => f.type)).size;
   // Site-wide findings carry no URL and are not a page.
   const pages = new Set(rows.map((f) => f.url).filter(Boolean)).size;

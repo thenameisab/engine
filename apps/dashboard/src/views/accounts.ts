@@ -6,7 +6,8 @@
  * rework needed.
  */
 import { el } from '../dom.js';
-import { fetchAccounts, createAccountApi, createProjectApi, setAccountId, setProjectId } from '../api.js';
+import { fetchAccounts, setAccountId, setProjectId } from '../api.js';
+import { ONBOARDING_INTENT_KEY } from './onboarding.js';
 import type { AppContext } from '../context.js';
 import type { AccountCard, ApiProject } from '../types.js';
 
@@ -101,33 +102,20 @@ export async function accountsView(ctx: AppContext): Promise<HTMLElement> {
     grid.append(...accounts.map((a) => accountCard(a, ctx, onNewProject)));
   };
 
-  async function onNewProject(accountId: string): Promise<void> {
-    const name = prompt('Project name (e.g. the client\'s site)?');
-    if (!name) return;
-    const domain = prompt('Domain (e.g. acme.example)?');
-    if (!domain) return;
-    try {
-      const project = await createProjectApi(accountId, name, domain);
-      accounts = accounts.map((a) => (a.id === accountId ? { ...a, projects: [...a.projects, project] } : a));
-      ctx.toast(`Added ${project.name}`);
-      rerender();
-    } catch (err) {
-      ctx.toast(`Could not create project: ${(err as Error).message}`);
-    }
+  // Both creation paths go through Get started: one form instead of three
+  // native prompt() dialogs, and the same form a first-time user lands on.
+  function onNewProject(accountId: string): void {
+    setAccountId(accountId);
+    ctx.navigate('get-started');
   }
 
-  async function onNewClient(): Promise<void> {
-    const name = prompt('Client (account) name?');
-    if (!name) return;
+  function onNewClient(): void {
     try {
-      const account = await createAccountApi(name);
-      setAccountId(account.id);
-      accounts = [account, ...accounts];
-      ctx.toast(`Added ${account.name}`);
-      rerender();
-    } catch (err) {
-      ctx.toast(`Could not create client: ${(err as Error).message}`);
+      sessionStorage.setItem(ONBOARDING_INTENT_KEY, 'new-client');
+    } catch {
+      /* storage unavailable: the form still opens, on the selected client */
     }
+    ctx.navigate('get-started');
   }
 
   rerender();
