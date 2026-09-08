@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath } from './format.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults } from './format.js';
 import type { ApiAction, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -333,5 +333,21 @@ describe('pagePath', () => {
   });
   it('falls back to the raw value when it is not a URL', () => {
     expect(pagePath('not a url')).toBe('not a url');
+  });
+});
+
+describe('onboardingDefaults', () => {
+  it('names the site after its domain and the brand after the client when left blank', () => {
+    expect(onboardingDefaults('Acme Dental', 'https://www.acme.example/pricing')).toEqual({
+      domain: 'acme.example', siteName: 'acme.example', brandName: 'Acme Dental',
+    });
+  });
+  it('keeps what the customer typed', () => {
+    expect(onboardingDefaults('Acme Dental', 'acme.example', ' Acme site ', 'Acme')).toEqual({
+      domain: 'acme.example', siteName: 'Acme site', brandName: 'Acme',
+    });
+  });
+  it('yields an empty domain for an empty address, so the form can refuse it', () => {
+    expect(onboardingDefaults('Acme', '   ').domain).toBe('');
   });
 });

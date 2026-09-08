@@ -451,6 +451,24 @@ export async function createProjectApi(accountId: string, name: string, domain: 
   return resp.project;
 }
 
+/**
+ * The brand (entity) a site is audited as. Takes the project id explicitly
+ * rather than reading the selected one: onboarding creates the project and the
+ * entity in one go, before anything has been selected.
+ */
+export async function createEntityApi(projectId: string, canonicalName: string): Promise<ApiEntity> {
+  const resp = await request<{ entity: ApiEntity }>(`/projects/${projectId}/entities`, {
+    method: 'POST',
+    body: JSON.stringify({ canonicalName }),
+  });
+  return resp.entity;
+}
+
+/** Starts the onboarding clock (time to first insight is measured from here). */
+export function markDomainConnectedApi(projectId: string): Promise<unknown> {
+  return request(`/projects/${projectId}/onboarding/domain-connected`, { method: 'POST' });
+}
+
 export async function updateBrandingApi(accountId: string, branding: ApiAccountBranding): Promise<ApiAccount> {
   const resp = await request<{ account: ApiAccount }>(`/accounts/${accountId}/branding`, {
     method: 'PATCH',

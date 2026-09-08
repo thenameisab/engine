@@ -102,6 +102,27 @@ export function normalizeDomain(input: string): string {
     .replace(/\/.*$/, '');
 }
 
+export interface OnboardingDefaults {
+  domain: string;
+  siteName: string;
+  brandName: string;
+}
+
+/**
+ * Fill the optional onboarding fields from the required ones. The domain is
+ * normalized the way the rest of the app matches hosts; the site is named
+ * after its domain and the brand after the client unless the customer typed
+ * something else.
+ */
+export function onboardingDefaults(clientName: string, domainInput: string, siteName = '', brandName = ''): OnboardingDefaults {
+  const domain = normalizeDomain(domainInput);
+  return {
+    domain,
+    siteName: siteName.trim() || domain,
+    brandName: brandName.trim() || clientName.trim(),
+  };
+}
+
 /** The position of the first organic result whose host matches `domain`, or null if not found. */
 export function domainRank(organic: SerpOrganic[], domain: string): number | null {
   const target = normalizeDomain(domain);
