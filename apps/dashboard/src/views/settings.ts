@@ -9,6 +9,8 @@ import {
   fetchDeployTarget,
   saveDeployTarget,
 } from '../api.js';
+import { platformSection } from './platform.js';
+import { vendorKeysPanel } from './integrations.js';
 import type { AppContext } from '../context.js';
 import type { DeployTarget } from '../types.js';
 
@@ -213,17 +215,21 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     await deployTargetSection(ctx),
     el('div', { class: 'settings-sec' }, ['Branding']),
     brandingSection(ctx),
-    el('div', { class: 'settings-sec' }, ['Integrations']),
+    el('div', { class: 'settings-sec' }, ['Connected accounts']),
     el('section', { class: 'panel' }, [
-      el('header', {}, [el('h3', {}, ['Connections'])]),
       el('div', { class: 'form' }, [
-        el('div', { class: 'fhint num' }, [
-          'Google Search Console, Analytics and Business Profile now have their own page.',
+        el('div', { class: 'fhint' }, [
+          'Search Console, Analytics, Business Profile, Bing and Cloudflare are connected from the Integrations page.',
         ]),
         el('div', { class: 'form-actions' }, [
           el('button', { class: 'btn', onclick: () => ctx.navigate('integrations') }, ['Open Integrations']),
         ]),
       ]),
     ]),
+    // Operator-only. Both render nothing for a customer, so this is where an
+    // administrator registers Engine's own OAuth client and checks the
+    // deployment's vendor keys, away from the customer's connections.
+    await platformSection(ctx),
+    await vendorKeysPanel(),
   ]);
 }

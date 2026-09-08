@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine } from './format.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -368,5 +368,28 @@ describe('auditRequestStatusLine', () => {
   it('shows the failure reason on the risk tone and stops polling', () => {
     const line = auditRequestStatusLine({ ...base, status: 'failed', error: 'site unreachable' });
     expect(line).toEqual({ text: 'The last audit failed: site unreachable', tone: 'risk', live: false });
+  });
+});
+
+describe('integrationTileState', () => {
+  const configured = { oauthConfigured: true, isAdmin: false };
+  it('puts connected providers first and coming-soon ones last', () => {
+    const connected = integrationTileState({ authKind: 'oauth2' }, { status: 'connected', scopesSufficient: true }, configured);
+    const idle = integrationTileState({ authKind: 'api_key' }, undefined, configured);
+    const planned = integrationTileState({ availability: 'planned', authKind: 'oauth2' }, undefined, configured);
+    expect(connected).toEqual({ label: 'Connected', tone: 'good', sort: 0 });
+    expect(idle).toEqual({ label: 'Not connected', tone: null, sort: 1 });
+    expect(planned).toEqual({ label: 'Coming soon', tone: 'muted', sort: 3 });
+  });
+  it('tells an administrator to set up, and everyone else that it is not available', () => {
+    const unset = { oauthConfigured: false, isAdmin: false };
+    expect(integrationTileState({ authKind: 'oauth2' }, undefined, unset)).toEqual({ label: 'Not available yet', tone: 'muted', sort: 2 });
+    expect(integrationTileState({ authKind: 'oauth2' }, undefined, { ...unset, isAdmin: true })).toEqual({ label: 'Needs setup', tone: 'watch', sort: 2 });
+    // An API-key provider does not depend on the OAuth client at all.
+    expect(integrationTileState({ authKind: 'api_key' }, undefined, unset).label).toBe('Not connected');
+  });
+  it('flags a grant that needs attention on the watch tone', () => {
+    expect(integrationTileState({ authKind: 'oauth2' }, { status: 'needs_reauth', scopesSufficient: true }, configured).tone).toBe('watch');
+    expect(integrationTileState({ authKind: 'oauth2' }, { status: 'connected', scopesSufficient: false }, configured).label).toBe('Missing a permission');
   });
 });

@@ -2,8 +2,7 @@ import { el } from '../dom.js';
 import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
 import { fetchIntegrations, fetchPlatformAccess } from '../api.js';
-import { googleIntegrationsSection } from './googleIntegrations.js';
-import { platformSection } from './platform.js';
+import { integrationsGallery } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
 import type { ReadinessReport, IntegrationReadiness } from '../types.js';
 
@@ -72,62 +71,50 @@ export async function integrationsSection(): Promise<HTMLElement> {
 }
 
 /**
- * The Integrations page.
+ * The Integrations page: the customer's connections, and nothing else.
  *
- * Its own route rather than a block at the bottom of Settings, below the API
- * connection, deploy target and branding forms. Connecting Google is the first
- * thing a new account has to do and the thing they will come back to when a
- * sync stalls; three sections down a settings page is not where either of those
- * belongs.
+ * The operator panels that used to sit under the cards (Engine's own OAuth
+ * client, the deployment's vendor keys) moved to Settings. A customer opening
+ * this page has one question, "is my account connected", and the answer should
+ * not share a screen with the deployment's configuration.
  */
 export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Integrations']),
-      // No subtitle. It said "connect your accounts and choose which property
-      // each project reads", which is what the cards below already show.
+      el('p', {}, ['Connect the accounts Engine reads from and writes to. Pick one to sign in or paste a key.']),
     ]),
-    await googleIntegrationsSection(ctx),
-    // Operator-only, and it renders nothing for everyone else. Placed after
-    // the customer's own connections because that is what almost every visit
-    // is for; an administrator sets the client once and never returns.
-    await platformSection(ctx),
-    ...(await platformWiring()),
+    await integrationsGallery(ctx),
   ]);
 }
 
 /**
- * The deployment's own vendor keys — admin-only.
- *
- * `/health/integrations` names environment variables and says which are
- * missing. That is operator information, and the API now answers 404 to a
- * customer. Rendering the panel anyway would replace it with "Could not read
- * integration readiness", which is a worse thing to show than nothing: it
- * reports a failure at something the customer never asked for.
+ * The deployment's own vendor keys, for Settings. Admin-only: the API answers
+ * 404 to anyone else, and rendering "could not read" in that case would report
+ * a failure at something the customer never asked for, so it renders nothing.
  */
-async function platformWiring(): Promise<HTMLElement[]> {
+export async function vendorKeysPanel(): Promise<HTMLElement | null> {
   let isAdmin = false;
   try {
     isAdmin = (await fetchPlatformAccess()).isAdmin;
   } catch {
-    return [];
+    return null;
   }
-  if (!isAdmin) return [];
-
-  return [
-    el('div', { class: 'settings-sec' }, ['Platform setup']),
+  if (!isAdmin) return null;
+  return el('div', {}, [
+    el('div', { class: 'settings-sec' }, ['Vendor keys']),
     el('section', { class: 'panel' }, [
       el('header', {}, [
-        el('h3', {}, ['Vendor keys']),
+        el('h3', {}, ['Keys this deployment holds']),
         infoCard('What vendor keys are', {
           title: 'Our keys, not yours',
           body: [
-            'Whether this deployment has its own vendor keys wired — SERP, LLM, billing.',
-            'Separate from the connections above, which belong to your account and only you can revoke.',
+            'Whether this deployment has its own vendor keys wired: search results, AI answers, billing.',
+            'Separate from the connections on the Integrations page, which belong to a client and only that client can revoke.',
           ],
         }),
       ]),
       el('div', { class: 'intg-wrap' }, [await integrationsSection()]),
     ]),
-  ];
+  ]);
 }
