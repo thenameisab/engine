@@ -673,3 +673,38 @@
 - PR #69 (`feat/user-roles`, commit `fb47628`) was merged into `feat/platform-oauth-config`, whose own PR #68 had already merged. `origin/main` therefore never received the roles commit: `gh api .../compare/main...feat/user-roles` reported diverged, ahead 1, behind 1.
 - Recovered as this project's rules describe: new branch `feat/user-roles-main` off `origin/main` (`5546a1f`), `git cherry-pick fb47628` applied cleanly (16 files, migration 0020, no collision on main which ends at 0019), and opened a new PR to `main`. Content is unchanged from #69.
 - Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (api 195, dashboard 28, db 21).
+
+## 2026-09-08 (week 1, item 2: the two confirmed bugs)
+- Merging is blocked for this session by the permission classifier (`gh pr merge` denied), so PRs wait for the user. To avoid `working_log.md` conflicts between open PRs, this branch `fix/report-token` stacks on `feat/user-roles-main` (PR #70); once #70 merges, this PR's diff shrinks to its own commit.
+- Account-id bug: already fixed in PR #68 (`projectRow` sets both ids). Verified in the browser: Integrations shows the three Google cards for the selected project instead of "Pick a client from the Clients grid first".
+- Report token bug: `fetchReportUrl` in `apps/dashboard/src/api.ts` now resolves the token as `getStoredApiToken() ?? (await getApiToken())`, the same order as `request()`. Verified in the browser with the password roster user: `GET /accounts/:id/report` answers 200 and the branded report renders in the iframe, where the review saw `401 missing bearer token`.
+- Applied migrations 0019 and 0020 to the local scratch Postgres on 5433 (now 20 applied) so the API from this branch runs locally. Both dev servers on 8787 and 4321 were already running from another chat and serve this working tree.
+- Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (api 195, dashboard 28).
+
+## 2026-09-08 (week 1, item 3: customer copy)
+- Branch `fix/customer-copy`, stacked on `fix/report-token` (PR #71) for the same reason as before.
+- Removed every string from review section B3 that reaches a customer: Pulse empty state (pillar codes), Local cell "(B5, Phase 2)", the four competitor gap blurbs, Copilot citation chips ("A1 · organic" → "Search rankings", "AI answers", "Audit finding"), the sign-in footer ("Invite-only access"), the rail footer fallbacks ("Your account" / "Signed in"), the Fix Queue subtitle (no Postgres), and the Settings hint (a blank base URL uses the deployment default, not sample data).
+- The "Platform wiring" panel: PRs #68/#69 already made it admin-only, so a customer never sees it. Kept it mounted for admins rather than unmounting it, renamed the section to "Platform setup" and the heading to "Vendor keys", and removed the "from /health/integrations" label. This is a deliberate deviation from "mount it nowhere": the roles work made hiding it from customers a property of the API, not of the route.
+- API: five 503 messages that reach toasts no longer name environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `GITHUB_TOKEN`, `SERPER_API_KEY`, `STRIPE_SECRET_KEY`). Each now logs the variable name with `console.warn` for the operator and returns a plain sentence to the customer.
+- Two tests pinned the old prose: `format.test.ts` expected "Phase 2" in the Local cell, `routes.validation.test.ts` expected `OPENAI_API_KEY` in the 503 body. Both retargeted at the property they protect (the text is customer-facing; the route answers 503 before validation).
+- Verified in the browser after a forced module refetch (the static server sends only an ETag, so the browser kept the old modules): Pulse, Fix Queue, Settings and the sign-in card all show the new copy.
+- Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (api 195, dashboard 28).
+
+## 2026-09-08 (week 1, item 4: the Audit screen)
+- Branch `fix/audit-screen`, stacked on `fix/customer-copy` (PR #72).
+- Root cause of the broken layout confirmed: the row button reused `.card-act`, which is `width: 100%` for Fix Queue cards. The Audit row now uses its own `.frow-act` (intrinsic width, same look). Measured in the browser: button 89px, row main column 802px, in both themes.
+- Findings are grouped by issue type: `groupFindings` in `format.ts` (pure, tested) puts each issue once with a page count, sorts high severity first then by pages affected, and keeps the API's page order inside a group. Severity chip and the fixable pill sit on the group head; each page row shows the path as its title and the full URL under it, with its own impact and "Propose fix".
+- Labels added to `ISSUE_LABELS` for the eight content and entity issue types (`not-answer-first`, `weak-eeat`, `weak-entity-coverage`, `sparse-internal-linking`, `missing-wikidata-mapping`, `missing-entity-schema`, `inconsistent-sameas`, `weak-corroboration`). The `unknown` label lost its migration number.
+- Header count now reads "12 issues on 7 pages" (issue types, then distinct URLs; site-wide entity findings with no URL are not counted as pages) instead of "44 issues".
+- Not done here, noted for later: "auto-fixable" is still shown for findings whose generator can return no action (review B5, third bullet). That needs the API to report fixability per finding honestly, not a label change.
+- Verified in the browser on the local 7-page crawl (44 findings → 12 groups) in dark and light themes. Seven new dashboard tests (35 total).
+- Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (api 195, dashboard 35).
+
+## 2026-09-08 (the password prompt was echoing, and a mismatch cost the whole command)
+- User hit "Passwords did not match" on `pnpm db:user`. Reproduced under a real pty with `expect` rather than guessing, which found a different and worse bug than the one reported: **the password was echoed in full and left in terminal scrollback.** Patching readline's private `_writeToOutput` had silently stopped working.
+- Muting now happens on a `Writable` we own, and the prompt is written straight to stdout so only the *answer* is muted. That does not depend on a Node internal, and it is testable — the test asserts the typed value appears zero times in the output.
+- Also collapsed two readline interfaces into one. Closing and reopening on the same stdin can leave a buffered newline that the next interface reads as an empty line, producing exactly the mismatch the user saw without them mistyping. Could not reproduce it deterministically, so it is a probable rather than confirmed cause — but one interface is correct regardless.
+- **A mistype now costs a retry, not the command.** Aborting on the first mismatch meant re-running everything, which for a prompt you cannot see is a bad trade. Three attempts, with "Those did not match" and "Too short" messages, then it gives up.
+- Verified with `expect` against a pty: happy path (password appears 0 times in output), mismatch-then-retry, too-short-then-retry. Then end to end against a fresh Postgres 16 on 5435 — 20 migrations, piped path and interactive path each write a row with the right `platform_role` and a credential.
+- Confirmed on Neon: 0019 and 0020 applied, 20 total, and **no admin exists yet** — all four users are `platform_role = user`. The deployed API is unaffected by the additive migrations (`/health` 200, `/auth/login` 401, `/integrations/providers` 200).
+- Green: typecheck 41/41, test 39/39.

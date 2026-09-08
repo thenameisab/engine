@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import postgres from 'postgres';
 import { hashPassword } from '@engine/auth';
 import { migrate, planFromDatabase } from './runner.js';
@@ -93,6 +94,8 @@ async function main(): Promise<void> {
  * lands in shell history, in `ps` output, and in any CI log that echoes the
  * command — three places a live credential should never be.
  */
+const MIN_PASSWORD_LENGTH = 12;
+
 async function userCommand(sql: postgres.Sql, args: string[]): Promise<void> {
   const email = valueOf(args, '--email');
   const role = (valueOf(args, '--role') ?? 'user').toLowerCase();
@@ -106,13 +109,7 @@ async function userCommand(sql: postgres.Sql, args: string[]): Promise<void> {
   // and one created by signing in are the same row rather than two.
   const userId = `local:${normalised}`;
 
-  const password = await promptSecret(`Password for ${normalised}: `);
-  if (password.length < 12) {
-    throw new Error('Refusing a password under 12 characters for an account that can configure the platform.');
-  }
-  const confirm = await promptSecret('Confirm password: ');
-  if (password !== confirm) throw new Error('Passwords did not match.');
-
+  const password = await promptNewPassword(`Set a password for ${normalised}`, MIN_PASSWORD_LENGTH);
   const hash = await hashPassword(password);
 
   await sql.begin(async (tx) => {
@@ -146,37 +143,81 @@ function valueOf(args: string[], flag: string): string | undefined {
 }
 
 /**
- * Read a secret from stdin, without echoing it when there is a terminal.
+ * Ask for a secret twice, and keep asking until the two agree.
  *
- * Two paths, because one does not cover both cases. Forcing `terminal: true`
- * on piped stdin makes readline treat a pipe as a TTY and the second prompt
- * never resolves — the command hangs after asking for confirmation, having
- * created nothing.
+ * Three things this gets right that the first version did not:
  *
- * So: a real terminal gets the muted prompt, and a pipe gets a plain line read.
- * Nothing is echoed in the pipe case either, because there is no terminal
- * echoing it — the caller supplied the value and already has it. That also
- * makes the command scriptable, which matters for seeding a fresh deployment.
+ *   **It actually hides the input.** Patching readline's private
+ *   `_writeToOutput` silently stopped working — the password was echoed in full
+ *   and left in terminal scrollback. Muting a Writable we own instead is not
+ *   reliant on an internal that can change under us, and it is testable: the
+ *   test asserts the typed value never appears in the output.
+ *
+ *   **One readline interface, not one per question.** Closing and reopening on
+ *   the same stdin can leave a buffered newline that the next interface reads
+ *   as an empty line — a mismatch the caller never typed.
+ *
+ *   **A mistype costs a retry, not the command.** Aborting on the first
+ *   mismatch meant re-running everything, which for a prompt you cannot see is
+ *   a bad trade.
  */
-async function promptSecret(prompt: string): Promise<string> {
-  if (!process.stdin.isTTY) return readPipedLine();
+async function promptNewPassword(label: string, minLength: number): Promise<string> {
+  if (!process.stdin.isTTY) {
+    // Piped: the caller supplied both lines and already has the value. Nothing
+    // to hide, and no terminal to hide it from.
+    const password = await readPipedLine();
+    const confirm = await readPipedLine();
+    if (password !== confirm) throw new Error('Passwords did not match.');
+    assertLongEnough(password, minLength);
+    return password;
+  }
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  const asMutable = rl as unknown as { _writeToOutput?: (s: string) => void };
-  const original = asMutable._writeToOutput?.bind(rl);
   let muted = false;
-  asMutable._writeToOutput = (chunk: string) => {
-    if (!muted) original?.(chunk);
-  };
-  try {
-    const answer = rl.question(prompt);
+  const output = new Writable({
+    write(chunk, _encoding, callback) {
+      if (!muted) process.stdout.write(chunk as Buffer);
+      callback();
+    },
+  });
+  const rl = createInterface({ input: process.stdin, output, terminal: true });
+
+  /** Prompt written directly to stdout, so only the *answer* is muted. */
+  const askHidden = async (prompt: string): Promise<string> => {
+    process.stdout.write(prompt);
     muted = true;
-    const value = await answer;
-    process.stdout.write('\n');
-    return value;
+    try {
+      return await rl.question('');
+    } finally {
+      muted = false;
+      process.stdout.write('\n');
+    }
+  };
+
+  try {
+    for (let attempt = 1; ; attempt++) {
+      const password = await askHidden(`${label} (min ${minLength} characters, not shown): `);
+      if (password.length < minLength) {
+        if (attempt >= MAX_PASSWORD_ATTEMPTS) assertLongEnough(password, minLength);
+        process.stdout.write(`  Too short — ${minLength} characters or more. Try again.\n`);
+        continue;
+      }
+      const confirm = await askHidden('Confirm: ');
+      if (password === confirm) return password;
+      if (attempt >= MAX_PASSWORD_ATTEMPTS) throw new Error('Passwords did not match.');
+      process.stdout.write('  Those did not match. Try again.\n');
+    }
   } finally {
-    muted = false;
     rl.close();
+  }
+}
+
+const MAX_PASSWORD_ATTEMPTS = 3;
+
+function assertLongEnough(password: string, minLength: number): void {
+  if (password.length < minLength) {
+    throw new Error(
+      `Refusing a password under ${minLength} characters for an account that can configure the platform.`,
+    );
   }
 }
 
