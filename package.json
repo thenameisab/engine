@@ -13,7 +13,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "db:migrate": "turbo run build --filter=@engine/db && node packages/db/dist/cli.js migrate",
-    "db:status": "turbo run build --filter=@engine/db && node packages/db/dist/cli.js status"
+    "db:status": "turbo run build --filter=@engine/db && node packages/db/dist/cli.js status",
+    "db:user": "turbo run build --filter=@engine/db && node packages/db/dist/cli.js user"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

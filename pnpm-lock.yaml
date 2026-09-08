@@ -273,6 +273,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@engine/auth':
+        specifier: workspace:*
+        version: link:../auth
       postgres:
         specifier: ^3.4.5
         version: 3.4.9

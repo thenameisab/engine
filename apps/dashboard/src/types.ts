@@ -477,3 +477,13 @@ export interface PlatformClientView {
   configuredByEnvironment: boolean;
   events: PlatformCredentialEvent[];
 }
+
+/** A person who can sign in. Admin-only data — it is the whole user list. */
+export interface PlatformUser {
+  id: string;
+  email?: string;
+  name?: string;
+  platformRole: 'admin' | 'user';
+  hasCredential: boolean;
+  createdAt: string;
+}

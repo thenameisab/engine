@@ -32,7 +32,23 @@ function login(body: unknown, over: Record<string, string> = {}): Promise<Respon
   );
 }
 
-/** Any authenticated route will do; `/health/integrations` needs no database. */
+/**
+ * That `requireAuth` let the request through, whatever the handler then did.
+ *
+ * These tests are about the gate, not the endpoint. Asserting 200 tied them to
+ * one route's business outcome, so admin-gating that route broke tests about
+ * token verification — which had not changed. 401 is the only status the gate
+ * itself produces on rejection, so "not 401" is exactly the claim.
+ */
+function expectAdmitted(res: Response): void {
+  expect(res.status).not.toBe(401);
+}
+
+/**
+ * Any authenticated route will do. `/health/integrations` is still the cheapest
+ * one to reach, but it is admin-gated now, so an admitted non-admin gets 404
+ * rather than 200 — see `expectAdmitted`.
+ */
 function callGated(authorization: string | undefined, over: Record<string, string> = {}): Promise<Response> {
   return app.request(
     '/health/integrations',
@@ -100,14 +116,14 @@ describe('requireAuth with a local session token', () => {
       { id: 'local:ada@engine.dev', email: 'ada@engine.dev', name: 'Ada Lovelace' },
       SECRET,
     );
-    expect((await callGated(`Bearer ${token}`)).status).toBe(200);
+    expectAdmitted(await callGated(`Bearer ${token}`));
   });
 
   it('admits the token the login route just minted', async () => {
     const { token } = (await (await login({ email: 'ada@engine.dev', password: 'pw-one' })).json()) as {
       token: string;
     };
-    expect((await callGated(`Bearer ${token}`)).status).toBe(200);
+    expectAdmitted(await callGated(`Bearer ${token}`));
   });
 
   it('refuses a token signed with a different secret', async () => {

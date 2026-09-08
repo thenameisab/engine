@@ -52,6 +52,7 @@ import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { keyringFrom } from './repositories/oauthFlows.js';
+import { isPlatformAdmin } from './repositories/platformCredentials.js';
 import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -111,6 +112,12 @@ import { getSubscription, upsertSubscription, getUsageCounters } from './reposit
 
 interface Env extends AuthEnv {
   DATABASE_URL: string;
+  /**
+   * Bootstrap admin list. The stored `users.platform_role` is authoritative;
+   * this only breaks the circle of "promotion happens on a screen only an
+   * admin can reach" for the very first one.
+   */
+  PLATFORM_ADMIN_EMAILS?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   /** JSON map of Stripe price id -> our PlanTier, e.g. {"price_growth_monthly":"growth"}. */
   STRIPE_PRICE_TO_TIER?: string;
@@ -392,7 +399,24 @@ async function projectAccessError(
  * secret value. `mvpReady` is true only when every required-for-MVP
  * integration is fully configured. Drives the internal "what's wired?" view.
  */
-app.get('/health/integrations', (c) => {
+/**
+ * Which vendor keys *this deployment* has wired.
+ *
+ * Admin-only. It names environment variables and says which are missing, which
+ * is operator information: a customer learning that `SERPER_API_KEY` is unset
+ * gains nothing they can act on and sees the inside of someone else's
+ * infrastructure. It was gated by `requireAuth` alone, which meant every
+ * signed-in customer could read it.
+ */
+app.get('/health/integrations', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  let admin = false;
+  try {
+    admin = await isPlatformAdmin(db, c.get('user'), c.env);
+  } catch {
+    admin = false;
+  }
+  if (!admin) return c.json({ error: 'not found' }, 404);
   const report = evaluateReadiness(c.env as unknown as Record<string, string | undefined>);
   return c.json(report);
 });

@@ -51,6 +51,9 @@ import { startFlow, claimFlow, keyringFrom } from '../repositories/oauthFlows.js
 import {
   isPlatformAdmin,
   isPlatformVendor,
+  listUsers,
+  setPlatformRole,
+  countAdmins,
   getPlatformClientStatus,
   setPlatformClient,
   clearPlatformClient,
@@ -969,9 +972,18 @@ integrationsRoutes.delete('/projects/:projectId/integrations/assignments/:assign
  * checked on every route rather than once at a parent — a guard that is applied
  * in three of four handlers is not a guard.
  */
-async function requirePlatformAdmin(c: Context<Env>): Promise<{ error: Response } | { ok: true }> {
+async function requirePlatformAdmin(c: Context<Env>, db: Db): Promise<{ error: Response } | { ok: true }> {
   const user = c.get('user');
-  if (!isPlatformAdmin(user.email, c.env)) {
+  let admin = false;
+  try {
+    admin = await isPlatformAdmin(db, user, c.env);
+  } catch {
+    // An unreachable database denies rather than allows. The alternative — fall
+    // back to the bootstrap list when the role cannot be read — would let a
+    // demoted admin back in whenever the database hiccupped.
+    admin = false;
+  }
+  if (!admin) {
     // 404, not 403. A 403 confirms the screen exists and that this deployment
     // has administrators, to someone who by definition is not one.
     return { error: c.json({ error: 'not found' }, 404) };
@@ -986,18 +998,25 @@ async function requirePlatformAdmin(c: Context<Env>): Promise<{ error: Response 
  * whether to render the nav entry. It reveals only whether *you* are an
  * administrator, which you already know.
  */
-integrationsRoutes.get('/platform/access', (c) =>
-  c.json({ isAdmin: isPlatformAdmin(c.get('user').email, c.env) }),
-);
+integrationsRoutes.get('/platform/access', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  try {
+    return c.json({ isAdmin: await isPlatformAdmin(db, c.get('user'), c.env) });
+  } catch {
+    // The nav entry simply does not render. Reporting an error here would put
+    // a red banner on every screen for a failure the customer cannot act on.
+    return c.json({ isAdmin: false });
+  }
+});
 
 /** What is configured, and the redirect URI to register with the vendor. */
 integrationsRoutes.get('/platform/oauth-clients/:vendor', async (c) => {
-  const guard = await requirePlatformAdmin(c);
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
   if ('error' in guard) return guard.error;
   const vendor = c.req.param('vendor');
   if (!isPlatformVendor(vendor)) return c.json({ error: 'unknown vendor', field: 'vendor' }, 400);
 
-  const db = createDb(c.env.DATABASE_URL);
   const stored = await getPlatformClientStatus(db, vendor);
 
   // The URI the operator must register with the vendor, derived from this
@@ -1021,7 +1040,8 @@ integrationsRoutes.get('/platform/oauth-clients/:vendor', async (c) => {
 
 /** Set or rotate Engine's client for a vendor. */
 integrationsRoutes.put('/platform/oauth-clients/:vendor', async (c) => {
-  const guard = await requirePlatformAdmin(c);
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
   if ('error' in guard) return guard.error;
   const vendor = c.req.param('vendor');
   if (!isPlatformVendor(vendor)) return c.json({ error: 'unknown vendor', field: 'vendor' }, 400);
@@ -1037,6 +1057,7 @@ integrationsRoutes.put('/platform/oauth-clients/:vendor', async (c) => {
   if (raw === null || typeof raw !== 'object') return c.json({ error: 'body is not valid JSON' }, 400);
   const body = raw as { clientId?: unknown; clientSecret?: unknown; redirectUri?: unknown };
 
+
   if (typeof body.clientId !== 'string' || body.clientId.trim() === '') {
     return c.json({ error: 'clientId is required', field: 'clientId' }, 400);
   }
@@ -1050,7 +1071,6 @@ integrationsRoutes.put('/platform/oauth-clients/:vendor', async (c) => {
     return c.json({ error: 'redirectUri must be an https URL', field: 'redirectUri' }, 400);
   }
 
-  const db = createDb(c.env.DATABASE_URL);
   const user = c.get('user');
   await upsertUser(db, user);
 
@@ -1066,15 +1086,68 @@ integrationsRoutes.put('/platform/oauth-clients/:vendor', async (c) => {
 
 /** Remove Engine's client. Customers' stored grants are left in place. */
 integrationsRoutes.delete('/platform/oauth-clients/:vendor', async (c) => {
-  const guard = await requirePlatformAdmin(c);
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
   if ('error' in guard) return guard.error;
   const vendor = c.req.param('vendor');
   if (!isPlatformVendor(vendor)) return c.json({ error: 'unknown vendor', field: 'vendor' }, 400);
 
-  const db = createDb(c.env.DATABASE_URL);
   const user = c.get('user');
   await upsertUser(db, user);
   const removed = await clearPlatformClient(db, vendor, user.id);
   if (!removed) return c.json({ error: `${vendor} is not configured`, vendor }, 404);
   return c.json({ cleared: true, vendor });
+});
+
+/* ── Users and platform roles ───────────────────────────────────────────── */
+
+/**
+ * Who exists, and what kind of person each one is.
+ *
+ * Admin-only, and it returns email addresses — the whole user list of the
+ * deployment. That is exactly what a support person needs and exactly what a
+ * customer must never see.
+ */
+integrationsRoutes.get('/platform/users', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
+  if ('error' in guard) return guard.error;
+
+  return c.json({ users: await listUsers(db), adminCount: await countAdmins(db) });
+});
+
+/**
+ * Promote or demote someone.
+ *
+ * The two refusals live in the repository, in one transaction with the read
+ * that justifies them: an admin cannot demote themselves, and the last admin
+ * cannot be demoted at all. Both prevent a deployment nobody can administer
+ * without direct database access.
+ */
+integrationsRoutes.put('/platform/users/:userId/role', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
+  if ('error' in guard) return guard.error;
+
+  const subjectUserId = c.req.param('userId');
+  const raw = await c.req.json<unknown>().catch(() => null);
+  if (raw === null || typeof raw !== 'object') return c.json({ error: 'body is not valid JSON' }, 400);
+  const role = (raw as { role?: unknown }).role;
+  if (role !== 'admin' && role !== 'user') {
+    return c.json({ error: "role must be 'admin' or 'user'", field: 'role' }, 400);
+  }
+
+  const actor = c.get('user');
+  await upsertUser(db, actor);
+  const result = await setPlatformRole(db, subjectUserId, role, actor.id);
+  if (!result.ok) {
+    const message =
+      result.reason === 'self'
+        ? 'You cannot remove your own admin access. Ask another admin to do it.'
+        : result.reason === 'last-admin'
+          ? 'This is the only admin. Promote someone else first.'
+          : 'That user does not exist.';
+    return c.json({ error: message, reason: result.reason }, result.reason === 'not-found' ? 404 : 409);
+  }
+  return c.json({ userId: subjectUserId, from: result.from, to: result.to });
 });
