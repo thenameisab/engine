@@ -220,27 +220,34 @@ app.get('/health', (c) => c.json({ status: 'ok' }));
  * would make an unknown address measurably faster than a wrong password and
  * turn this endpoint into a roster oracle over the network.
  */
+type AuthOutcome =
+  | { kind: 'ok'; user: LocalUser }
+  | { kind: 'rejected' }
+  /** Nothing could answer the question — not "wrong password". */
+  | { kind: 'unavailable' };
+
 async function authenticate(
   env: Env,
   email: string | undefined,
   password: string | undefined,
-): Promise<LocalUser | null> {
+): Promise<AuthOutcome> {
   const address = (email ?? '').trim().toLowerCase();
   const presented = password ?? '';
+  const rosterConfigured = localRosterSize(env.LOCAL_AUTH_USERS) > 0;
 
   if (env.DATABASE_URL) {
     let stored: Awaited<ReturnType<typeof getCredentialByEmail>> = null;
+    let reachable = true;
     try {
       stored = await getCredentialByEmail(createDb(env.DATABASE_URL), address);
     } catch (err) {
-      // An unreachable database must not lock everyone out while a roster
-      // secret is still configured; fall through to it rather than 500.
-      console.error('credential lookup failed, falling back to the roster', err);
+      reachable = false;
+      console.error('credential lookup failed', err);
     }
 
     if (stored) {
       const ok = await verifyPassword(presented, stored.passwordHash);
-      if (!ok) return null;
+      if (!ok) return { kind: 'rejected' };
       // Upgrade the work factor on the way past — this is the only moment the
       // plaintext exists to re-derive from. Best effort: a failed re-hash must
       // not fail the sign-in that just succeeded.
@@ -251,13 +258,24 @@ async function authenticate(
           console.error('password re-hash failed', err);
         }
       }
-      return stored.user;
+      return { kind: 'ok', user: stored.user };
     }
 
-    await verifyPassword(presented, dummyHash());
+    // The credential store is the only configured source and it did not
+    // answer. Saying "those credentials are not valid" here would be a lie
+    // with a cost: the person retypes a correct password, doubts it, and the
+    // outage looks like their mistake. Same reasoning that removed the dev
+    // session bypass in August — unreachable is reported as unreachable.
+    if (!reachable && !rosterConfigured) return { kind: 'unavailable' };
+
+    // A real miss, not an outage. Spend a derivation before falling through:
+    // PBKDF2 is slow by design, so returning early here would make an unknown
+    // address measurably faster than a wrong password.
+    if (reachable) await verifyPassword(presented, dummyHash());
   }
 
-  return verifyLocalCredentials(address, presented, env.LOCAL_AUTH_USERS);
+  const user = verifyLocalCredentials(address, presented, env.LOCAL_AUTH_USERS);
+  return user ? { kind: 'ok', user } : { kind: 'rejected' };
 }
 
 /**
@@ -293,8 +311,12 @@ app.post('/auth/login', async (c) => {
   if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
   const body = raw as { email: string; password: string };
 
-  const user = await authenticate(c.env, body.email, body.password);
-  if (!user) return c.json({ error: 'Those credentials are not valid.' }, 401);
+  const outcome = await authenticate(c.env, body.email, body.password);
+  if (outcome.kind === 'unavailable') {
+    return c.json({ error: 'Credential sign-in is temporarily unavailable on this deployment.' }, 503);
+  }
+  if (outcome.kind === 'rejected') return c.json({ error: 'Those credentials are not valid.' }, 401);
+  const user = outcome.user;
 
   const token = await signLocalSession(user, secret);
 
