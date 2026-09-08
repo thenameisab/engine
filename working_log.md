@@ -668,3 +668,8 @@
 - **Verified end to end against a real Postgres 16** in the scratchpad (TCP on 5434 — the scratchpad path exceeds the 103-byte unix socket limit): all 20 migrations apply, `abgaur1996+admin@gmail.com` is created with `platform_role = admin`, the stored hash is `pbkdf2-sha256$100000$…`, the plaintext appears nowhere, the correct password verifies and a wrong one does not, and the short-password, mismatch and bad-role refusals all fire.
 - Green: typecheck 41/41, build 24/24, test 39/39.
 - **The account exists only on that throwaway database.** Creating it on Neon is one command, which the user must run — I have no connection string.
+
+## 2026-09-08 (recovering PR #69 onto main)
+- PR #69 (`feat/user-roles`, commit `fb47628`) was merged into `feat/platform-oauth-config`, whose own PR #68 had already merged. `origin/main` therefore never received the roles commit: `gh api .../compare/main...feat/user-roles` reported diverged, ahead 1, behind 1.
+- Recovered as this project's rules describe: new branch `feat/user-roles-main` off `origin/main` (`5546a1f`), `git cherry-pick fb47628` applied cleanly (16 files, migration 0020, no collision on main which ends at 0019), and opened a new PR to `main`. Content is unchanged from #69.
+- Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (api 195, dashboard 28, db 21).
