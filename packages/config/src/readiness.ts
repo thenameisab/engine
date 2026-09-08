@@ -15,6 +15,8 @@ export interface IntegrationReadiness {
   id: string;
   name: string;
   category: IntegrationDef['category'];
+  /** Brand domain for the logo, or '' when the integration has no vendor. */
+  logoDomain: string;
   requiredForMvp: boolean;
   status: IntegrationStatus;
   /** Required vars that are absent or blank. Empty when status is 'configured'. */
@@ -56,6 +58,7 @@ export function evaluateIntegration(def: IntegrationDef, env: EnvRecord): Integr
     id: def.id,
     name: def.name,
     category: def.category,
+    logoDomain: def.logoDomain,
     requiredForMvp: def.requiredForMvp,
     status,
     missing,

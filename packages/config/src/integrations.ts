@@ -36,6 +36,16 @@ export interface IntegrationDef {
   purpose: string;
   /** The external account a human must create before this can go live. */
   account: string;
+  /**
+   * The brand's primary domain, used only to fetch a logo (logo.dev keys its
+   * image API by domain). Lives here rather than in a lookup table in the
+   * dashboard so that adding an integration brings its own mark with it —
+   * the same reason the env catalogue and the docs read from this registry.
+   *
+   * Empty for an integration with no third-party vendor; the UI renders a
+   * monogram instead of requesting a logo that cannot exist.
+   */
+  logoDomain: string;
   /** Whether the MVP/pre-alpha requires this to function at all (vs. a later-phase nicety). */
   requiredForMvp: boolean;
   env: IntegrationEnvVar[];
@@ -50,6 +60,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     category: 'data',
     purpose: 'Primary operational store — accounts, projects, entities, findings, actions, onboarding, subscriptions.',
     account: 'Neon (managed Postgres, AWS ap-southeast-1 / Singapore). Identity via Neon Auth.',
+    logoDomain: 'neon.tech',
     requiredForMvp: true,
     env: [
       {
@@ -69,6 +80,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     purpose:
       'User identity + the API auth gate: the dashboard signs in here, and apps/api verifies the resulting JWT against the published JWKS.',
     account: 'Neon Auth (managed Better Auth) — already enabled on the Neon project; Google sign-in configured there.',
+    logoDomain: 'neon.tech',
     requiredForMvp: true,
     env: [
       {
@@ -128,6 +140,8 @@ export const INTEGRATIONS: IntegrationDef[] = [
     purpose:
       'Signs the three pre-alpha users in with an email and password, minting a session token the API verifies itself. Exists because Neon Auth cannot complete a Google sign-in from the deployed dashboard origin.',
     account: 'None — no third party. Both values are chosen by whoever operates the deployment.',
+    // No third party, so no vendor mark — the UI falls back to a monogram.
+    logoDomain: '',
     requiredForMvp: false,
     env: [
       {
@@ -158,6 +172,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'Customers connect their own Google accounts in the product: GSC search performance, GA4 traffic, and GBP location reads plus C5 write-back.',
     account:
       'One Google Cloud project with an OAuth 2.0 Web client. Enable: Search Console API; Analytics Data API AND Analytics Admin API; My Business Account Management, Business Information and Google My Business (v4) APIs.',
+    logoDomain: 'google.com',
     requiredForMvp: true,
     env: [
       {
@@ -215,6 +230,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     category: 'billing',
     purpose: 'G3 billing: subscription lifecycle synced from Stripe webhooks into our read-model; plan/usage/over-limit enforcement.',
     account: 'Stripe account (test mode is enough for pre-alpha) with products/prices for the plan tiers and a webhook endpoint.',
+    logoDomain: 'stripe.com',
     requiredForMvp: true,
     env: [
       {
@@ -248,6 +264,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     category: 'serp',
     purpose: 'A1 rank tracking: Google SERP positions + features (AI Overview presence, local pack, PAA) per tracked keyword/geo/device.',
     account: 'Serper.dev account (2,500 free credits on signup; prepaid credits after — cannot bill-shock).',
+    logoDomain: 'serper.dev',
     requiredForMvp: true,
     env: [
       {
@@ -274,6 +291,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     category: 'llm',
     purpose: 'A2 AI visibility: poll OpenAI for answers to tracked prompts, extract citations/sources (n-sampling → confidence band).',
     account: 'OpenAI API account with a funded key.',
+    logoDomain: 'openai.com',
     requiredForMvp: true,
     env: [
       {
@@ -299,6 +317,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     category: 'llm',
     purpose: 'A2 AI visibility: second LLM engine — Gemini readiness alongside OpenAI, with grounding-source citation extraction.',
     account: 'Google AI Studio / Gemini API key (generous free tier).',
+    logoDomain: 'gemini.google.com',
     requiredForMvp: false,
     env: [
       {
@@ -324,6 +343,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     category: 'deploy',
     purpose: "C4.5 GitHub PR export: for headless sites with no edge worker or CMS plugin, deploy a fix as a reviewable PR against the customer's repo (@engine/deploy's 'github-pr' DeployTarget).",
     account: 'A GitHub App or fine-grained PAT with contents:write + pull-requests:write on the customer repo(s).',
+    logoDomain: 'github.com',
     requiredForMvp: false,
     env: [
       {

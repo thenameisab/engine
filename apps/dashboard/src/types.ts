@@ -125,6 +125,8 @@ export interface IntegrationReadiness {
   id: string;
   name: string;
   category: string;
+  /** Brand domain for the logo, or '' when the integration has no vendor. */
+  logoDomain: string;
   requiredForMvp: boolean;
   status: 'configured' | 'partial' | 'missing';
   missing: { name: string; description: string }[];
@@ -328,6 +330,8 @@ export interface ProviderCatalogEntry {
   /** True when Google gates the API behind an access request, not just an enable toggle. */
   requiresAccessRequest: boolean;
   writes: boolean;
+  /** Brand domain for the logo. All three Google providers share 'google.com'. */
+  logoDomain: string;
 }
 
 /**

@@ -206,7 +206,29 @@ a { color: inherit; text-decoration: none; }
 /* Google integrations: the customer's own connections, one card per provider.
    Reuses the .intg-status colour vocabulary above so "connected" reads the same
    here as "wired" does in the operator readiness grid. */
+/* Vendor logos (logo.dev). The tile keeps a light face in both themes: brand
+   marks are drawn for a light background and many are dark-on-transparent, so
+   painting them onto the dark theme's surface would erase about half of them.
+   A 1px inset border rather than a drop shadow, so a white-on-white logo still
+   reads as a tile. */
+.logo-tile { flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--r-sm); background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+.logo-tile img { width: 20px; height: 20px; object-fit: contain; display: block; }
+/* Monogram fallback — no vendor, or logo.dev unreachable. Uses the app's own
+   ink on the same tile so a missing logo reads as deliberate, not as a gap. */
+.logo-tile.mono { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border);
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .02em;
+  color: var(--text-muted); }
+/* The readiness grid packs four things into one row, so its tile is smaller. */
+.intg-top .logo-tile { width: 22px; height: 22px; }
+.intg-top .logo-tile img { width: 16px; height: 16px; }
+
 .intg-providers { display: flex; flex-direction: column; gap: 12px; }
+/* space-between is right for a two-child header; with a logo ahead of the
+   title it would strand the mark at the far edge. Pack from the start and let
+   .intg-status keep its margin-left:auto. */
+.intg-provider > header { justify-content: flex-start; gap: 10px; }
 .intg-provider .intg-status { margin-left: auto; }
 .intg-provider.needs_reauth { border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
 .intg-provider.connected { border-color: color-mix(in srgb, var(--good) 26%, var(--border)); }

@@ -1,4 +1,5 @@
 import { el } from '../dom.js';
+import { logoTile } from '../logo.js';
 import { fetchIntegrations } from '../api.js';
 import { googleIntegrationsSection } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
@@ -13,6 +14,7 @@ const STATUS_TEXT: Record<IntegrationReadiness['status'], string> = {
 function integrationCard(i: IntegrationReadiness): HTMLElement {
   return el('div', { class: `intg ${i.status}` }, [
     el('div', { class: 'intg-top' }, [
+      logoTile(i.logoDomain, i.name),
       el('span', { class: `intg-dot ${i.status}` }),
       el('div', { class: 'intg-name' }, [
         i.name,

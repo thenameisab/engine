@@ -323,6 +323,19 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/integrations:
+    dependencies:
+      '@engine/auth':
+        specifier: workspace:*
+        version: link:../auth
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
   packages/keywords:
     devDependencies:
       typescript:

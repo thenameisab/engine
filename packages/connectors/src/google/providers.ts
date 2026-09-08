@@ -39,6 +39,15 @@ export interface GoogleProviderDef {
   requiresAccessRequest: boolean;
   /** Whether the granted scope permits writes. Only GBP does, for C5's Fix Queue deploys. */
   writes: boolean;
+  /**
+   * The brand domain a logo is fetched for (logo.dev keys its image API by
+   * domain). All three are Google products, so all three carry `google.com`
+   * and render the same mark — the product name is what distinguishes the
+   * cards. It is a field rather than a hardcoded Google logo in the dashboard
+   * because the next provider added here will not be Google's, and it should
+   * bring its own mark without a UI change.
+   */
+  logoDomain: string;
 }
 
 export const GOOGLE_PROVIDERS: Record<GoogleProvider, GoogleProviderDef> = {
@@ -51,6 +60,7 @@ export const GOOGLE_PROVIDERS: Record<GoogleProvider, GoogleProviderDef> = {
     requiredApis: ['Google Search Console API'],
     requiresAccessRequest: false,
     writes: false,
+    logoDomain: 'google.com',
   },
   ga4: {
     id: 'ga4',
@@ -64,6 +74,7 @@ export const GOOGLE_PROVIDERS: Record<GoogleProvider, GoogleProviderDef> = {
     requiredApis: ['Google Analytics Data API', 'Google Analytics Admin API'],
     requiresAccessRequest: false,
     writes: false,
+    logoDomain: 'google.com',
   },
   gbp: {
     id: 'gbp',
@@ -83,6 +94,7 @@ export const GOOGLE_PROVIDERS: Record<GoogleProvider, GoogleProviderDef> = {
     ],
     requiresAccessRequest: true,
     writes: true,
+    logoDomain: 'google.com',
   },
 };
 
