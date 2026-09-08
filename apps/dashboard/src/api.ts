@@ -468,7 +468,10 @@ export async function updateBrandingApi(accountId: string, branding: ApiAccountB
 export async function fetchReportUrl(accountId: string): Promise<string> {
   const base = getApiBaseUrl();
   if (!base) throw new Error('no API base URL configured');
-  const token = await getApiToken();
+  // Same token resolution as `request()`. This used to call `getApiToken()`
+  // alone, which only knows the Google path, so every password session opened
+  // the report to a raw 401.
+  const token = getStoredApiToken() ?? (await getApiToken());
   const res = await fetch(`${base}/accounts/${accountId}/report`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
