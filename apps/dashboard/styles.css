@@ -169,6 +169,19 @@ a { color: inherit; text-decoration: none; }
 .sev.high { color: var(--risk); background: color-mix(in srgb, var(--risk) 11%, transparent); }
 .sev.medium { color: var(--watch); background: color-mix(in srgb, var(--watch) 13%, transparent); }
 .sev.low { color: var(--text-muted); background: var(--surface-2); }
+.fgroup + .fgroup { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+.fgroup-head { display: flex; align-items: center; gap: 12px; padding: 10px 8px 2px; }
+.fgroup-head .t { font-size: 13px; font-weight: 600; }
+.fgroup-head .m { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.fgroup .flist { padding: 0 0 4px; }
+/* Pages sit under the issue's severity chip: chip width + row gap. */
+.fgroup .frow { padding-left: 82px; }
+.fgroup .frow + .frow { border-top: 0; }
+/* The Audit row's own action. `.card-act` is width: 100% for Fix Queue cards
+   and inside a flex row took the whole row (review B5). */
+.frow-act { flex: none; padding: 5px 10px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface); color: var(--accent); font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; transition: background .12s var(--ease), border-color .12s var(--ease); }
+.frow-act:hover { background: var(--accent-wash); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.frow-act[disabled] { opacity: .6; cursor: default; }
 .fmain { flex: 1; min-width: 0; }
 .fmain .t { font-size: 13px; font-weight: 500; }
 .fmain .m { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

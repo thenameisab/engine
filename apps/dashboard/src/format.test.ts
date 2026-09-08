@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData } from './format.js';
-import type { ApiAction, ApiFinding, ApiPulseResponse } from './types.js';
+import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath } from './format.js';
+import type { ApiAction, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -273,5 +273,65 @@ describe('toPulseData', () => {
     const local = data.contributions.find((c) => c.key === 'local')!;
     // Customer-facing text: says what is true and carries no phase code.
     expect(local.sub).toBe('not measured yet');
+  });
+});
+
+describe('issueLabel for content and entity findings', () => {
+  it('names every issue type the crawler and the entity audit can emit', () => {
+    for (const slug of [
+      'not-answer-first', 'weak-eeat', 'weak-entity-coverage', 'sparse-internal-linking',
+      'missing-wikidata-mapping', 'missing-entity-schema', 'inconsistent-sameas', 'weak-corroboration',
+    ]) {
+      const label = issueLabel(slug);
+      expect(label).not.toBe(slug);
+      expect(label).not.toMatch(/[A-Z]\d|Phase/);
+    }
+  });
+});
+
+describe('groupFindings', () => {
+  const row = (type: string, url: string, severity: FindingRow['severity'], autoFixable = false): FindingRow => ({
+    id: `${type}:${url}`, type, title: issueLabel(type), severity, predictedImpact: 3, autoFixable, url,
+  });
+
+  it('puts each issue type once with one row per page', () => {
+    const groups = groupFindings([
+      row('not-in-sitemap', 'https://a.test/', 'low'),
+      row('schema-missing', 'https://a.test/', 'high', true),
+      row('not-in-sitemap', 'https://a.test/b', 'low'),
+      row('not-in-sitemap', 'https://a.test/c', 'low'),
+    ]);
+    expect(groups.map((g) => [g.type, g.pageCount])).toEqual([['schema-missing', 1], ['not-in-sitemap', 3]]);
+    expect(groups[1]!.findings.map((f) => f.url)).toEqual(['https://a.test/', 'https://a.test/b', 'https://a.test/c']);
+  });
+
+  it('orders high severity first, then the widest-spread issue', () => {
+    const groups = groupFindings([
+      row('x', 'https://a.test/1', 'medium'),
+      row('y', 'https://a.test/1', 'medium'),
+      row('y', 'https://a.test/2', 'medium'),
+      row('z', 'https://a.test/1', 'low'),
+      row('w', 'https://a.test/1', 'high'),
+    ]);
+    expect(groups.map((g) => g.type)).toEqual(['w', 'y', 'x', 'z']);
+  });
+
+  it('marks the group fixable when any page in it is', () => {
+    const [g] = groupFindings([row('t', 'https://a.test/1', 'low', false), row('t', 'https://a.test/2', 'low', true)]);
+    expect(g!.autoFixable).toBe(true);
+  });
+
+  it('returns nothing for nothing', () => {
+    expect(groupFindings([])).toEqual([]);
+  });
+});
+
+describe('pagePath', () => {
+  it('shows the path and query, and "/" for the home page', () => {
+    expect(pagePath('https://acme.test/pricing?plan=pro')).toBe('/pricing?plan=pro');
+    expect(pagePath('https://acme.test')).toBe('/');
+  });
+  it('falls back to the raw value when it is not a URL', () => {
+    expect(pagePath('not a url')).toBe('not a url');
   });
 });

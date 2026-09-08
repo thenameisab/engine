@@ -11,7 +11,7 @@ import type {
   ApiFinding,
   ApiPulseResponse,
   ChannelContribution,
-  FindingRow,
+  FindingRow, FindingGroup,
   PulseData,
   ScoreBand,
   ActionStatus,
@@ -206,7 +206,17 @@ const ISSUE_LABELS: Record<string, string> = {
   'cwv-poor': 'Poor Core Web Vitals',
   'noindex-unexpected': 'Unexpected noindex',
   'not-in-sitemap': 'Not in the sitemap',
-  unknown: 'Issue type not recorded (pre-0004 finding)',
+  // Content findings (@engine/content rules).
+  'not-answer-first': 'Answer is not at the top of the page',
+  'weak-eeat': 'Weak signs of expertise and trust',
+  'weak-entity-coverage': 'Page says too little about your brand',
+  'sparse-internal-linking': 'Too few internal links',
+  // Entity findings (@engine/entity-audit rules).
+  'missing-wikidata-mapping': 'Brand has no Wikidata entry',
+  'missing-entity-schema': 'No structured data identifies your brand',
+  'inconsistent-sameas': 'Official profiles missing from structured data',
+  'weak-corroboration': 'Few independent sources confirm your brand',
+  unknown: 'Issue type not recorded',
 };
 
 export function issueLabel(issueType: string): string {
@@ -244,6 +254,53 @@ export function toFindingRow(f: ApiFinding): FindingRow {
     // without one is a bug, but an empty cell beats "undefined" in the UI.
     url: typeof f.evidence?.url === 'string' ? f.evidence.url : '',
   };
+}
+
+const SEVERITY_ORDER: Record<FindingRow['severity'], number> = { high: 0, medium: 1, low: 2 };
+
+/**
+ * Group findings by issue type for the Audit screen. A crawl reports one
+ * finding per page per issue, so a 7-page site with 6 issues is 42 rows that
+ * differ only in URL. Grouping puts the issue once and lists the pages under
+ * it. Groups sort high severity first, then by how many pages are affected;
+ * pages inside a group keep the order the API returned.
+ */
+export function groupFindings(rows: FindingRow[]): FindingGroup[] {
+  const byType = new Map<string, FindingGroup>();
+  for (const row of rows) {
+    const group = byType.get(row.type);
+    if (group) {
+      group.findings.push(row);
+      group.pageCount += 1;
+      // One finding with a template is enough to offer the button on the group.
+      group.autoFixable = group.autoFixable || row.autoFixable;
+    } else {
+      byType.set(row.type, {
+        type: row.type,
+        title: row.title,
+        severity: row.severity,
+        autoFixable: row.autoFixable,
+        pageCount: 1,
+        findings: [row],
+      });
+    }
+  }
+  return [...byType.values()].sort(
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || b.pageCount - a.pageCount,
+  );
+}
+
+/**
+ * The part of a page URL a customer scans a list by: the path. The host is the
+ * same on every row of one audit, so it goes in the muted line instead.
+ */
+export function pagePath(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}` || '/';
+  } catch {
+    return url;
+  }
 }
 
 /**
