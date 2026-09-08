@@ -160,12 +160,21 @@ jobs:
           fi
           echo "Baked API origin: $expected"
 
-      # Direct Upload to the one Pages project (engine-7vv). --branch=main
-      # makes this a production deployment rather than a preview.
+      # Uploads to the `engineai` Pages project. --branch=main makes this a
+      # production deployment rather than a preview.
+      #
+      # That project is ALSO connected to this repo through Cloudflare's own
+      # git integration — it has been posting a "Cloudflare Pages" check on
+      # every PR since at least #59, which is why "merging deploys nothing" was
+      # only half true. Both paths can publish to the same project, so
+      # automatic deployments must stay disabled on it (Pages project →
+      # Settings → Builds → branch control) or the two race and the winner
+      # decides whether the deployed page has an API origin baked in. This one
+      # is the path that checks.
       - name: Publish to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: '3.114.17'
-          command: pages deploy apps/dashboard/site --project-name=engine-7vv --branch=main
+          command: pages deploy apps/dashboard/site --project-name=engineai --branch=main

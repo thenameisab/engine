@@ -58,9 +58,21 @@ and the OAuth callback allowlist (see below).
 
 ## Deploy (Cloudflare Pages)
 
-There is **one** Pages project (`engine-7vv`). It builds `apps/dashboard`, and
-`apps/dashboard/scripts/assembleSite.mjs` assembles the whole public surface
-into its output. Nothing here needs a project of its own.
+CI publishes to the **`engineai`** Pages project. It serves `apps/dashboard`,
+and `apps/dashboard/scripts/assembleSite.mjs` assembles the whole public
+surface into its output. Nothing here needs a project of its own.
+
+There is also an older `engine-7vv` project, which is what `engine-7vv.pages.dev`
+still serves and what the rest of this repo's docs referred to. Treat `engineai`
+as the live one and `engine-7vv` as legacy.
+
+**`engineai` is also connected to this repo through Cloudflare's own git
+integration** — it has posted a "Cloudflare Pages" check on every PR since at
+least #59. Two paths can therefore publish to it. Keep Cloudflare's automatic
+deployments **disabled** for the project (project → Settings → Builds → branch
+control) so CI is the only publisher: it is the path that bakes
+`ENGINE_API_BASE` in and refuses to publish without it, and a Cloudflare-side
+build has neither guard.
 
 - Build output directory: **`apps/dashboard/site`**
 
