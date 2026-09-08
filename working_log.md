@@ -624,3 +624,17 @@
 - Deleted the now-dead `.intg-setup` rule rather than leaving it behind.
 - Verified in the browser in **both themes**: cards position correctly, lists and the docs link render, and disabled buttons are visibly dimmed in light and dark.
 - Green: typecheck 41/41, test 39/39.
+
+## 2026-09-08 (ship-readiness review for the first test customers)
+- Ran four parallel code audits (API completeness and security, integrations architecture, dashboard code and CSS, PRD-versus-code) and a live walkthrough of the real product: isolated Postgres 16 in the session scratchpad on port 5433, all 18 migrations applied, `wrangler dev` with a local test roster in `apps/api/.dev.vars` (gitignored, placeholder secrets), dashboard built and served on 4321.
+- Signed in as a test customer, created a client and project, ran `packages/crawler` against the local docs site (12 pages, 41 findings), ran the entity audit, proposed three fixes, walked one through approve → deploy (503, no `GITHUB_TOKEN`) → verify (409).
+- Wrote `docs/reviews/2026-09-08-ship-readiness-review.md`: eight blockers, a half-done-builds table, an honest verdict on the integrations library (correct code, wrong sequencing — synced GSC/GA4 data has no consumer), a screen-by-screen UI review and a design-engineering Before/After table.
+- Bugs found only by running the product: selecting a project in Clients never sets the account id, so Integrations still says "Pick a client first"; the branded report view 401s for password sessions because `fetchReportUrl` skips the stored token; the Audit row layout is broken because `.card-act` is `width:100%`; "auto-fixable" findings can fail to generate an action; the marketing hero first-paints hidden; the rail disappears under 860px with no replacement.
+- Typecheck and dashboard tests green on the branch (28 tests). No product code changed in this session.
+
+## 2026-09-08 (week 1 of the ship-readiness plan, item 1: CI applies migrations before the API deploys)
+- Branch `ci/migrate-before-deploy` off `origin/main` (`349746b`, PR #67 merged). Committed the review document `docs/reviews/2026-09-08-ship-readiness-review.md` and the review's log entry with it.
+- Added a `migrate` job to `.github/workflows/ci.yml`: push-to-main only, `needs: build`, `concurrency: db-migrate` with `cancel-in-progress: false`, fails with an explicit `::error::` when the `DATABASE_URL` repository secret is unset, then runs `pnpm db:status` and `pnpm db:migrate`. `deploy-api` now `needs: [build, migrate]`, so the Worker cannot go live ahead of the schema it reads. `deploy` still chains off `deploy-api`.
+- Did not run anything against Neon. Verified the CLI path locally against the scratch Postgres on 5433: `pnpm db:status` reports 18 applied, 0 pending.
+- Repository state checked with `gh`: secrets present are `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` only. Until `DATABASE_URL` is added as a repository secret, every push to main fails at `migrate` and skips both deploy jobs. That is the intended fail-loud behaviour, and it means the secret must be added before the next merge is expected to deploy.
+- Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (dashboard 28, api 182).

@@ -30,6 +30,69 @@ jobs:
 
       - run: pnpm turbo run test
 
+  # ── Apply pending migrations ───────────────────────────────────────────────
+  # The API is deployed from code that assumes the schema in
+  # infra/migrations/postgres. Until this job existed nothing applied those
+  # files: migrations 0017 and 0018 were merged, the Worker that reads the
+  # columns they add was deployed, and every integration route answered 500
+  # until someone ran `pnpm db:migrate` by hand. This job runs before
+  # deploy-api so the schema always lands first.
+  #
+  # DATABASE_URL is the one secret this workflow does hold. The runner uses it
+  # for a single transaction and never prints it (the CLI logs host and
+  # database only). Applying migrations is idempotent: an up-to-date database
+  # logs "Already up to date." and the job passes.
+  #
+  # cancel-in-progress is off on purpose. A migration is one transaction, so a
+  # cancelled run cannot leave a half-applied schema, but a second run queued
+  # behind it is cheaper than reasoning about a cancelled one.
+  migrate:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: db-migrate
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Fail loudly rather than let the CLI fall back to apps/api/.dev.vars,
+      # which does not exist on the runner and would produce a less specific
+      # error.
+      - name: Require DATABASE_URL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL repository secret is not set. Add the Neon pooled" \
+                 "connection string under Settings → Secrets and variables → Actions →" \
+                 "Secrets. Without it migrations cannot run and deploy-api is skipped," \
+                 "because deploying code against a schema it does not match breaks" \
+                 "every route that reads the new columns."
+            exit 1
+          fi
+
+      - name: Show applied and pending migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm db:status
+
+      - name: Apply pending migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm db:migrate
+
   # ── Publish the API Worker ─────────────────────────────────────────────────
   # The dashboard is useless without this: sign-in goes through the API, so a
   # published page pointing at a Worker that does not exist is a login screen
@@ -45,7 +108,9 @@ jobs:
   # Until they exist, POST /auth/login answers "Credential sign-in is not
   # configured on this deployment" — a clear message, not a crash.
   deploy-api:
-    needs: build
+    # Waits on migrate as well as build: the Worker must never go live ahead of
+    # the schema it reads.
+    needs: [build, migrate]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
