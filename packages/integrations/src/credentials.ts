@@ -271,3 +271,56 @@ export function applyApiKey(
   u.searchParams.set(placement.name, value);
   return { url: u.toString(), headers: {} };
 }
+
+/**
+ * Prove a pasted key works before it is stored, by calling the provider's
+ * `verifyUrl` with the key placed the way the provider declares.
+ *
+ * Without this an invalid key is stored happily and surfaces as a failed sync
+ * hours later, with nothing pointing back at the paste. A provider that
+ * declares no `verifyUrl` is stored unverified, and the result says so.
+ *
+ * A 400, 401 or 403 from the vendor is `invalid_credentials` (the customer's
+ * key is wrong). 400 is included because the verify call is a GET whose only
+ * input is the key, and Bing answers a bad key with 400. Any other failure is
+ * `vendor_error`: the key may be fine and the vendor is not, so the customer is
+ * told to try again rather than to re-paste.
+ */
+export async function verifyApiKey(
+  provider: IntegrationProvider,
+  credential: ApiKeyCredential,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 8000,
+): Promise<{ verified: boolean }> {
+  if (provider.auth.kind !== 'api_key') {
+    throw new IntegrationError('invalid_request', `${provider.id} does not use an API key`, { providerId: provider.id });
+  }
+  const verifyUrl = provider.auth.verifyUrl;
+  if (!verifyUrl) return { verified: false };
+
+  const { url, headers } = applyApiKey(provider, credential, verifyUrl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json', ...headers }, signal: controller.signal });
+  } catch (err) {
+    throw new IntegrationError('vendor_error', `${provider.vendor} could not be reached to check the key. Try again in a moment.`, {
+      providerId: provider.id,
+      cause: err,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 400 || res.status === 401 || res.status === 403) {
+    throw new IntegrationError('invalid_credentials', `${provider.vendor} rejected this key. Check it and paste it again.`, {
+      providerId: provider.id,
+    });
+  }
+  if (!res.ok) {
+    throw new IntegrationError('vendor_error', `${provider.vendor} answered ${res.status} while checking the key. Try again in a moment.`, {
+      providerId: provider.id,
+    });
+  }
+  return { verified: true };
+}

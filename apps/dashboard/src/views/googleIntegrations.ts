@@ -224,6 +224,7 @@ function apiKeyForm(input: {
     ]);
   });
 
+  const label = connected ? `Replace ${entry.name} key` : `Connect ${entry.name}`;
   const submit = el(
     'button',
     {
@@ -244,6 +245,10 @@ function apiKeyForm(input: {
           }
           values[field.name] = raw;
         }
+        // The API checks the key with the vendor before storing it, which can
+        // take a few seconds; say so, and refuse a second click meanwhile.
+        submit.setAttribute('disabled', 'true');
+        submit.textContent = 'Checking the key…';
         try {
           await connectApiKey(accountId, entry.id, values);
           // Cleared on success as well as being unstored: a key left in a DOM
@@ -253,10 +258,12 @@ function apiKeyForm(input: {
           reload();
         } catch (err) {
           ctx.toast(`Could not connect: ${readableError(err)}`);
+          submit.removeAttribute('disabled');
+          submit.textContent = label;
         }
       },
     },
-    [connected ? `Replace ${entry.name} key` : `Connect ${entry.name}`],
+    [label],
   );
 
   return el('div', { class: 'intg-apikey' }, [

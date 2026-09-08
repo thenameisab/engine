@@ -5,6 +5,7 @@ import {
   openCredential,
   credentialAad,
   validateApiKeySubmission,
+  verifyApiKey,
   applyApiKey,
   type ApiKeyCredential,
 } from './credentials.js';
@@ -213,5 +214,52 @@ describe('applyApiKey', () => {
     expect(() => applyApiKey(provider, { kind: 'api_key', secrets: {}, public: {} }, 'https://x')).toThrow(
       /missing API token/,
     );
+  });
+});
+
+describe('verifyApiKey', () => {
+  const bing = getProvider('bing-webmaster') as IntegrationProvider;
+  const cloudflare = getProvider('cloudflare') as IntegrationProvider;
+  const bingKey = validateApiKeySubmission(bing, { apiKey: 'ABCDEFGHIJKLMNOP1234' });
+  const cfKey = validateApiKeySubmission(cloudflare, { apiToken: 'a'.repeat(40) });
+
+  function fetchWith(status: number, capture: { url?: string; headers?: Record<string, string> } = {}): typeof fetch {
+    return (async (url: string | URL | Request, init?: RequestInit) => {
+      capture.url = String(url);
+      capture.headers = init?.headers as Record<string, string>;
+      return new Response('{}', { status });
+    }) as typeof fetch;
+  }
+
+  it('places a query-string key on the verify URL and passes on a 200', async () => {
+    const capture: { url?: string; headers?: Record<string, string> } = {};
+    await expect(verifyApiKey(bing, bingKey, fetchWith(200, capture))).resolves.toEqual({ verified: true });
+    expect(capture.url).toBe('https://ssl.bing.com/webmaster/api.svc/json/GetUserSites?apikey=ABCDEFGHIJKLMNOP1234');
+  });
+
+  it('places a header key as the provider declares', async () => {
+    const capture: { url?: string; headers?: Record<string, string> } = {};
+    await verifyApiKey(cloudflare, cfKey, fetchWith(200, capture));
+    expect(capture.url).toBe('https://api.cloudflare.com/client/v4/user/tokens/verify');
+    expect(capture.headers?.authorization).toBe(`Bearer ${'a'.repeat(40)}`);
+  });
+
+  it('turns a vendor 400, 401 or 403 into invalid_credentials, so the customer re-pastes', async () => {
+    for (const status of [400, 401, 403]) {
+      await expect(verifyApiKey(bing, bingKey, fetchWith(status))).rejects.toMatchObject({ reason: 'invalid_credentials' });
+    }
+  });
+
+  it('turns any other vendor failure into vendor_error, so the customer retries instead', async () => {
+    await expect(verifyApiKey(bing, bingKey, fetchWith(500))).rejects.toMatchObject({ reason: 'vendor_error' });
+    const down = (async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch;
+    await expect(verifyApiKey(bing, bingKey, down)).rejects.toMatchObject({ reason: 'vendor_error' });
+  });
+
+  it('reports unverified, not verified, for a provider with no verify URL', async () => {
+    const noVerify = { ...bing, auth: { ...bing.auth, verifyUrl: undefined } } as IntegrationProvider;
+    const called: string[] = [];
+    await expect(verifyApiKey(noVerify, bingKey, fetchWith(200, {}))).resolves.toEqual({ verified: false });
+    expect(called).toEqual([]);
   });
 });

@@ -22,6 +22,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import {
+  verifyApiKey,
   listProviders,
   getProvider,
   assertConnectable,
@@ -454,6 +455,17 @@ integrationsRoutes.post('/accounts/:accountId/integrations/:provider/api-key', a
     throw err;
   }
 
+  // Prove the key works before storing it. A rejected key is a 400 the form
+  // shows inline; a vendor outage is a 502 that asks for a retry, because the
+  // key may be fine.
+  let verified = false;
+  try {
+    ({ verified } = await verifyApiKey(provider, credential));
+  } catch (err) {
+    if (isIntegrationError(err)) return integrationErrorResponse(c, err);
+    throw err;
+  }
+
   const userId = c.get('user').id;
   const connection = await upsertConnection(db, keyring, {
     accountId,
@@ -464,7 +476,7 @@ integrationsRoutes.post('/accounts/:accountId/integrations/:provider/api-key', a
     // an account id is what tells two connections of the same vendor apart.
     externalLabel: Object.values(credential.public)[0],
   });
-  return c.json({ connection });
+  return c.json({ connection, verified });
 });
 
 /**
