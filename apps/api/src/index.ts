@@ -35,7 +35,7 @@ import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQu
 import { durationMs, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
-import {
+import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
   checkAuditBody,
   checkGenerateBody,
   checkCreateKeywordConfigBody,
@@ -86,7 +86,7 @@ import { getProjectDeployTarget, setProjectDeployTarget } from './repositories/p
 import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
-import {
+import { getProject,
   upsertUser,
   createAccount,
   isAccountMember,
@@ -109,8 +109,17 @@ import {
   markFirstFixDeployed,
 } from './repositories/onboarding.js';
 import { getSubscription, upsertSubscription, getUsageCounters } from './repositories/billing.js';
+import {
+  createAuditRequest,
+  latestAuditRequest,
+  listQueuedAuditRequests,
+  claimAuditRequest,
+  finishAuditRequest,
+  type AuditRequestOutcome,
+} from './repositories/auditRequests.js';
+import { dispatchCrawlWorkflow, type DispatchEnv } from './githubDispatch.js';
 
-interface Env extends AuthEnv {
+interface Env extends AuthEnv, DispatchEnv {
   DATABASE_URL: string;
   /**
    * Bootstrap admin list. The stored `users.platform_role` is authoritative;
@@ -205,6 +214,9 @@ app.use('*', (c, next) => {
 app.use('/health/integrations', requireAuth);
 app.use('/projects/*', requireAuth);
 app.use('/accounts/*', requireAuth);
+// Machine-only routes for the crawl runner. requireAuth admits a service token
+// or a person; the routes themselves then refuse the person (see requireService).
+app.use('/internal/*', requireAuth);
 // Engine's own OAuth client lives behind these. The handlers check
 // PLATFORM_ADMIN_EMAILS, but that check reads the authenticated user's email —
 // without this line there is no authenticated user for it to read, and the
@@ -1533,6 +1545,113 @@ app.post('/projects/:projectId/actions/:actionId/verify', async (c) => {
   } catch (err) {
     return c.json({ error: (err as Error).message }, 409);
   }
+});
+
+
+/* ── Audit requests: "Run audit" and the crawl runner's queue ─────────────── */
+
+/**
+ * Non-service callers get 404, not 403: these routes exist for the runner, and
+ * telling a signed-in person that a machine door exists helps nobody.
+ */
+function requireService(c: { get(key: 'user'): AuthUser }): boolean {
+  return c.get('user').isService === true;
+}
+
+/**
+ * The customer's "Run audit". Picks the project's brand (oldest entity) unless
+ * one is named, caps pages at the default, and asks GitHub to start the crawl
+ * workflow now rather than at the next scheduled pass. One live request per
+ * project; a second is a 409 the dashboard turns into "already queued".
+ */
+app.post('/projects/:projectId/audit-requests', async (c) => {
+  const projectId = c.req.param('projectId');
+  const invalidId = checkUuidParam(projectId, 'projectId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const raw = c.req.header('content-length') === '0' || !c.req.header('content-type') ? undefined : await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkAuditRequestBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = (raw ?? {}) as { entityId?: string; maxPages?: number };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const project = await getProject(db, projectId);
+  if (!project) return c.json({ error: 'project not found', projectId }, 404);
+
+  let entityId = body.entityId;
+  if (entityId) {
+    if (!(await getEntityInProject(db, projectId, entityId))) {
+      return c.json({ error: 'entity does not belong to this project', field: 'entityId' }, 400);
+    }
+  } else {
+    // listEntitiesByProject is newest first; the brand created at setup is the oldest.
+    const entities = await listEntitiesByProject(db, projectId);
+    entityId = entities.at(-1)?.id;
+    if (!entityId) return c.json({ error: 'Add a brand or business name for this site before running an audit.' }, 409);
+  }
+
+  const request = await createAuditRequest(db, {
+    projectId,
+    entityId,
+    rootUrl: `https://${project.domain}`,
+    maxPages: body.maxPages ?? AUDIT_REQUEST_MAX_PAGES_DEFAULT,
+    requestedBy: user.id,
+  });
+  if (!request) return c.json({ error: 'An audit is already queued or running for this site.' }, 409);
+
+  const dispatch = await dispatchCrawlWorkflow(c.env);
+  if (!dispatch.dispatched) console.warn(`audit request ${request.id} queued without dispatch: ${dispatch.reason}`);
+  return c.json({ request, dispatched: dispatch.dispatched }, 201);
+});
+
+app.get('/projects/:projectId/audit-requests/latest', async (c) => {
+  const projectId = c.req.param('projectId');
+  const invalidId = checkUuidParam(projectId, 'projectId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  return c.json({ request: await latestAuditRequest(db, projectId) });
+});
+
+/** The runner's queue scan. Only `status=queued` exists today. */
+app.get('/internal/audit-requests', async (c) => {
+  if (!requireService(c)) return c.json({ error: 'not found' }, 404);
+  const status = c.req.query('status') ?? 'queued';
+  if (status !== 'queued') return c.json({ error: 'invalid status: expected "queued"', field: 'status' }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  return c.json({ requests: await listQueuedAuditRequests(db) });
+});
+
+app.post('/internal/audit-requests/:id/claim', async (c) => {
+  if (!requireService(c)) return c.json({ error: 'not found' }, 404);
+  const id = c.req.param('id');
+  const invalidId = checkUuidParam(id, 'id');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const request = await claimAuditRequest(db, id);
+  if (!request) return c.json({ error: 'request is not queued', id }, 409);
+  return c.json({ request });
+});
+
+app.post('/internal/audit-requests/:id/finish', async (c) => {
+  if (!requireService(c)) return c.json({ error: 'not found' }, 404);
+  const id = c.req.param('id');
+  const invalidId = checkUuidParam(id, 'id');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkAuditRequestFinishBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const request = await finishAuditRequest(db, id, raw as AuditRequestOutcome);
+  if (!request) return c.json({ error: 'request is not running', id }, 409);
+  return c.json({ request });
 });
 
 /**

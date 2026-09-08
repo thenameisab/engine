@@ -121,6 +121,19 @@ export interface FindingGroup {
   findings: FindingRow[];
 }
 
+/** `GET /projects/:id/audit-requests/latest` — the newest "Run audit" request. */
+export interface ApiAuditRequest {
+  id: string;
+  projectId: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  maxPages: number;
+  error: string | null;
+  auditRunId: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 export interface AuditData {
   /**
    * Null when the project has never been audited. The API reports the score of

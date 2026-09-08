@@ -580,6 +580,10 @@ select.field { cursor: pointer; }
 
 /* M2.5 agency white-label: Clients grid, branding settings, branded report */
 .pagehead .btn { margin-top: 10px; }
+.audit-status { font-size: 13px; margin-top: 6px; color: var(--text-muted); }
+.audit-status.watch { color: var(--watch); }
+.audit-status.risk { color: var(--risk); }
+.audit-status.good { color: var(--good); }
 .client-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 .client-card { padding: 0; }
 .client-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }

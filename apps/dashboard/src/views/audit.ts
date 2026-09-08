@@ -1,8 +1,9 @@
 import { el } from '../dom.js';
-import { fetchAudit, fetchDeployTarget, proposeFix } from '../api.js';
+import { fetchAudit, fetchDeployTarget, fetchLatestAuditRequest, proposeFix, requestAudit } from '../api.js';
+import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
-import { groupFindings, pagePath } from '../format.js';
-import type { AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
+import { auditRequestStatusLine, groupFindings, pagePath } from '../format.js';
+import type { ApiAuditRequest, AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
 
 /**
  * The "Propose fix" control for one page. It asks the API to generate the fix
@@ -102,52 +103,117 @@ function summary(d: AuditData): HTMLElement {
   });
 }
 
+/** How often the header re-checks a queued or running request. */
+const POLL_MS = 20_000;
+
 export async function auditView(ctx: AppContext): Promise<HTMLElement> {
-  let data: AuditData | null = null;
-  let loadError: string | null = null;
-  let target: DeployTarget | null = null;
-  try {
-    // The target is best-effort: a failure here (or none set) just disables the
-    // Propose buttons, it does not block showing the audit.
-    [data, target] = await Promise.all([fetchAudit(), fetchDeployTarget().catch(() => null)]);
-  } catch (err) {
-    // Same rule as the Fix Queue: an unreachable API is not an empty audit, and
-    // this view will not invent findings to paper over the difference.
-    loadError = (err as Error).message;
+  const container = el('div', {});
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function load(): Promise<void> {
+    let data: AuditData | null = null;
+    let loadError: string | null = null;
+    let target: DeployTarget | null = null;
+    let latest: ApiAuditRequest | null = null;
+    try {
+      // The target and the request are best-effort: a failure on either only
+      // disables the Propose buttons or hides the status line, it does not
+      // block showing the audit.
+      [data, target, latest] = await Promise.all([
+        fetchAudit(),
+        fetchDeployTarget().catch(() => null),
+        fetchLatestAuditRequest().catch(() => null),
+      ]);
+    } catch (err) {
+      // Same rule as the Fix Queue: an unreachable API is not an empty audit, and
+      // this view will not invent findings to paper over the difference.
+      loadError = (err as Error).message;
+    }
+    render(data, loadError, target, latest);
   }
 
-  if (!data) {
-    return el('div', {}, [
-      el('div', { class: 'pagehead' }, [el('h1', {}, ['Technical audit'])]),
-      el('section', { class: 'panel' }, [
-        el('div', { class: 'fq-note' }, [`Could not load the audit: ${loadError}`]),
-      ]),
-    ]);
+  function schedulePoll(latest: ApiAuditRequest | null): void {
+    if (pollTimer) clearTimeout(pollTimer);
+    const line = auditRequestStatusLine(latest);
+    if (!line?.live) return;
+    pollTimer = setTimeout(() => {
+      // The view may have been replaced by another route since the timer was set.
+      if (container.isConnected) void load();
+    }, POLL_MS);
   }
 
-  const d = data;
-  const hasTarget = target !== null;
-  return el('div', {}, [
-    el('div', { class: 'pagehead' }, [el('h1', {}, ['Technical audit']), summary(d)]),
-    hasTarget
-      ? null
-      : el('section', { class: 'panel' }, [
-          el('div', { class: 'fq-note' }, [
-            'Set a deploy target in Settings to turn auto-fixable findings into proposed fixes.',
-          ]),
+  function runButton(latest: ApiAuditRequest | null): HTMLElement {
+    const busy = latest?.status === 'queued' || latest?.status === 'running';
+    const btn = el('button', {
+      class: 'btn primary',
+      ...(busy ? { disabled: 'true', title: 'An audit is already queued or running' } : {}),
+      onclick: async () => {
+        btn.setAttribute('disabled', 'true');
+        btn.textContent = 'Queuing…';
+        try {
+          const { dispatched } = await requestAudit();
+          ctx.toast(dispatched ? 'Audit queued. It usually finishes within a few minutes.' : 'Audit queued for the next scheduled pass.');
+          await load();
+        } catch (err) {
+          ctx.toast(readableError(err));
+          btn.removeAttribute('disabled');
+          btn.textContent = 'Run audit';
+        }
+      },
+    }, ['Run audit']);
+    return btn;
+  }
+
+  function render(data: AuditData | null, loadError: string | null, target: DeployTarget | null, latest: ApiAuditRequest | null): void {
+    schedulePoll(latest);
+    const status = auditRequestStatusLine(latest);
+    const statusLine = status
+      ? el('p', { class: `audit-status${status.tone ? ` ${status.tone}` : ''}`, role: 'status' }, [status.text])
+      : null;
+
+    if (!data) {
+      container.replaceChildren(
+        el('div', { class: 'pagehead' }, [el('h1', {}, ['Technical audit'])]),
+        el('section', { class: 'panel' }, [
+          el('div', { class: 'fq-note' }, [`Could not load the audit: ${loadError}`]),
         ]),
-    el('section', { class: 'panel' }, [
-      el('header', {}, [
-        el('h3', {}, ['Findings']),
-        el('span', { class: 'more' }, [issueCount(d.findings)]),
+      );
+      return;
+    }
+
+    const d = data;
+    const hasTarget = target !== null;
+    const parts: (HTMLElement | null)[] = [
+      el('div', { class: 'pagehead' }, [
+        el('h1', {}, ['Technical audit']),
+        summary(d),
+        statusLine,
+        runButton(latest),
       ]),
-      d.findings.length === 0
-        ? el('div', { class: 'fq-note' }, [
-            d.healthScore === null
-              ? 'Run a crawl to populate the audit — findings appear here once one reports.'
-              : 'No findings. The last crawl found nothing to fix.',
-          ])
-        : el('div', { class: 'fgroups' }, groupFindings(d.findings).map((g) => groupBlock(g, hasTarget, ctx))),
-    ]),
-  ]);
+      hasTarget
+        ? null
+        : el('section', { class: 'panel' }, [
+            el('div', { class: 'fq-note' }, [
+              'Set a deploy target in Settings to turn auto-fixable findings into proposed fixes.',
+            ]),
+          ]),
+      el('section', { class: 'panel' }, [
+        el('header', {}, [
+          el('h3', {}, ['Findings']),
+          el('span', { class: 'more' }, [issueCount(d.findings)]),
+        ]),
+        d.findings.length === 0
+          ? el('div', { class: 'fq-note' }, [
+              d.healthScore === null
+                ? 'Run an audit to see what to fix. Findings appear here when it finishes.'
+                : 'No findings. The last audit found nothing to fix.',
+            ])
+          : el('div', { class: 'fgroups' }, groupFindings(d.findings).map((g) => groupBlock(g, hasTarget, ctx))),
+      ]),
+    ];
+    container.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
+  }
+
+  await load();
+  return container;
 }

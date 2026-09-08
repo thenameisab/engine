@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "engine-crawl": "./dist/cli.js"
+    "engine-crawl": "./dist/cli.js",
+    "engine-crawl-queue": "./dist/queueRunner.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
