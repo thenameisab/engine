@@ -123,10 +123,12 @@ export const PROVIDERS: IntegrationProvider[] = [
     docsUrl: 'https://developers.google.com/my-business',
   },
 
-  /* ── Planned ───────────────────────────────────────────────────────────
-     Ordered by what the product can already use. Each row is complete enough
-     to connect the day it is switched to 'available'; what is missing is the
-     resource lister and the sync, not the auth. */
+  /* ── API-key providers, available ─────────────────────────────────────
+     Bing Webmaster and Cloudflare need no vendor registration on Engine's
+     side: the customer pastes a key, the API verifies it against the vendor,
+     and a resource lister already exists for both. They have no sync yet,
+     so connecting them gives the product a verified credential and an
+     assigned site or zone, not data on Pulse. */
 
   {
     id: 'bing-webmaster',
@@ -134,7 +136,7 @@ export const PROVIDERS: IntegrationProvider[] = [
     vendor: 'Microsoft',
     logoDomain: 'bing.com',
     category: 'search-console',
-    availability: 'planned',
+    availability: 'available',
     // Bing is the substrate under Copilot and, until recently, ChatGPT's
     // browsing. For a product whose thesis is AI visibility, second search
     // engine coverage is not a nice-to-have.
@@ -158,6 +160,11 @@ export const PROVIDERS: IntegrationProvider[] = [
     writes: false,
     docsUrl: 'https://learn.microsoft.com/en-us/bingwebmaster/getting-access',
   },
+  /* ── Planned ───────────────────────────────────────────────────────────
+     Ordered by what the product can already use. Each row is complete enough
+     to connect the day it is switched to 'available'; what is missing is the
+     resource lister and the sync, not the auth. */
+
   {
     id: 'gsc-bulk-export',
     name: 'Google Search Console bulk export',
@@ -293,7 +300,7 @@ export const PROVIDERS: IntegrationProvider[] = [
     vendor: 'Cloudflare',
     logoDomain: 'cloudflare.com',
     category: 'cms',
-    availability: 'planned',
+    availability: 'available',
     // An edge-level deploy target for customers whose CMS we cannot touch:
     // redirects, headers and robots.txt applied at the edge, reversible in
     // seconds. It is the Fix Queue's escape hatch for locked-down stacks.

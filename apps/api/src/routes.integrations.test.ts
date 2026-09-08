@@ -44,11 +44,11 @@ function post(path: string, body: unknown, e: Record<string, string> = env): Pro
 }
 
 describe('GET /integrations/providers', () => {
-  it('describes all three providers without auth or a database', async () => {
+  it('describes every available provider without auth or a database', async () => {
     const res = await request('/integrations/providers');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { providers: { id: string; requiresAccessRequest: boolean; writes: boolean }[] };
-    expect(body.providers.map((p) => p.id).sort()).toEqual(['ga4', 'gbp', 'gsc']);
+    expect(body.providers.map((p) => p.id).sort()).toEqual(['bing-webmaster', 'cloudflare', 'ga4', 'gbp', 'gsc']);
   });
 
   it('flags that GBP needs an approved access request, so the UI can say so up front', async () => {
@@ -398,7 +398,7 @@ describe('GET /integrations/providers?planned=1', () => {
       providers: { id: string; availability: string }[];
     };
     expect(all.providers.length).toBeGreaterThan(live.providers.length);
-    expect(all.providers.some((p) => p.id === 'bing-webmaster' && p.availability === 'planned')).toBe(true);
+    expect(all.providers.some((p) => p.id === 'ahrefs' && p.availability === 'planned')).toBe(true);
   });
 
   it('describes the API-key form without ever carrying a value', async () => {
