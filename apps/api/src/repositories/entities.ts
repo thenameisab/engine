@@ -1,4 +1,4 @@
-import type { Entity } from '@engine/core';
+import { DEFAULT_ENTITY_KIND, type Entity, type EntityKind } from '@engine/core';
 import type { Db } from '../db.js';
 
 interface EntityRow {
@@ -11,6 +11,7 @@ interface EntityRow {
   citations: string[];
   mentions: string[];
   schema: object[];
+  schema_type: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -26,6 +27,7 @@ function toEntity(row: EntityRow): Entity {
     citations: row.citations,
     mentions: row.mentions,
     schema: row.schema,
+    schemaType: row.schema_type,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -33,7 +35,7 @@ function toEntity(row: EntityRow): Entity {
 
 export async function listEntitiesByProject(db: Db, projectId: string): Promise<Entity[]> {
   const rows = await db<EntityRow[]>`
-    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, created_at, updated_at
+    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
     from entities
     where project_id = ${projectId}
     order by created_at desc
@@ -48,7 +50,7 @@ export async function listEntitiesByProject(db: Db, projectId: string): Promise<
  */
 export async function getEntityInProject(db: Db, projectId: string, entityId: string): Promise<Entity | null> {
   const rows = await db<EntityRow[]>`
-    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, created_at, updated_at
+    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
     from entities
     where id::text = ${entityId} and project_id::text = ${projectId}
   `;
@@ -59,11 +61,33 @@ export async function createEntity(
   db: Db,
   projectId: string,
   canonicalName: string,
+  schemaType: EntityKind = DEFAULT_ENTITY_KIND,
 ): Promise<Entity> {
   const [row] = await db<EntityRow[]>`
-    insert into entities (project_id, canonical_name)
-    values (${projectId}, ${canonicalName})
-    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, created_at, updated_at
+    insert into entities (project_id, canonical_name, schema_type)
+    values (${projectId}, ${canonicalName}, ${schemaType})
+    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
   `;
   return toEntity(row);
+}
+
+/**
+ * Change what kind of thing a brand is. The schema generator reads this to
+ * pick the `@type` of the JSON-LD it proposes, so a customer who set the kind
+ * wrong (or left the default) can fix every future proposal in one place
+ * rather than per fix.
+ */
+export async function setEntitySchemaType(
+  db: Db,
+  projectId: string,
+  entityId: string,
+  schemaType: EntityKind,
+): Promise<Entity | null> {
+  const rows = await db<EntityRow[]>`
+    update entities
+    set schema_type = ${schemaType}, updated_at = now()
+    where id::text = ${entityId} and project_id::text = ${projectId}
+    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+  `;
+  return rows.length > 0 ? toEntity(rows[0]) : null;
 }

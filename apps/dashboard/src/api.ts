@@ -427,11 +427,24 @@ export function saveDeployTarget(target: DeployTarget): Promise<DeployTarget> {
  * the client sends only the finding id. Returns the created actions (empty,
  * with a note, when the fix needs context this crawl didn't capture).
  */
-export function proposeFix(findingId: string): Promise<{ actions: ApiAction[]; note?: string }> {
-  return request<{ actions: ApiAction[]; note?: string }>(
+export function proposeFix(findingId: string): Promise<{ actions: ApiAction[]; skipped: { type: string; reason: string }[] }> {
+  return request<{ actions: ApiAction[]; skipped: { type: string; reason: string }[] }>(
     `/projects/${requireProjectId()}/findings/${findingId}/propose`,
     { method: 'POST', body: JSON.stringify({}) },
   );
+}
+
+/**
+ * Confirm a fix's wording, optionally replacing it with the reviewer's edit.
+ * Only content rewrites need this, and the API refuses to approve one without
+ * it — the words that deploy have to be words a person read.
+ */
+export async function reviewAction(actionId: string, after?: string): Promise<ApiAction> {
+  const resp = await request<{ action: ApiAction }>(
+    `/projects/${requireProjectId()}/actions/${actionId}/review`,
+    { method: 'POST', body: JSON.stringify(after === undefined ? {} : { after }) },
+  );
+  return resp.action;
 }
 
 /** Attempt a live Fix Queue transition (DB-backed; may fail in pre-alpha). */
@@ -474,10 +487,23 @@ export async function createProjectApi(accountId: string, name: string, domain: 
  * rather than reading the selected one: onboarding creates the project and the
  * entity in one go, before anything has been selected.
  */
-export async function createEntityApi(projectId: string, canonicalName: string): Promise<ApiEntity> {
+export async function createEntityApi(projectId: string, canonicalName: string, schemaType?: string): Promise<ApiEntity> {
   const resp = await request<{ entity: ApiEntity }>(`/projects/${projectId}/entities`, {
     method: 'POST',
-    body: JSON.stringify({ canonicalName }),
+    body: JSON.stringify(schemaType ? { canonicalName, schemaType } : { canonicalName }),
+  });
+  return resp.entity;
+}
+
+/**
+ * Change what kind of thing a brand is. It decides the `@type` of the
+ * structured data Engine proposes, which is why a fix is refused outright
+ * rather than falling back to a type that describes nothing.
+ */
+export async function setEntityKindApi(entityId: string, schemaType: string): Promise<ApiEntity> {
+  const resp = await request<{ entity: ApiEntity }>(`/projects/${requireProjectId()}/entities/${entityId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ schemaType }),
   });
   return resp.entity;
 }

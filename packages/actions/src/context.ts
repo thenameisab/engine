@@ -34,6 +34,14 @@ export interface ActionContext {
   /** Page H1 / lead copy, used to derive a proposed title/description heuristically. */
   leadHeading?: string;
 
+  /**
+   * The page's visible headings in document order, as the crawl captured them.
+   * The meta generator reads its subject from here when the caller has not
+   * picked a `leadHeading` itself, which is what stops a proposed title from
+   * collapsing to the brand name on every page of a site.
+   */
+  headings?: { level: number; text: string }[];
+
   /** Current robots.txt contents, for the AI-crawler-policy action's `before`. */
   currentRobotsTxt?: string;
 

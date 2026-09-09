@@ -10,6 +10,8 @@ interface ActionRow {
   diff: Diff;
   status: ActionStatus;
   audit_log: AuditEntry[];
+  reviewed_at: Date | null;
+  reviewed_by: string | null;
 }
 
 function toAction(row: ActionRow): Action {
@@ -21,6 +23,8 @@ function toAction(row: ActionRow): Action {
     diff: row.diff,
     status: row.status,
     auditLog: row.audit_log,
+    ...(row.reviewed_at ? { reviewedAt: row.reviewed_at.toISOString() } : {}),
+    ...(row.reviewed_by ? { reviewedBy: row.reviewed_by } : {}),
   };
 }
 
@@ -40,7 +44,7 @@ export async function createAction(db: Db, action: Action): Promise<Action> {
       ${action.findingId}, ${action.type}, ${toJsonb(db, action.target)},
       ${toJsonb(db, action.diff)}, ${action.status}, ${toJsonb(db, action.auditLog)}
     )
-    returning id, finding_id, type, target, diff, status, audit_log
+    returning id, finding_id, type, target, diff, status, audit_log, reviewed_at, reviewed_by
   `;
   return toAction(row);
 }
@@ -71,7 +75,7 @@ interface QueuedActionRow extends ActionRow {
 export async function listActionsByProject(db: Db, projectId: string): Promise<QueuedAction[]> {
   const rows = await db<QueuedActionRow[]>`
     select
-      a.id, a.finding_id, a.type, a.target, a.diff, a.status, a.audit_log,
+      a.id, a.finding_id, a.type, a.target, a.diff, a.status, a.audit_log, a.reviewed_at, a.reviewed_by,
       f.predicted_impact
     from actions a
     join findings f on f.id = a.finding_id
@@ -98,7 +102,8 @@ export async function findingIdsWithActions(db: Db, findingIds: readonly string[
 
 export async function getAction(db: Db, id: string): Promise<Action | null> {
   const rows = await db<ActionRow[]>`
-    select id, finding_id, type, target, diff, status, audit_log from actions where id = ${id}
+    select id, finding_id, type, target, diff, status, audit_log, reviewed_at, reviewed_by
+    from actions where id = ${id}
   `;
   return rows[0] ? toAction(rows[0]) : null;
 }
@@ -109,7 +114,28 @@ export async function saveActionTransition(db: Db, action: Action): Promise<Acti
     update actions
     set status = ${action.status}, audit_log = ${toJsonb(db, action.auditLog)}, updated_at = now()
     where id = ${action.id}
-    returning id, finding_id, type, target, diff, status, audit_log
+    returning id, finding_id, type, target, diff, status, audit_log, reviewed_at, reviewed_by
+  `;
+  return toAction(row);
+}
+
+/**
+ * Persist a review produced by @engine/actions' `reviewMarked()`: who read the
+ * wording, when, and the text they settled on. The diff goes back too, because
+ * a reviewer may edit before confirming and what deploys must be what they
+ * read — writing the timestamp without the text would approve a version nobody
+ * saw.
+ */
+export async function saveActionReview(db: Db, action: Action): Promise<Action> {
+  const [row] = await db<ActionRow[]>`
+    update actions
+    set diff = ${toJsonb(db, action.diff)},
+        audit_log = ${toJsonb(db, action.auditLog)},
+        reviewed_at = ${action.reviewedAt ?? null},
+        reviewed_by = ${action.reviewedBy ?? null},
+        updated_at = now()
+    where id = ${action.id}
+    returning id, finding_id, type, target, diff, status, audit_log, reviewed_at, reviewed_by
   `;
   return toAction(row);
 }

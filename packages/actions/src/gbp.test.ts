@@ -60,13 +60,13 @@ describe('generateGbpAction', () => {
 
 describe('generateActions dispatch (gbp template)', () => {
   it('emits a gbp action for a B5 local finding with a gbp template', () => {
-    const actions = generateActions(finding('incomplete-gbp-field', { field: 'title' }), ctx({ gbp: { fieldValue: 'Acme Store' } }), env);
+    const { actions } = generateActions(finding('incomplete-gbp-field', { field: 'title' }), ctx({ gbp: { fieldValue: 'Acme Store' } }), env);
     expect(actions).toHaveLength(1);
     expect(actions[0].type).toBe('gbp');
     expect(parseGbpOperation(actions[0])).toEqual({ kind: 'update-field', field: 'title', value: 'Acme Store' });
   });
 
   it('emits nothing (no throw) when the gbp value is missing', () => {
-    expect(generateActions(finding('unanswered-reviews'), ctx({}), env)).toHaveLength(0);
+    expect(generateActions(finding('unanswered-reviews'), ctx({}), env).actions).toHaveLength(0);
   });
 });

@@ -264,6 +264,40 @@ describe('POST /projects/:projectId/actions/generate-content', () => {
   });
 });
 
+describe('POST /projects/:projectId/actions/:actionId/review', () => {
+  it('rejects an empty rewrite before any database call', async () => {
+    const res = await post('/projects/proj_1/actions/act_1/review', { after: '   ' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('after');
+  });
+
+  it('rejects a non-string rewrite', async () => {
+    const res = await post('/projects/proj_1/actions/act_1/review', { after: 42 });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('PATCH /projects/:projectId/entities/:entityId', () => {
+  function patch(path: string, body: unknown): Promise<Response> {
+    return app.request(
+      path,
+      { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+      env,
+    );
+  }
+
+  it('rejects a schema type that is not one of the offered kinds', async () => {
+    const res = await patch('/projects/proj_1/entities/ent_1', { schemaType: 'Sandwich' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('schemaType');
+  });
+
+  it('rejects Thing, which is valid schema.org and describes nothing', async () => {
+    const res = await patch('/projects/proj_1/entities/ent_1', { schemaType: 'Thing' });
+    expect(res.status).toBe(400);
+  });
+});
+
 /**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone

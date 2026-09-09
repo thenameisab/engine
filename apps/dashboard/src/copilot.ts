@@ -88,7 +88,10 @@ function answerBlock(answer: CopilotAnswer, latencyMs: number, onProposed: (note
       status.className = 'copilot-fix-status loading num';
       void proposeFix(sa.findingId)
         .then((res) => {
-          const note = res.actions.length > 0 ? `Proposed ${res.actions.length} fix(es) — see the Fix Queue.` : res.note ?? 'No fix could be generated for this finding.';
+          const note =
+            res.actions.length > 0
+              ? `Proposed ${res.actions.length} fix(es) — see the Fix Queue.`
+              : res.skipped[0]?.reason ?? 'No fix could be generated for this finding.';
           status.className = 'copilot-fix-status';
           status.replaceChildren(document.createTextNode(note));
           onProposed(note);

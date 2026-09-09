@@ -8,7 +8,15 @@ import {
 } from '@engine/scoring';
 import { runAudit, type CrawledPage } from '@engine/diagnosis';
 import { runContentAudit } from '@engine/content';
-import { generateActions, generateContentAction, transition, defaultEnv, type ActionContext } from '@engine/actions';
+import {
+  generateActions,
+  generateContentAction,
+  transition,
+  reviewMarked,
+  requiresHumanReview,
+  defaultEnv,
+  type ActionContext,
+} from '@engine/actions';
 import { verifyHtmlDeploy, verifyRobotsDeploy, verifyGbpDeploy, exportActionAsPr, getGbpAccessToken, deployGbpAction } from '@engine/deploy';
 import {
   verifyStripeSignature,
@@ -32,7 +40,7 @@ import {
 } from '@engine/auth';
 import { getCredentialByEmail, updatePasswordHash } from './repositories/userCredentials.js';
 import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
-import { durationMs, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
+import { durationMs, isEntityKind, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
 import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
@@ -53,7 +61,7 @@ import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { keyringFrom } from './repositories/oauthFlows.js';
 import { isPlatformAdmin } from './repositories/platformCredentials.js';
-import { createEntity, listEntitiesByProject, getEntityInProject } from './repositories/entities.js';
+import { createEntity, listEntitiesByProject, getEntityInProject, setEntitySchemaType } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
 import { runProjectEntityAudit, listEntityStrengths } from './repositories/entityAudit.js';
@@ -77,6 +85,7 @@ import {
   getAction,
   listActionsByProject,
   saveActionTransition,
+  saveActionReview,
   findingIdsWithActions,
 } from './repositories/actions.js';
 import { findingBelongsToProject, getFindingInProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
@@ -525,13 +534,39 @@ app.get('/projects/:projectId/entities', async (c) => {
 });
 
 app.post('/projects/:projectId/entities', async (c) => {
-  const body = await c.req.json<{ canonicalName: string }>();
+  const body = await c.req.json<{ canonicalName: string; schemaType?: string }>();
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
-  const entity = await createEntity(db, projectId, body.canonicalName);
+  // An unrecognised kind is rejected rather than coerced: the value becomes the
+  // `@type` of structured data on the customer's live site.
+  if (body.schemaType !== undefined && !isEntityKind(body.schemaType)) {
+    return c.json({ error: 'invalid schemaType', field: 'schemaType' }, 400);
+  }
+  const entity = await createEntity(db, projectId, body.canonicalName, body.schemaType);
   return c.json({ entity }, 201);
+});
+
+/**
+ * Change what kind of thing a brand is (`Entity.schemaType`). It decides the
+ * `@type` of every JSON-LD fix Engine proposes for this brand, so it is
+ * editable after setup, not only at it.
+ */
+app.patch('/projects/:projectId/entities/:entityId', async (c) => {
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { schemaType?: unknown };
+  if (!isEntityKind(body.schemaType)) {
+    return c.json({ error: 'invalid schemaType', field: 'schemaType' }, 400);
+  }
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const entity = await setEntitySchemaType(db, projectId, c.req.param('entityId'), body.schemaType);
+  if (!entity) return c.json({ error: 'entity not found' }, 404);
+  return c.json({ entity });
 });
 
 const CMS_PLUGINS = ['wordpress', 'shopify'] as const;
@@ -1117,8 +1152,12 @@ async function autoProposeMetaFixes(
       target,
       currentTitle: page?.title,
       currentMetaDescription: page?.metaDescription,
+      // Without these the title generator has only the brand name to work
+      // with, and proposes it as the title of every page on the site.
+      headings: page?.headings,
+      currentBodyText: page?.bodyText,
     };
-    for (const action of generateActions(finding, ctx)) {
+    for (const action of generateActions(finding, ctx).actions) {
       created.push(await createAction(db, action));
     }
   }
@@ -1187,9 +1226,9 @@ app.post('/projects/:projectId/actions/generate', async (c) => {
   }
 
   const generated = generateActions(body.finding, body.context);
-  const actions = await Promise.all(generated.map((action) => createAction(db, action)));
+  const actions = await Promise.all(generated.actions.map((action) => createAction(db, action)));
   if (actions.length > 0) await markFirstFixProposed(db, projectId);
-  return c.json({ projectId, actions });
+  return c.json({ projectId, actions, skipped: generated.skipped });
 });
 
 /**
@@ -1243,17 +1282,40 @@ app.post('/projects/:projectId/actions/generate-content', async (c) => {
 });
 
 /**
- * Best-effort schema.org @type for a schema fix's JSON-LD, read off the
- * entity's stored structured-data blocks. Falls back to 'Thing' — the valid
- * schema.org supertype — when the entity declares no typed block, so a schema
- * action is still generable rather than blocked on a missing type.
+ * The schema.org @type for a schema fix's JSON-LD.
+ *
+ * A type already published on the site wins: it is the most specific true
+ * statement about the entity (a dental practice's page may say `Dentist`,
+ * which no picker of ours offers). Otherwise the kind the customer chose for
+ * the brand is used. It used to fall back to 'Thing', which let a customer
+ * approve `{"@type":"Thing","name":"Acme Dental"}` — valid, deployable, and
+ * worth nothing. There is no fallback now; the generator refuses instead and
+ * says why.
  */
-function entitySchemaType(schema: object[]): string {
-  for (const block of schema) {
+/**
+ * The extra JSON-LD properties Engine can state as fact about an entity: the
+ * page the block will live on, and the Wikidata record when the brand is
+ * matched to one. Nothing here is inferred — a generated block that guessed
+ * an address or a price would be the same trust problem as `@type: Thing`,
+ * one layer down.
+ */
+function entityJsonLdProperties(
+  entity: { urls: string[]; wikidataId: string | null },
+  pageUrl: string,
+): Record<string, unknown> | undefined {
+  const properties: Record<string, unknown> = {};
+  const url = pageUrl || entity.urls[0];
+  if (url) properties.url = url;
+  if (entity.wikidataId) properties.sameAs = `https://www.wikidata.org/wiki/${entity.wikidataId}`;
+  return Object.keys(properties).length > 0 ? properties : undefined;
+}
+
+function entitySchemaType(entity: { schema: object[]; schemaType: string }): string {
+  for (const block of entity.schema) {
     const t = (block as { '@type'?: unknown })['@type'];
-    if (typeof t === 'string' && t.trim() !== '') return t;
+    if (typeof t === 'string' && t.trim() !== '' && t.trim() !== 'Thing') return t.trim();
   }
-  return 'Thing';
+  return entity.schemaType;
 }
 
 /**
@@ -1334,43 +1396,52 @@ app.post('/projects/:projectId/findings/:findingId/propose', async (c) => {
     currentMetaDescription: page?.metaDescription ?? undefined,
     currentBodyText: page?.bodyText ?? undefined,
     currentBodyHtml: page?.bodyHtml ?? undefined,
+    // What the page itself says it is about. A proposed title written without
+    // these is the brand name on every page of the site.
+    headings: page?.headings ?? undefined,
     internalLinkSuggestions,
     entity: entity
-      ? { schemaType: entitySchemaType(entity.schema), name: entity.canonicalName, properties: undefined }
+      ? {
+          schemaType: entitySchemaType(entity),
+          name: entity.canonicalName,
+          properties: entityJsonLdProperties(entity, url),
+        }
       : undefined,
   };
 
   // Free, deterministic generators (schema/meta/robots/redirect/internal-link).
   const generated = generateActions(finding, ctx);
+  const skipped = [...generated.skipped];
 
   // The costed content rewrite, only if the finding wants one and it's configured.
   const wantsContent = finding.actionTemplates.some((t) => t.type === 'content');
-  if (wantsContent && c.env.OPENAI_API_KEY) {
-    try {
-      const contentAction = await generateContentAction(
-        finding,
-        ctx,
-        { apiKey: c.env.OPENAI_API_KEY, model: c.env.OPENAI_MODEL },
-        defaultEnv(),
-      );
-      if (contentAction) generated.push(contentAction);
-    } catch (err) {
-      return c.json({ error: `content rewrite failed: ${(err as Error).message}` }, 502);
+  if (wantsContent) {
+    if (!c.env.OPENAI_API_KEY) {
+      skipped.push({ type: 'content', reason: 'Rewriting page copy is not switched on for this deployment.' });
+    } else {
+      try {
+        const contentAction = await generateContentAction(
+          finding,
+          ctx,
+          { apiKey: c.env.OPENAI_API_KEY, model: c.env.OPENAI_MODEL },
+          defaultEnv(),
+        );
+        if (contentAction) generated.actions.push(contentAction);
+        else skipped.push({ type: 'content', reason: 'The last crawl captured no text on this page to rewrite.' });
+      } catch (err) {
+        return c.json({ error: `content rewrite failed: ${(err as Error).message}` }, 502);
+      }
     }
   }
 
-  const actions = await Promise.all(generated.map((action) => createAction(db, action)));
+  const actions = await Promise.all(generated.actions.map((action) => createAction(db, action)));
   if (actions.length > 0) await markFirstFixProposed(db, projectId);
 
-  // An empty result is a real answer, not an error: the finding's fix needs
-  // context this crawl didn't capture (e.g. a content rewrite with OPENAI
-  // unset, or a page with no stored body). Say so, don't 500.
-  return c.json({
-    projectId,
-    findingId,
-    actions,
-    note: actions.length === 0 ? 'no action could be generated — the fix needs context this crawl did not capture' : undefined,
-  });
+  // Producing nothing is a real answer, not an error — a thin page, a brand
+  // with no kind set, a rewrite that is switched off. `skipped` says which,
+  // in words the customer can act on, instead of the one sentence this used to
+  // return for every cause.
+  return c.json({ projectId, findingId, actions, skipped });
 });
 
 /**
@@ -1507,6 +1578,45 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     }
   };
 }
+
+/**
+ * Record that a person read a fix's wording before it can be approved.
+ *
+ * A content rewrite is model-written prose built from the page's own crawled
+ * text, and approving one is publishing words to a customer's site. `approve`
+ * refuses a content action that has no review (@engine/actions' `transition`),
+ * and this is the only way to get one. The reviewer may send back an edited
+ * `after`, which becomes the text that deploys — what lands must be what they
+ * read.
+ */
+app.post('/projects/:projectId/actions/:actionId/review', async (c) => {
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = (raw ?? {}) as { after?: unknown };
+  if (body.after !== undefined && (typeof body.after !== 'string' || body.after.trim() === '')) {
+    return c.json({ error: 'invalid after: expected non-empty text', field: 'after' }, 400);
+  }
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const action = await getAction(db, c.req.param('actionId'));
+  if (!action) return c.json({ error: 'action not found' }, 404);
+
+  // The reviewer is the signed-in person, never a caller-supplied name — a
+  // review you can sign someone else's name to is not a review. A service
+  // token cannot stand in for a human reading the words either.
+  const user = c.get('user');
+  if (user.isService) {
+    return c.json({ error: 'a person has to read this fix; a service token cannot confirm it' }, 403);
+  }
+  try {
+    const reviewed = reviewMarked(action, defaultEnv(), user.email ?? user.id, body.after as string | undefined);
+    return c.json({ action: await saveActionReview(db, reviewed) });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 409);
+  }
+});
 
 app.post('/projects/:projectId/actions/:actionId/approve', actionTransitionHandler('approved'));
 app.post('/projects/:projectId/actions/:actionId/deploy', actionTransitionHandler('deployed'));
