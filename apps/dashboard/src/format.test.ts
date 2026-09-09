@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -567,5 +567,37 @@ describe('providerNextStep', () => {
       const step = providerNextStep(s, 'Google Analytics', 'visits');
       expect(step.line).not.toMatch(/[A-Z]{3,}_[A-Z_]+|\/projects\//);
     }
+  });
+});
+
+describe('rankChange', () => {
+  /**
+   * The trap: a rank is better when the number is lower, so a subtraction in
+   * the obvious direction reports every improvement as a decline.
+   */
+  it('calls a lower position an improvement', () => {
+    expect(rankChange(4, 7)).toEqual({ text: 'up 3', direction: 'better' });
+    expect(rankChange(7, 4)).toEqual({ text: 'down 3', direction: 'worse' });
+  });
+
+  it('says nothing changed rather than "up 0"', () => {
+    expect(rankChange(5, 5)).toEqual({ text: 'no change', direction: 'flat' });
+  });
+
+  it('separates the first poll from no change', () => {
+    expect(rankChange(5, null)).toEqual({ text: 'first poll', direction: 'unknown' });
+    expect(rankChange(null, null)).toEqual({ text: '—', direction: 'unknown' });
+  });
+
+  it('names leaving the tracked depth, which is not "no change"', () => {
+    expect(rankChange(null, 8)).toEqual({ text: 'dropped out', direction: 'left' });
+  });
+});
+
+describe('rankLabel', () => {
+  it('distinguishes never polled from polled and not ranking', () => {
+    expect(rankLabel(null, null)).toBe('not polled yet');
+    expect(rankLabel(null, '2026-09-09T00:00:00.000Z')).toBe('not in top 10');
+    expect(rankLabel(3, '2026-09-09T00:00:00.000Z')).toBe('#3');
   });
 });

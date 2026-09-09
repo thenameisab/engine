@@ -625,3 +625,25 @@ export interface PlatformUser {
   hasCredential: boolean;
   createdAt: string;
 }
+
+/**
+ * One tracked keyword as `GET /projects/:id/keywords` returns it: the config
+ * plus the last two observations, so the table can show a position and its
+ * change without a request per row.
+ */
+export interface TrackedKeyword {
+  id: string;
+  entityId: string;
+  entityName: string;
+  keyword: string;
+  geo: { country: string; city: string | null; postcode: string | null };
+  device: 'desktop' | 'mobile' | 'tablet';
+  language: string;
+  engine: 'google' | 'bing';
+  cadence: 'weekly' | 'daily' | 'on_demand';
+  createdAt: string;
+  position: number | null;
+  url: string | null;
+  polledAt: string | null;
+  previousPosition: number | null;
+}

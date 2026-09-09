@@ -758,3 +758,28 @@ select.field { cursor: pointer; }
 .intg-status-line.watch { color: var(--watch); }
 .intg-status-line.good { color: var(--good); }
 .intg-status-line.muted { color: var(--text-faint); }
+
+/* ── Rankings: tracked keywords ─────────────────────────────────────────── */
+.kw-summary { padding: 0 16px 10px; color: var(--text-muted); font-size: 12.5px; }
+.kw-list { padding: 0 8px 8px; }
+.kw-row { display: grid; grid-template-columns: 1fr 92px 84px auto; align-items: center; gap: 12px; padding: 10px 8px; border-radius: var(--r-sm); transition: background .12s var(--ease); }
+.kw-row:hover { background: var(--surface-2); }
+.kw-row + .kw-row { border-top: 1px solid var(--border); }
+.kw-main { min-width: 0; }
+.kw-main .t { font-size: 13.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kw-main .m { color: var(--text-faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kw-pos { font-size: 14px; font-weight: 650; text-align: right; }
+.kw-pos.none { font-size: 11.5px; font-weight: 500; color: var(--text-faint); }
+.kw-change { font-size: 12px; font-weight: 600; text-align: right; }
+.kw-change.better { color: var(--good); }
+.kw-change.worse { color: var(--risk); }
+.kw-change.left { color: var(--risk); }
+.kw-change.flat, .kw-change.unknown { color: var(--text-faint); font-weight: 500; }
+.serp-track-row { padding: 12px 0 0; }
+@media (max-width: 560px) {
+  .kw-row { grid-template-columns: 1fr 72px auto; }
+  .kw-row .kw-change { display: none; }
+}
+.kw-country-wrap { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.kw-country-wrap .label { margin: 0; }
+.field.kw-country { width: auto; padding: 4px 8px; font-size: 12px; }

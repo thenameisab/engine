@@ -26,7 +26,14 @@
       "dependsOn": ["^build"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      // Strict env mode strips anything not named here, so the *.db.test.ts
+      // suites saw no `TEST_DATABASE_URL` under `turbo run test` and skipped
+      // themselves — reported as "skipped", which reads the same whether the
+      // operator has a database or not. Named as passThroughEnv rather than
+      // env because it must not become part of the cache key: two developers
+      // with different scratch connection strings should share a cache hit.
+      "passThroughEnv": ["TEST_DATABASE_URL"]
     }
   }
 }

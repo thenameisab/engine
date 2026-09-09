@@ -22,6 +22,7 @@ import {
   verifyStripeSignature,
   mapStripeSubscriptionEvent,
   isOverLimit,
+  PLAN_LIMITS,
   resolvePriceId,
   buildCheckoutSessionBody,
   createCheckoutSession,
@@ -61,6 +62,7 @@ import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { keyringFrom } from './repositories/oauthFlows.js';
 import { resolveSerpKey } from './repositories/serpKey.js';
+import { runScheduledRankPoll, RANK_POLL_CRON } from './repositories/rankPoll.js';
 import { isPlatformAdmin, getPlatformClientStatus } from './repositories/platformCredentials.js';
 import { createEntity, listEntitiesByProject, getEntityInProject, setEntitySchemaType } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
@@ -110,7 +112,12 @@ import { getProject,
   listProjectsByAccount,
 } from './repositories/accounts.js';
 import { renderAccountReportHtml, type ProjectReportRow } from './report.js';
-import { createKeywordConfig, listKeywordConfigsByEntity } from './repositories/keywordConfigs.js';
+import {
+  createKeywordConfig,
+  listKeywordConfigsByEntity,
+  listTrackedKeywords,
+  deleteKeywordConfig,
+} from './repositories/keywordConfigs.js';
 import { listPendingCmsPluginActions } from './repositories/cmsPluginActions.js';
 import {
   getOnboardingProgress,
@@ -685,8 +692,58 @@ app.post('/projects/:projectId/entities/:entityId/keywords', async (c) => {
     engine: 'google' | 'bing';
     cadence?: 'weekly' | 'daily' | 'on_demand';
   };
+  // G5's tracked-keyword cap, checked here because this is the only route that
+  // can exceed it. `getUsageCounters` has counted `keyword_configs` since G4
+  // and `PLAN_LIMITS` has held the numbers, but nothing ever compared them, so
+  // a Starter account could track a thousand keywords — each one a paid Serper
+  // lookup on every scheduled poll.
+  const accountId = await getProjectAccountId(db, projectId);
+  if (!accountId) return c.json({ error: 'project not found', projectId }, 404);
+  const [subscription, usage] = await Promise.all([getSubscription(db, accountId), getUsageCounters(db, accountId)]);
+  const tier = subscription?.planTier ?? 'starter';
+  const limit = PLAN_LIMITS[tier].keywords;
+  if (usage.keywords >= limit) {
+    return c.json(
+      {
+        error: `This plan tracks up to ${limit} keywords, and ${usage.keywords} are already tracked. Stop tracking one, or move to a larger plan.`,
+        limit,
+        tracked: usage.keywords,
+      },
+      409,
+    );
+  }
+
   const config = await createKeywordConfig(db, entityId, body);
   return c.json({ config }, 201);
+});
+
+/**
+ * Every keyword tracked for this project, with its current position and the
+ * one before it. The per-entity list above answers "what is tracked for this
+ * brand"; a customer looking at a site wants all of them in one table, and the
+ * screen needs the positions joined on rather than fetched per row.
+ */
+app.get('/projects/:projectId/keywords', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const keywords = await listTrackedKeywords(db, projectId);
+  return c.json({ keywords });
+});
+
+/** Stop tracking a keyword. Its observed positions are kept. */
+app.delete('/projects/:projectId/keywords/:keywordId', async (c) => {
+  const projectId = c.req.param('projectId');
+  const keywordId = c.req.param('keywordId');
+  const invalid = checkUuidParam(keywordId, 'keywordId');
+  if (invalid) return c.json({ error: invalid.message, field: invalid.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const removed = await deleteKeywordConfig(db, projectId, keywordId);
+  if (!removed) return c.json({ error: 'keyword not found in this project', keywordId }, 404);
+  return c.json({ ok: true });
 });
 
 app.get('/projects/:projectId/entities/:entityId/keywords', async (c) => {
@@ -2129,6 +2186,37 @@ app.get('/accounts/:accountId/report', async (c) => {
 app.route('/', integrationsRoutes);
 
 /**
+ * The scheduled rank poll (cron, see `wrangler.toml` `[triggers]`).
+ *
+ * Split from the Google sync because the two have nothing in common but a
+ * clock: this one needs a Serper key and no OAuth client, and it runs daily so
+ * that a keyword tracked at 'daily' cadence can actually be polled daily.
+ * `runScheduledRankPoll` decides which keywords are due.
+ */
+async function scheduledRankPoll(env: Env): Promise<void> {
+  // The keyring is needed to open a client's own Serper key. Without it only
+  // the platform key could ever be used, which would silently bill us for
+  // lookups a client had paid to make themselves.
+  if (!env.ENCRYPTION_KEY && !env.ENCRYPTION_KEYS) {
+    console.log('scheduled rank poll skipped: no encryption key is configured');
+    return;
+  }
+  const db = createDb(env.DATABASE_URL);
+  const summary = await runScheduledRankPoll(db, env);
+  if (summary.attempted === 0) {
+    console.log('scheduled rank poll: no tracked keywords were due');
+    return;
+  }
+  console.log(
+    `scheduled rank poll: ${summary.polled}/${summary.attempted} polled` +
+      (summary.capped ? ' (stopped at the per-run cap; the rest follow tomorrow)' : '') +
+      (summary.failed.length > 0
+        ? `; failures: ${summary.failed.map((f) => `${f.projectId}/${f.keyword}: ${f.error}`).join(' | ')}`
+        : ''),
+  );
+}
+
+/**
  * Nightly Google sync (cron, see `wrangler.toml` `[triggers]`).
  *
  * The first scheduled handler in this Worker — until now every ingestion path
@@ -2141,7 +2229,7 @@ app.route('/', integrationsRoutes);
  * whose token was revoked must not abort every other customer's sync, which is
  * exactly what an uncaught throw in a scheduled handler does.
  */
-async function scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+async function scheduledGoogleSync(env: Env): Promise<void> {
   // `ENCRYPTION_KEY` is the one hard requirement: a stored refresh token
   // cannot be opened without it, so there is genuinely nothing to sync.
   if (!env.ENCRYPTION_KEY && !env.ENCRYPTION_KEYS) {
@@ -2183,6 +2271,28 @@ async function scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionC
   );
 }
 
+/**
+ * One Worker, two schedules. Cloudflare passes the matched cron expression on
+ * the event, which is the only thing that distinguishes them.
+ *
+ * Anything that is not the rank poll runs the Google sync — that includes the
+ * nightly `15 3 * * *` and a local `wrangler dev --test-scheduled` trigger,
+ * which passes no cron at all. A third schedule would need a case here; the
+ * fallback is deliberate so no cron can quietly do nothing.
+ */
+async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+  if (event.cron === RANK_POLL_CRON) {
+    await scheduledRankPoll(env);
+    return;
+  }
+  await scheduledGoogleSync(env);
+}
+
+// Only handlers may be named exports of a Worker's entry module: the runtime
+// walks them and refuses anything that is not a function or an
+// `ExportedHandler` ("Incorrect type for map entry"), which a string constant
+// is not. That failure happens at startup, not at build time, so the Worker
+// simply would not boot. `RANK_POLL_CRON` therefore lives in ./repositories/rankPoll.js.
 export { app };
 
 /**

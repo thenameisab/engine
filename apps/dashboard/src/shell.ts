@@ -28,7 +28,7 @@ interface Route {
 
 const ROUTES: Route[] = [
   { id: 'pulse', label: 'Pulse', iconMarkup: ICONS.pulse, view: pulseView },
-  { id: 'serp', label: 'SERP Inspector', iconMarkup: ICONS.serp, view: serpView },
+  { id: 'serp', label: 'Rankings', iconMarkup: ICONS.serp, view: serpView },
   { id: 'fix-queue', label: 'Fix Queue', iconMarkup: ICONS.kanban, view: fixQueueView },
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
   { id: 'entity-graph', label: 'Entity Graph', iconMarkup: ICONS.entity, view: entityGraphView },
