@@ -14,8 +14,9 @@ compatibility_flags = ["nodejs_compat"]
 AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json"
 
 # ── Scheduled work ─────────────────────────────────────────────────────────
-# Two passes, told apart by the cron expression on the event (see `scheduled`
-# in src/index.ts, which pins '30 4 * * *' as RANK_POLL_CRON).
+# Three passes, told apart by the cron expression on the event (see `scheduled`
+# in src/index.ts, which pins '30 4 * * *' as RANK_POLL_CRON and '0 5 * * *' as
+# AI_POLL_CRON).
 #
 # 03:15 UTC — nightly Google sync (GSC + GA4 + GBP). After Google's own daily
 # processing settles, and off the hour so it does not pile onto the platform's
@@ -27,8 +28,14 @@ AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1
 # 'daily' cadence cannot be polled daily by a weekly cron; the handler decides
 # what is due, so a weekly keyword is still polled weekly. After the Google
 # sync, so the two never contend for the same database.
+#
+# 05:00 UTC — AI-answer poll. Fires daily but each prompt is due weekly, for
+# the same reason the rank poll fires daily: a cron cannot poll a subset early.
+# Spreading the work over seven nights also keeps one night from spending every
+# client's model budget at once. Last of the three, because it is the slowest —
+# each sample is a reasoning model working through a 16,000-token budget.
 [triggers]
-crons = ["15 3 * * *", "30 4 * * *"]
+crons = ["15 3 * * *", "30 4 * * *", "0 5 * * *"]
 
 # ── External integrations ──────────────────────────────────────────────────
 # Secrets (set via `wrangler secret put <NAME>`, never committed):

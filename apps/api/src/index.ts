@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
+import { streamSSE } from 'hono/streaming';
 import {
   unifiedVisibilityScore,
   DEFAULT_CHANNEL_MIX,
@@ -40,8 +41,18 @@ import {
   type LocalUser,
 } from '@engine/auth';
 import { getCredentialByEmail, updatePasswordHash } from './repositories/userCredentials.js';
-import { createSerpConnector, createLlmConnectors, type SerpQuery, type PromptQuery } from '@engine/connectors';
-import { durationMs, isEntityKind, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
+import {
+  createSerpConnector,
+  createLlmConnectors,
+  createStreamingLlmConnector,
+  buildCitationEvent,
+  isKnownLlmModel,
+  LLM_MODEL_CHOICES,
+  DEFAULT_LLM_MODEL_ID,
+  type SerpQuery,
+  type PromptQuery,
+} from '@engine/connectors';
+import { durationMs, isEntityKind, type Entity, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
 import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
@@ -63,10 +74,25 @@ import { getAccessToken, ConnectionUnavailableError } from './repositories/integ
 import { keyringFrom } from './repositories/oauthFlows.js';
 import { resolveSerpKey } from './repositories/serpKey.js';
 import { runScheduledRankPoll, RANK_POLL_CRON } from './repositories/rankPoll.js';
+import {
+  runScheduledAiPoll,
+  citationTargets,
+  AI_POLL_CRON,
+  AI_VISIBILITY_LOOKBACK_DAYS,
+  MAX_PROMPTS_PER_ENTITY,
+  MAX_PROMPT_LENGTH,
+} from './repositories/aiPoll.js';
 import { isPlatformAdmin, getPlatformClientStatus } from './repositories/platformCredentials.js';
-import { createEntity, listEntitiesByProject, getEntityInProject, setEntitySchemaType } from './repositories/entities.js';
+import {
+  createEntity,
+  listEntitiesByProject,
+  getEntityInProject,
+  setEntitySchemaType,
+  setEntityPrompts,
+} from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
+import { PHRASING_SYSTEM_PROMPT } from '@engine/copilot';
 import { runProjectEntityAudit, listEntityStrengths } from './repositories/entityAudit.js';
 import {
   setLocalProfile,
@@ -96,7 +122,7 @@ import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
 import { upsertCrawledPages, getCrawledPage, listInternalLinkTargets } from './repositories/crawledPages.js';
 import { getProjectDeployTarget, setProjectDeployTarget } from './repositories/projectTarget.js';
 import { insertSerpPositions } from './repositories/rankPositions.js';
-import { insertCitationEvents } from './repositories/citationEvents.js';
+import { insertCitationEvents, citedShareByEngine } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
 import { brandTerms, searchSummary, trafficSummary, type SyncState } from './repositories/googleMetrics.js';
 import { listAssignments, listConnections, connectedProvidersByAccount } from './repositories/integrations.js';
@@ -552,6 +578,184 @@ app.post('/projects/:projectId/ai/poll', async (c) => {
   return c.json({ projectId, engines: connectors.map((e) => e.engine), results });
 });
 
+/**
+ * The models a customer may pick for a live answer, with the byline each one
+ * is described by.
+ *
+ * A route rather than a constant in the dashboard bundle because the list is
+ * a function of what this deployment's key can actually reach: step 1 found
+ * that every GLM name the account was asked for is refused by the vendor, so
+ * a hardcoded front-end list would offer models that 400. `defaultModel` is
+ * what the interactive surfaces preselect.
+ *
+ * `pollModel` is reported separately and is not selectable. The scheduled poll
+ * that fills `citation_events` stays on one model deliberately: a citation
+ * band is a measurement over time, and mixing models inside one window would
+ * show a change in the measuring instrument as a change in the brand's AI
+ * visibility.
+ */
+app.get('/projects/:projectId/ai/models', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const configured = Boolean((c.env as unknown as Record<string, string | undefined>).SARVAM_API_KEY);
+  return c.json({
+    models: configured ? LLM_MODEL_CHOICES : [],
+    defaultModel: DEFAULT_LLM_MODEL_ID,
+    pollModel: (c.env as unknown as Record<string, string | undefined>).SARVAM_MODEL ?? DEFAULT_LLM_MODEL_ID,
+  });
+});
+
+/**
+ * One streamed answer, for both surfaces that ask a model something live.
+ *
+ * Two modes, because "stream a model's tokens to a waiting browser" is the
+ * shared part and the grounding is not:
+ *
+ *   mode 'prompt'  (AI answers) — ask the engine the customer's own prompt,
+ *                  verbatim, and report afterwards whether the brand was
+ *                  named. This is "what does an AI engine say about us".
+ *   mode 'ask'     (Ask Engine) — answer from the customer's own data. The
+ *                  deterministic, cited answer is computed first and sent
+ *                  before a single model token, then the model streams a
+ *                  rewording of it.
+ *
+ * The ordering in 'ask' mode is the design, not an implementation detail. The
+ * Copilot's contract (packages/copilot) is that figures and citations are
+ * built by the retrieval layer and are never model-authored; phrasing may
+ * reword prose and nothing else. Sending the grounded answer first makes that
+ * true of the streamed path as well — the answer a customer can act on has
+ * already arrived when the model starts, so a model that fails, stalls or
+ * truncates costs tone and nothing else.
+ *
+ * Nothing here writes `citation_events`. A single ad-hoc sample is not a
+ * measurement: A2 stores citation rates as bands over n=3-5 samples, and
+ * letting a person's "try this prompt" clicks land in the same table would
+ * move the band by hand. The scheduled poll owns that table.
+ */
+app.post('/projects/:projectId/ai/stream', async (c) => {
+  const projectId = c.req.param('projectId');
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { mode?: unknown; entityId?: unknown; prompt?: unknown; question?: unknown; model?: unknown };
+
+  // The caller's model pick, checked against the registry before it can reach
+  // the vendor. An unknown id is refused here rather than forwarded, because
+  // the vendor's own rejection enumerates every model on the account in a
+  // message a customer would see.
+  if (body.model !== undefined && (typeof body.model !== 'string' || !isKnownLlmModel(body.model))) {
+    return c.json({ error: 'unknown model', field: 'model' }, 400);
+  }
+
+  const connector = createStreamingLlmConnector(
+    c.env as unknown as Record<string, string | undefined>,
+    body.model as string | undefined,
+  );
+  if (!connector) {
+    console.warn('No streaming LLM engine configured: set SARVAM_API_KEY');
+    return c.json({ error: 'AI answers are not set up on this deployment yet.' }, 503);
+  }
+
+  const mode = body.mode === 'ask' ? 'ask' : 'prompt';
+  const text = typeof (mode === 'ask' ? body.question : body.prompt) === 'string'
+    ? String(mode === 'ask' ? body.question : body.prompt).trim()
+    : '';
+  if (!text) {
+    const field = mode === 'ask' ? 'question' : 'prompt';
+    return c.json({ error: `${field} is required`, field }, 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  // Everything that can fail with a status code is settled before the stream
+  // opens. Once the response is a 200 event-stream the status is already sent,
+  // so a failure after this point can only be an `error` event — which the
+  // client has to handle anyway, but which is a worse way to learn that an
+  // entity id was wrong.
+  let entity: Entity | null = null;
+  let project: { domain: string } | null = null;
+  if (mode === 'prompt') {
+    if (typeof body.entityId !== 'string') {
+      return c.json({ error: 'entityId is required', field: 'entityId' }, 400);
+    }
+    entity = await getEntityInProject(db, projectId, body.entityId);
+    if (!entity) {
+      return c.json({ error: 'entity does not belong to this project', entityId: body.entityId }, 400);
+    }
+    project = await getProject(db, projectId);
+  }
+
+  return streamSSE(c, async (sse) => {
+    /** Send one named event, JSON-encoded. */
+    const send = (event: string, data: unknown) => sse.writeSSE({ event, data: JSON.stringify(data) });
+
+    // What the model is actually asked, per mode.
+    let modelPrompt = text;
+    if (mode === 'ask') {
+      const result = await answerQuestion(db, projectId, text);
+      // The cited answer, before any model token. From here the stream is
+      // optional polish.
+      await send('grounded', {
+        answer: result.answer.answer,
+        intent: result.answer.intent,
+        citations: result.answer.citations,
+        drilldown: result.answer.drilldown,
+        suggestedAction: result.answer.suggestedAction ?? null,
+        latencyMs: result.latencyMs,
+      });
+      try {
+        await logCopilotQuery(db, projectId, text, result.answer.intent, result.latencyMs, result.entityId);
+      } catch {
+        /* swallow: the log is telemetry, not the product */
+      }
+      // An `unknown` intent has no facts behind it, so there is nothing for a
+      // model to reword — and asking it to would invite it to answer the
+      // question itself, which is the one thing the phrasing layer forbids.
+      if (result.answer.intent === 'unknown') {
+        await send('done', { rephrased: false });
+        return;
+      }
+      modelPrompt = `${PHRASING_SYSTEM_PROMPT}\n\n${result.answer.answer}`;
+    }
+
+    let answerText = '';
+    try {
+      for await (const chunk of connector.stream(modelPrompt)) {
+        if (chunk.type === 'text') answerText += chunk.delta;
+        await send(chunk.type, { delta: chunk.delta });
+      }
+    } catch (error) {
+      // In 'ask' mode the grounded answer is already on the wire, so this
+      // degrades tone. In 'prompt' mode it is the whole answer, so it is a
+      // failure the screen has to show.
+      await send('error', { message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
+    if (mode === 'prompt' && entity && project) {
+      // Decided here rather than in the connector because the stream yields
+      // deltas, not an answer: `buildCitationEvent` needs the whole text.
+      const targets = citationTargets({
+        canonical_name: entity.canonicalName,
+        domain: project.domain,
+        urls: entity.urls,
+      });
+      const citation = buildCitationEvent(answerText, [], targets);
+      await send('result', {
+        cited: citation.cited,
+        sourcesCited: citation.sourcesCited,
+        targets,
+        engine: connector.engine,
+      });
+    }
+    await send('done', { rephrased: mode === 'ask' && answerText.length > 0 });
+  });
+});
+
 app.get('/projects/:projectId/entities', async (c) => {
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
@@ -994,6 +1198,125 @@ app.get('/projects/:projectId/entities/:selfEntityId/offsite-audit', async (c) =
   if (accessError) return c.json(accessError.body, accessError.status);
   const opportunities = await listCitationOpportunities(db, projectId, selfEntityId);
   return c.json({ opportunities });
+});
+
+/**
+ * The prompt bank an entity's AI visibility is sampled against.
+ *
+ * `entities.prompts` has been a column since migration 0001 and no route ever
+ * wrote to it, which is the direct reason `citation_events` was empty: the
+ * scheduled poll drains this list, and on every row it was `{}`.
+ */
+app.get('/projects/:projectId/entities/:entityId/prompts', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const entity = await getEntityInProject(db, projectId, c.req.param('entityId'));
+  if (!entity) return c.json({ error: 'entity not found' }, 404);
+
+  // Suggestions come from the keywords this brand already tracks, expanded by
+  // A4.8's templates. That is the point of seeding from Rankings rather than
+  // from a blank box: the prompts a brand should be measured on are the ones
+  // its customers search for, and after step 2 the product already knows them.
+  const tracked = await listKeywordConfigsByEntity(db, entity.id);
+  const already = new Set(entity.prompts.map((p) => p.toLowerCase()));
+  const suggestions: string[] = [];
+  const seen = new Set<string>();
+  for (const kc of tracked) {
+    for (const seed of generatePromptSeeds(kc.keyword)) {
+      const key = seed.toLowerCase();
+      if (already.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push(seed);
+    }
+  }
+
+  return c.json({
+    entityId: entity.id,
+    prompts: entity.prompts,
+    suggestions,
+    keywordsTracked: tracked.length,
+  });
+});
+
+/**
+ * Replace the prompt bank.
+ *
+ * A whole-list PUT rather than add/remove routes: the editor sends the list it
+ * is showing, so two open tabs cannot merge into a bank neither of them
+ * displayed. The caps are here because every prompt costs three model calls
+ * per engine on every scheduled pass — an unbounded list is a bill, not a
+ * feature.
+ */
+app.put('/projects/:projectId/entities/:entityId/prompts', async (c) => {
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { prompts?: unknown };
+  if (!Array.isArray(body.prompts) || body.prompts.some((p) => typeof p !== 'string')) {
+    return c.json({ error: 'prompts must be an array of strings', field: 'prompts' }, 400);
+  }
+
+  // Trimmed, de-duplicated case-insensitively, blanks dropped. Two prompts
+  // differing only in case would be two rows in `citation_events` and two
+  // separate bands for one question.
+  const seen = new Set<string>();
+  const prompts: string[] = [];
+  for (const p of body.prompts as string[]) {
+    const clean = p.trim();
+    if (!clean) continue;
+    if (clean.length > MAX_PROMPT_LENGTH) {
+      return c.json({ error: `a prompt cannot be longer than ${MAX_PROMPT_LENGTH} characters`, field: 'prompts' }, 400);
+    }
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    prompts.push(clean);
+  }
+  if (prompts.length > MAX_PROMPTS_PER_ENTITY) {
+    return c.json({ error: `up to ${MAX_PROMPTS_PER_ENTITY} prompts can be tracked per brand`, field: 'prompts' }, 400);
+  }
+
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const entity = await setEntityPrompts(db, projectId, c.req.param('entityId'), prompts);
+  if (!entity) return c.json({ error: 'entity not found' }, 404);
+  return c.json({ entityId: entity.id, prompts: entity.prompts });
+});
+
+/**
+ * Cited share by engine — the top half of the AI answers screen.
+ *
+ * `sourceCoverage` is reported alongside it because it is the honest limit of
+ * this deployment: Sarvam does not browse, so almost no answer names a source,
+ * and the citation-opportunity panel below is mined from exactly those
+ * sources. Without this number an empty opportunity list reads as "your site
+ * has no gaps to close", which is the opposite of what it means.
+ */
+app.get('/projects/:projectId/entities/:entityId/ai-visibility', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const entity = await getEntityInProject(db, projectId, c.req.param('entityId'));
+  if (!entity) return c.json({ error: 'entity not found' }, 404);
+
+  const engines = await citedShareByEngine(db, entity.id, AI_VISIBILITY_LOOKBACK_DAYS);
+  const samples = engines.reduce((n, e) => n + e.samples, 0);
+  const withSources = engines.reduce((n, e) => n + e.samplesWithSources, 0);
+
+  return c.json({
+    entityId: entity.id,
+    promptsTracked: entity.prompts.length,
+    lookbackDays: AI_VISIBILITY_LOOKBACK_DAYS,
+    engines,
+    sourceCoverage: { samples, withSources },
+  });
 });
 
 /**
@@ -2217,6 +2540,36 @@ async function scheduledRankPoll(env: Env): Promise<void> {
 }
 
 /**
+ * The weekly AI-answer poll (cron, see `wrangler.toml` `[triggers]`).
+ *
+ * Needs no encryption key and no OAuth client: the LLM engines are
+ * platform-owned, so unlike the rank poll there is no customer credential to
+ * open. `runScheduledAiPoll` decides which prompts are due and returns with an
+ * empty summary when no engine is configured at all, so a deployment without
+ * `SARVAM_API_KEY` logs a skip rather than failing a cron every night.
+ */
+async function scheduledAiPoll(env: Env): Promise<void> {
+  const db = createDb(env.DATABASE_URL);
+  const summary = await runScheduledAiPoll(db, env);
+  if (summary.engines.length === 0) {
+    console.log('scheduled AI poll skipped: no LLM engine is configured (set SARVAM_API_KEY)');
+    return;
+  }
+  if (summary.attempted === 0) {
+    console.log('scheduled AI poll: no prompts were due');
+    return;
+  }
+  console.log(
+    `scheduled AI poll: ${summary.polled}/${summary.attempted} prompts polled across ${summary.engines.join(', ')}, ` +
+      `${summary.samplesStored} sample(s) stored` +
+      (summary.capped ? ' (stopped at the per-run cap; the rest follow tomorrow)' : '') +
+      (summary.failed.length > 0
+        ? `; failures: ${summary.failed.map((f) => `${f.projectId}/${f.prompt}: ${f.error}`).join(' | ')}`
+        : ''),
+  );
+}
+
+/**
  * Nightly Google sync (cron, see `wrangler.toml` `[triggers]`).
  *
  * The first scheduled handler in this Worker — until now every ingestion path
@@ -2272,17 +2625,23 @@ async function scheduledGoogleSync(env: Env): Promise<void> {
 }
 
 /**
- * One Worker, two schedules. Cloudflare passes the matched cron expression on
- * the event, which is the only thing that distinguishes them.
+ * One Worker, three schedules. Cloudflare passes the matched cron expression
+ * on the event, which is the only thing that distinguishes them.
  *
- * Anything that is not the rank poll runs the Google sync — that includes the
- * nightly `15 3 * * *` and a local `wrangler dev --test-scheduled` trigger,
- * which passes no cron at all. A third schedule would need a case here; the
- * fallback is deliberate so no cron can quietly do nothing.
+ * Anything that is not the rank poll or the AI poll runs the Google sync —
+ * that includes the nightly `15 3 * * *` and a local
+ * `wrangler dev --test-scheduled` trigger, which passes no cron at all. The
+ * fallback is deliberate so no cron can quietly do nothing; a fourth schedule
+ * needs a case here, and `routes.keywords.test.ts` asserts every expression
+ * still matches `wrangler.toml`.
  */
 async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
   if (event.cron === RANK_POLL_CRON) {
     await scheduledRankPoll(env);
+    return;
+  }
+  if (event.cron === AI_POLL_CRON) {
+    await scheduledAiPoll(env);
     return;
   }
   await scheduledGoogleSync(env);
@@ -2292,7 +2651,8 @@ async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionCo
 // walks them and refuses anything that is not a function or an
 // `ExportedHandler` ("Incorrect type for map entry"), which a string constant
 // is not. That failure happens at startup, not at build time, so the Worker
-// simply would not boot. `RANK_POLL_CRON` therefore lives in ./repositories/rankPoll.js.
+// simply would not boot. `RANK_POLL_CRON` and `AI_POLL_CRON` therefore live
+// in ./repositories/rankPoll.js and ./repositories/aiPoll.js.
 export { app };
 
 /**

@@ -783,3 +783,50 @@ select.field { cursor: pointer; }
 .kw-country-wrap { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .kw-country-wrap .label { margin: 0; }
 .field.kw-country { width: auto; padding: 4px 8px; font-size: 12px; }
+
+/* ── AI answers ─────────────────────────────────────────────────────────── */
+.ai-engs { padding: 4px 8px 8px; }
+.ai-eng { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 11px 8px; border-radius: var(--r-sm); }
+.ai-eng + .ai-eng { border-top: 1px solid var(--border); }
+.ai-eng-main { min-width: 0; }
+.ai-eng-main .t { font-size: 13.5px; font-weight: 550; }
+.ai-eng-main .m { color: var(--text-faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-eng-band { text-align: right; }
+.ai-eng-pt { font-size: 17px; font-weight: 650; line-height: 1.15; }
+/* The range is the honest half of the figure, so it is never smaller than
+   readable — a band printed as fine print invites reading the point alone. */
+.ai-eng-rng { font-size: 11.5px; color: var(--text-faint); }
+
+.ai-add { display: flex; gap: 8px; padding: 10px 16px 4px; flex-wrap: wrap; }
+.ai-add .field { flex: 1 1 260px; min-width: 0; }
+.chip-add { cursor: pointer; font-family: var(--mono); transition: border-color .12s var(--ease), color .12s var(--ease); }
+.chip-add:hover { border-color: var(--accent); color: var(--accent); }
+
+.ai-try-row { display: flex; gap: 8px; padding: 10px 16px 0; flex-wrap: wrap; }
+.ai-try-row .field { flex: 1 1 280px; min-width: 0; }
+.ai-try-out { padding: 4px 16px 14px; }
+
+/* The thinking state. A reasoning model is silent for seconds before its
+   first answer token, so this is the only thing on screen for most of the
+   wait — it reports progress (characters thought) rather than spinning. */
+.ai-think { display: flex; align-items: center; gap: 8px; padding: 10px 0 6px; font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.ai-think-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: ai-pulse 1.1s var(--ease) infinite; }
+.ai-think.done .ai-think-dot { animation: none; background: var(--text-faint); opacity: .5; }
+@keyframes ai-pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .ai-think-dot { animation: none; } }
+
+.ai-answer { font-size: 13.5px; line-height: 1.55; color: var(--text); white-space: pre-wrap; }
+.ai-verdict { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0 0; font-size: 11.5px; }
+.ai-verdict .muted { color: var(--text-faint); }
+
+/* ── Model picker (AI answers + Ask Engine) ─────────────────────────────── */
+.mp { display: flex; flex-direction: column; gap: 4px; padding: 10px 16px 0; }
+.mp-lbl { display: inline-flex; align-items: center; gap: 8px; }
+.mp-lbl .label { margin: 0; }
+.field.mp-select { width: auto; padding: 4px 8px; font-size: 12px; }
+.mp-byline { font-size: 11.5px; color: var(--text-faint); }
+.copilot-ask .mp { padding: 8px 0 0; }
+
+/* Ask Engine: the cited answer is already readable while the model rewords
+   it, so this is a quiet cue rather than a spinner over the top of it. */
+.copilot-answer-text.rewording { opacity: .72; transition: opacity .18s var(--ease); }

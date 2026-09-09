@@ -6,10 +6,12 @@
  */
 import type { SerpConnector } from './serp.js';
 import type { LlmEngineConnector } from './llmEngine.js';
+import type { LlmStreamingConnector } from './llmStream.js';
 import { SerperConnector } from './serpSerper.js';
 import { OpenAIConnector } from './llmOpenAI.js';
 import { GeminiConnector } from './llmGemini.js';
 import { SarvamConnector } from './llmSarvam.js';
+import { llmModelChoice } from './llmModels.js';
 
 type EnvRecord = Record<string, string | undefined>;
 
@@ -41,4 +43,33 @@ export function createLlmConnectors(env: EnvRecord): LlmEngineConnector[] {
     connectors.push(new SarvamConnector({ apiKey: env.SARVAM_API_KEY, model: env.SARVAM_MODEL }));
   }
   return connectors;
+}
+
+/**
+ * The engine used for streamed, interactive answers, or null if none is wired.
+ *
+ * Separate from `createLlmConnectors` because the two answer different
+ * questions. That one returns *every* configured engine, because an AI
+ * visibility measurement is only meaningful across engines. A person waiting
+ * on a streamed answer wants one answer, from whichever engine this deployment
+ * can actually stream — and of the three adapters only Sarvam implements
+ * `stream`, since it is the one this deployment has credit on.
+ */
+export function createStreamingLlmConnector(env: EnvRecord, model?: string): LlmStreamingConnector | null {
+  if (env.SARVAM_API_KEY) {
+    // `model` is the customer's pick, already checked against
+    // `LLM_MODEL_CHOICES` by the caller — an unvalidated id must never reach
+    // the vendor, whose 400 names every model on the account. `SARVAM_MODEL`
+    // remains the deployment-level override for when no pick was made.
+    const id = model ?? env.SARVAM_MODEL;
+    const choice = id ? llmModelChoice(id) : undefined;
+    return new SarvamConnector({
+      apiKey: env.SARVAM_API_KEY,
+      model: id,
+      // Each model carries its own vendor ceiling; exceeding it is a 400, not
+      // a truncated answer.
+      ...(choice ? { maxTokens: choice.maxTokens } : {}),
+    });
+  }
+  return null;
 }

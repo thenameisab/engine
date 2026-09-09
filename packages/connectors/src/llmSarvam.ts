@@ -19,6 +19,7 @@
  */
 import type { LlmEngineConnector, LlmAnswerResult, LlmAnswerSample, PromptQuery } from './llmEngine.js';
 import { buildCitationEvent, runSamples } from './llmCitation.js';
+import { parseSseJson, type LlmStreamChunk, type LlmStreamingConnector } from './llmStream.js';
 
 const SARVAM_ENDPOINT = 'https://api.sarvam.ai/v1/chat/completions';
 const DEFAULT_MODEL = 'sarvam-105b';
@@ -34,6 +35,13 @@ const DEFAULT_MODEL = 'sarvam-105b';
  * worst measurement instead of a knob being added that does not hold.
  */
 const DEFAULT_MAX_TOKENS = 16000;
+
+interface SarvamStreamEvent {
+  choices?: {
+    finish_reason?: string;
+    delta?: { content?: string | null; reasoning_content?: string | null };
+  }[];
+}
 
 interface SarvamChatResponse {
   choices?: {
@@ -52,7 +60,7 @@ export interface SarvamConnectorOptions {
   now?: () => Date;
 }
 
-export class SarvamConnector implements LlmEngineConnector {
+export class SarvamConnector implements LlmEngineConnector, LlmStreamingConnector {
   readonly engine = 'sarvam' as const;
   private readonly apiKey: string;
   private readonly model: string;
@@ -108,5 +116,57 @@ export class SarvamConnector implements LlmEngineConnector {
   async poll(query: PromptQuery, nSamples: number): Promise<LlmAnswerResult> {
     const samples = await runSamples(nSamples, () => this.sample(query));
     return { engine: this.engine, query, method: 'api', samples };
+  }
+
+  /**
+   * Stream one answer, separating the reasoning phase from the answer.
+   *
+   * Sarvam is OpenAI-shaped here too: `stream: true` yields
+   * `choices[0].delta`, and this model puts its thinking in
+   * `delta.reasoning_content` and the answer in `delta.content`. Both are
+   * forwarded, tagged, because the reasoning phase is most of the wait and a
+   * caller that cannot see it has nothing to show the user.
+   *
+   * Truncation is reported the same way `sample` reports it: a stream that
+   * ends with `finish_reason: 'length'` having produced no answer text at all
+   * was cut off mid-thought, and saying so beats handing back an empty answer.
+   */
+  async *stream(prompt: string, signal?: AbortSignal): AsyncIterable<LlmStreamChunk> {
+    const resp = await this.fetchImpl(SARVAM_ENDPOINT, {
+      method: 'POST',
+      headers: { 'api-subscription-key': this.apiKey, 'content-type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        model: this.model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: this.maxTokens,
+        stream: true,
+      }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Sarvam stream failed: ${resp.status} ${await resp.text()}`);
+    }
+    if (!resp.body) throw new Error('Sarvam stream failed: the response carried no body');
+
+    let answered = false;
+    let finishReason: string | undefined;
+    for await (const event of parseSseJson(resp.body, signal)) {
+      const choice = (event as SarvamStreamEvent).choices?.[0];
+      if (!choice) continue;
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+      const thinking = choice.delta?.reasoning_content;
+      if (thinking) yield { type: 'thinking', delta: thinking };
+      const text = choice.delta?.content;
+      if (text) {
+        answered = true;
+        yield { type: 'text', delta: text };
+      }
+    }
+
+    if (!answered && finishReason === 'length') {
+      throw new Error(
+        `Sarvam returned no answer text: the reply was truncated at ${this.maxTokens} tokens while the model was still reasoning`,
+      );
+    }
   }
 }

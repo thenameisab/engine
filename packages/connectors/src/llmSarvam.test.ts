@@ -89,3 +89,104 @@ describe('SarvamConnector', () => {
     expect(() => new SarvamConnector({ apiKey: '' })).toThrow('requires an apiKey');
   });
 });
+
+/** An SSE response body built from OpenAI-shaped delta events. */
+function streamResponse(events: unknown[], status = 200): Response {
+  const body = events.map((e) => `data: ${JSON.stringify(e)}\n`).join('') + 'data: [DONE]\n';
+  return new Response(body, { status, headers: { 'content-type': 'text/event-stream' } });
+}
+
+function delta(d: { content?: string | null; reasoning_content?: string | null }, finish?: string) {
+  return { choices: [{ delta: d, finish_reason: finish ?? null }] };
+}
+
+async function drain(iter: AsyncIterable<{ type: string; delta: string }>) {
+  const chunks: { type: string; delta: string }[] = [];
+  for await (const c of iter) chunks.push(c);
+  return chunks;
+}
+
+describe('SarvamConnector.stream', () => {
+  it('separates the reasoning phase from the answer', async () => {
+    // This model reasons before it answers, out of one token budget. The two
+    // are tagged differently because the UI has to show the thinking phase —
+    // measured against the live vendor it is most of the wait (first thinking
+    // token ~0.9s, first answer token ~3.2s).
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([
+        delta({ reasoning_content: 'Let me think' }),
+        delta({ reasoning_content: ' about APIs.' }),
+        delta({ content: 'Acme' }),
+        delta({ content: ' provides one.' }, 'stop'),
+      ]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(await drain(connector.stream('who?'))).toEqual([
+      { type: 'thinking', delta: 'Let me think' },
+      { type: 'thinking', delta: ' about APIs.' },
+      { type: 'text', delta: 'Acme' },
+      { type: 'text', delta: ' provides one.' },
+    ]);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1].body)).stream).toBe(true);
+  });
+
+  it('sends the key in api-subscription-key, like the batch path', async () => {
+    const fetchImpl = vi.fn(async () => streamResponse([delta({ content: 'hi' }, 'stop')]));
+    const connector = new SarvamConnector({ apiKey: 'secret-key', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await drain(connector.stream('hello'));
+    expect(fetchImpl.mock.calls[0][1].headers['api-subscription-key']).toBe('secret-key');
+  });
+
+  it('ignores the empty first delta the vendor opens with', async () => {
+    // Measured: the real first event carries `content: ""` and
+    // `reasoning_content: null`. Forwarding it would emit an empty text chunk
+    // and end the thinking state before a single answer character existed.
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([delta({ content: '', reasoning_content: null }), delta({ content: 'real' }, 'stop')]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(await drain(connector.stream('q'))).toEqual([{ type: 'text', delta: 'real' }]);
+  });
+
+  it('reports a stream truncated while the model was still reasoning', async () => {
+    // The reasoning-budget trap in streamed form: plenty of thinking, no
+    // answer, `finish_reason: 'length'`. Ending quietly would look like a
+    // model that had nothing to say.
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([delta({ reasoning_content: 'thinking hard' }), delta({}, 'length')]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(drain(connector.stream('q'))).rejects.toThrow(/truncated at 16000 tokens/);
+  });
+
+  it('does not call a truncated stream an error when an answer did arrive', async () => {
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([delta({ content: 'a partial answer' }), delta({}, 'length')]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(await drain(connector.stream('q'))).toEqual([{ type: 'text', delta: 'a partial answer' }]);
+  });
+
+  it('surfaces a vendor rejection with its status and body', async () => {
+    const fetchImpl = vi.fn(async () => new Response('max_tokens exceeds the maximum output length', { status: 400 }));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(drain(connector.stream('q'))).rejects.toThrow(/400 max_tokens exceeds/);
+  });
+
+  it('sends the per-model token budget it was built with', async () => {
+    // `sarvam-105b-conversations` rejects anything above 8192 outright, so the
+    // budget is a per-model fact, not one shared default.
+    const fetchImpl = vi.fn(async () => streamResponse([delta({ content: 'hi' }, 'stop')]));
+    const connector = new SarvamConnector({
+      apiKey: 'k',
+      model: 'sarvam-105b-conversations',
+      maxTokens: 8192,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await drain(connector.stream('q'));
+    const sent = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(sent.max_tokens).toBe(8192);
+    expect(sent.model).toBe('sarvam-105b-conversations');
+  });
+});

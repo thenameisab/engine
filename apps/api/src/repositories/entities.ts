@@ -91,3 +91,27 @@ export async function setEntitySchemaType(
   `;
   return rows.length > 0 ? toEntity(rows[0]) : null;
 }
+
+/**
+ * Replace the prompt bank a brand's AI visibility is sampled against.
+ *
+ * `entities.prompts` has existed since migration 0001 and no route ever wrote
+ * to it, so the column was empty on every row — which is why the scheduled AI
+ * poll had nothing to ask and `citation_events` stayed empty. Whole-list
+ * replacement rather than add/remove routes: the editor sends the list it
+ * shows, so two tabs cannot merge into a bank neither of them displayed.
+ */
+export async function setEntityPrompts(
+  db: Db,
+  projectId: string,
+  entityId: string,
+  prompts: readonly string[],
+): Promise<Entity | null> {
+  const rows = await db<EntityRow[]>`
+    update entities
+    set prompts = ${prompts as string[]}, updated_at = now()
+    where id::text = ${entityId} and project_id::text = ${projectId}
+    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+  `;
+  return rows.length > 0 ? toEntity(rows[0]) : null;
+}
