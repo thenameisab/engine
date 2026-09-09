@@ -298,6 +298,36 @@ describe('PATCH /projects/:projectId/entities/:entityId', () => {
   });
 });
 
+describe('GitHub App connect and callback', () => {
+  const account = '22222222-2222-4222-8222-222222222222';
+
+  it('refuses to start an install when no GitHub App is registered', async () => {
+    // Every precondition is checked before the customer is sent to GitHub —
+    // walking someone through granting repository access and then failing is
+    // the outcome this ordering exists to prevent. No encryption key here, so
+    // it stops at the first one.
+    const res = await post(`/accounts/${account}/integrations/github/connect-url`, {});
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/ENCRYPTION_KEY/);
+  });
+
+  it('answers the setup callback with a page, never a raw error', async () => {
+    // A browser lands here, not a caller. It carries no bearer token by
+    // design: the signed state is what authenticates it.
+    const res = await get('/github/setup/callback');
+    // 400, as `callbackPage` answers for every non-success — but HTML, because
+    // a person is looking at it.
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toMatch(/text\/html/);
+    expect(await res.text()).toContain('missing its state');
+  });
+
+  it('treats a callback with no installation as a cancellation, not a failure', async () => {
+    const res = await get('/github/setup/callback?state=whatever');
+    expect(await res.text()).toContain('No repositories were connected');
+  });
+});
+
 /**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone

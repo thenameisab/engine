@@ -24,6 +24,10 @@
  */
 import {
   getProvider,
+  signAppJwt,
+  mintInstallationToken,
+  deleteInstallation,
+  type AuthMethod,
   refreshAccessToken as refreshOAuthToken,
   revokeToken as revokeOAuthToken,
   missingScopes,
@@ -40,7 +44,7 @@ import {
   type IntegrationEventType,
 } from '@engine/integrations';
 import { toJsonb, type Db } from '../db.js';
-import { resolvePlatformClient } from './platformCredentials.js';
+import { resolvePlatformClient, resolveGitHubApp } from './platformCredentials.js';
 
 /** What the UI and the sync jobs may see. Deliberately has no secret field. */
 export interface IntegrationConnection {
@@ -60,7 +64,7 @@ export interface IntegrationConnection {
   /** False when the user unticked a scope on the consent screen. */
   scopesSufficient: boolean;
   /** 'oauth2' or 'api_key'. Absent when the credential has been cleared. */
-  credentialKind?: 'oauth2' | 'api_key';
+  credentialKind?: AuthMethod['kind'];
   /** Non-secret settings of an API-key credential — a site URL, a username. */
   publicFields?: Record<string, string>;
 }
@@ -109,7 +113,11 @@ function toConnection(row: ConnectionRow): IntegrationConnection {
     lastRefreshAt: row.last_refresh_at?.toISOString(),
     lastError: row.last_error ?? undefined,
     scopesSufficient: scopesSufficientFor(row.provider, row.granted_scopes ?? []),
-    credentialKind: row.credential_kind ?? undefined,
+    // A GitHub App connection has no credentials row — there is no
+    // per-customer secret to seal — so the kind comes from the registry
+    // instead of the database. Derived rather than stored, and therefore
+    // incapable of disagreeing with the provider it describes.
+    credentialKind: row.credential_kind ?? getProvider(row.provider)?.auth.kind,
     publicFields: row.public_fields ?? undefined,
   };
 }
@@ -528,6 +536,16 @@ export async function getAccessToken(
   if (!provider) {
     throw new ConnectionUnavailableError('unconfigured', `unknown integration provider '${providerId}'`);
   }
+
+  // A GitHub App holds no stored token to refresh: access is minted from
+  // Engine's App private key and the account's installation id, valid for an
+  // hour and never written down. So this path shares the function's contract
+  // — "give me a usable bearer token for this account" — and none of its
+  // machinery.
+  if (provider.auth.kind === 'github_app') {
+    return mintGitHubToken(db, keyring, accountId, provider, fetchImpl);
+  }
+
   if (provider.auth.kind !== 'oauth2') {
     throw new ConnectionUnavailableError('unconfigured', `${provider.name} does not use an access token`);
   }
@@ -645,6 +663,28 @@ export async function disconnect(
   // An API-key provider has nothing to revoke remotely; the customer rotates
   // the key at the vendor. Reported honestly rather than claimed.
   let revocationSupported = provider?.auth.kind === 'oauth2' && Boolean(provider.auth.revocationUrl);
+
+  // A GitHub App disconnect is a real uninstall, not a token revocation: the
+  // App leaves the customer's installed list and every repository it could
+  // reach becomes unreachable at once. So revocation is always supported here,
+  // and worth doing — leaving the App installed with nothing behind it would
+  // show the customer access they had asked us to give up.
+  if (provider && provider.auth.kind === 'github_app') {
+    revocationSupported = true;
+    const app = await resolveGitHubApp(db, keyring);
+    const connection = await getConnection(db, accountId, provider.id);
+    if (app && connection?.externalSubject) {
+      try {
+        const jwt = await signAppJwt(app.appId, app.privateKeyPem);
+        await deleteInstallation(provider.auth.apiBaseUrl, jwt, connection.externalSubject, fetchImpl);
+        revokedAtVendor = true;
+      } catch {
+        // Same rule as the OAuth path below: a failed uninstall must not stop
+        // us forgetting the installation locally.
+        revokedAtVendor = false;
+      }
+    }
+  }
 
   if (provider && provider.auth.kind === 'oauth2') {
     const client = await clientFor(provider, env, db, keyring);
@@ -863,3 +903,120 @@ export async function unassignResource(db: Db, projectId: string, assignmentId: 
 }
 
 export { IntegrationError };
+
+export interface UpsertAppInstallationInput {
+  accountId: string;
+  provider: string;
+  /** GitHub's installation id. An identifier, not a credential. */
+  installationId: string;
+  /** The GitHub user or organisation that installed the App. */
+  label: string;
+  connectedBy: string;
+}
+
+/**
+ * Record a GitHub App installation.
+ *
+ * Deliberately not `upsertConnection`: that function's contract is a
+ * connection *and* its sealed credential, written in one transaction because
+ * they are one fact. Here there is no credential. The installation id is
+ * useless without Engine's App private key, which lives once in
+ * `platform_credentials`, so it goes in `external_subject` in the clear —
+ * where it can be read, diagnosed and shown, like every other non-secret
+ * identifier.
+ *
+ * Any credentials row left over from a previous connection of the same
+ * provider is removed, so a provider that once stored a secret cannot leave
+ * one behind after being reconnected as an app.
+ */
+export async function upsertAppInstallation(
+  db: Db,
+  input: UpsertAppInstallationInput,
+): Promise<IntegrationConnection> {
+  const row = (await db.begin(async (tx) => {
+    const [connection] = await tx<ConnectionRow[]>`
+      insert into integration_connections (
+        account_id, provider, external_subject, external_label, granted_scopes, status, connected_by
+      )
+      values (
+        ${input.accountId}, ${input.provider}, ${input.installationId}, ${input.label},
+        '{}', 'connected', ${input.connectedBy}
+      )
+      on conflict (account_id, provider) do update set
+        external_subject = excluded.external_subject,
+        external_label = excluded.external_label,
+        status = 'connected',
+        connected_by = excluded.connected_by,
+        connected_at = now(),
+        last_error = null,
+        last_refresh_at = null,
+        updated_at = now()
+      returning *
+    `;
+    await tx`delete from integration_credentials where connection_id = ${connection.id}`;
+    return connection;
+  })) as ConnectionRow;
+  return toConnection(row);
+}
+
+/**
+ * An installation access token for one account's GitHub App installation.
+ *
+ * Two facts combine: Engine's App private key, held once for the deployment,
+ * and the installation id this account came back with. Neither alone reaches
+ * a repository. The result lives an hour and is deliberately not stored —
+ * there is no table for it, and adding one would create the long-lived
+ * credential this design exists to avoid.
+ */
+async function mintGitHubToken(
+  db: Db,
+  keyring: Keyring,
+  accountId: string,
+  provider: IntegrationProvider,
+  fetchImpl: typeof fetch,
+): Promise<string> {
+  /* c8 ignore next -- the caller checked the kind. */
+  if (provider.auth.kind !== 'github_app') {
+    throw new ConnectionUnavailableError('unconfigured', `${provider.name} is not installed as an app`);
+  }
+  const app = await resolveGitHubApp(db, keyring);
+  if (!app) {
+    throw new ConnectionUnavailableError(
+      'unconfigured',
+      `${provider.name} is not connectable yet — an administrator has not configured Engine's GitHub App`,
+    );
+  }
+  const connection = await getConnection(db, accountId, provider.id);
+  if (!connection || connection.status === 'revoked' || !connection.externalSubject) {
+    throw new ConnectionUnavailableError('not-connected', `${provider.name} is not connected for this account`);
+  }
+
+  try {
+    const jwt = await signAppJwt(app.appId, app.privateKeyPem);
+    const minted = await mintInstallationToken(
+      provider.auth.apiBaseUrl,
+      jwt,
+      connection.externalSubject,
+      fetchImpl,
+    );
+    await db`
+      update integration_connections
+      set last_refresh_at = now(), last_error = null, updated_at = now()
+      where account_id::text = ${accountId} and provider = ${provider.id}
+    `;
+    return minted.token;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // A 404 from the token endpoint means the customer uninstalled the App on
+    // GitHub. That is a disconnect they performed, and the fix is to install
+    // it again — which is what 'needs_reauth' tells the UI to offer.
+    const uninstalled = /HTTP 404/.test(message);
+    await markConnectionError(db, accountId, provider.id, message, uninstalled);
+    throw new ConnectionUnavailableError(
+      uninstalled ? 'needs-reauth' : 'unconfigured',
+      uninstalled
+        ? `${provider.name} was uninstalled on GitHub. Connect it again to choose repositories.`
+        : `${provider.name} token could not be minted: ${message}`,
+    );
+  }
+}

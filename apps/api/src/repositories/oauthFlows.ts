@@ -32,14 +32,23 @@ export interface StartFlowInput {
   accountId: string;
   provider: string;
   userId: string;
-  codeVerifier: string;
+  /**
+   * The PKCE verifier, for a flow that will exchange an authorization code.
+   *
+   * Optional because not every flow has one: a GitHub App installation
+   * returns an installation id, not a code, so there is nothing to prove
+   * possession of. The row still exists for such a flow, because its other
+   * job is what matters there — a nonce that can be claimed exactly once, so
+   * a replayed callback is refused.
+   */
+  codeVerifier?: string;
   returnTo?: string;
 }
 
 export async function startFlow(db: Db, keyring: Keyring, input: StartFlowInput): Promise<void> {
   const sealed = await sealCredential(keyring, input.accountId, flowAadProvider(input.provider), {
     kind: 'oauth2',
-    refreshToken: input.codeVerifier,
+    refreshToken: input.codeVerifier ?? '',
   });
   await db`
     insert into oauth_flows (

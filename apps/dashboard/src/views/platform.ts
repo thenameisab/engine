@@ -47,60 +47,159 @@ function copyableUri(uri: string, ctx: AppContext): HTMLElement {
   ]);
 }
 
-function statusLine(view: PlatformClientView): HTMLElement {
+function statusLine(form: VendorForm, view: PlatformClientView): HTMLElement {
   if (view.client) {
     return el('div', { class: 'intg-alert ok' }, [
       `Configured · ${view.client.clientId}`,
-      infoCard('About this OAuth client', {
-        title: 'Engine’s Google app',
+      infoCard(`About this ${form.name} app`, {
+        title: `Engine’s ${form.name} app`,
         body: [
-          'Every customer consents to this one client. Replacing it does not disconnect anyone, but a client that no longer exists at Google will fail every refresh.',
+          `Every customer uses this one registration. Replacing it does not disconnect anyone, but one that no longer exists at ${form.name} will fail for everybody.`,
           `Last changed ${new Date(view.client.updatedAt).toLocaleString()}.`,
         ],
       }),
     ]);
   }
-  if (view.configuredByEnvironment) {
+  if (view.configuredByEnvironment && form.envNote) {
     return el('div', { class: 'intg-alert' }, [
       'Configured by environment variable',
-      infoCard('Where this client comes from', {
+      infoCard('Where this comes from', {
         title: 'Set outside the product',
         body: [
-          'This deployment still supplies GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI as Worker configuration. That keeps working.',
-          'Saving a client here takes precedence over it, and means the values no longer have to live in Cloudflare.',
+          form.envNote,
+          'Saving here takes precedence over it, and means the values no longer have to live in Cloudflare.',
         ],
       }),
     ]);
   }
   return el('div', { class: 'intg-alert' }, [
-    'Not configured — customers cannot connect Google',
+    `Not configured — customers cannot connect ${form.name}`,
     infoCard('What this blocks', {
       title: 'Nothing can be connected yet',
-      body: ['Until this is set, every Connect button on the Integrations screen stays disabled for every customer.'],
+      body: [form.blocks],
     }),
   ]);
 }
 
-function clientForm(view: PlatformClientView, ctx: AppContext, reload: () => void): HTMLElement {
+
+/**
+ * What differs between the identities Engine registers, as data.
+ *
+ * Google's is an OAuth client (an id and a short secret); GitHub's is an App
+ * (a numeric id and a multi-line private key). The form, the status line and
+ * the panel are otherwise identical, so they take one of these rather than
+ * being written twice — the second copy is where the two drift.
+ */
+interface VendorForm {
+  vendor: 'google' | 'github';
+  /** Display name, and the noun in every sentence on the panel. */
+  name: string;
+  logoDomain: string;
+  panelTitle: string;
+  idLabel: string;
+  idPlaceholder: string;
+  secretLabel: string;
+  secretPlaceholder: string;
+  /** A PEM does not fit one line. */
+  secretMultiline: boolean;
+  redirectLabel: string;
+  redirectHelp: { title: string; body: string[] };
+  whoFor: { title: string; body: string[] };
+  /** What is blocked while this is unset. */
+  blocks: string;
+  envNote?: string;
+}
+
+const GOOGLE_FORM: VendorForm = {
+  vendor: 'google',
+  name: 'Google',
+  logoDomain: 'google.com',
+  panelTitle: 'Google OAuth client',
+  idLabel: 'Client ID',
+  idPlaceholder: '1234567890-abcdefg.apps.googleusercontent.com',
+  secretLabel: 'Client secret',
+  secretPlaceholder: 'GOCSPX-…',
+  secretMultiline: false,
+  redirectLabel: 'Redirect URI',
+  redirectHelp: {
+    title: 'Register this with Google',
+    body: [
+      'Paste this into Authorised redirect URIs on the OAuth client in Google Cloud Console.',
+      'Google compares it byte for byte. A mismatch is the most common setup failure and shows as redirect_uri_mismatch at consent time.',
+    ],
+  },
+  whoFor: {
+    title: 'Engine’s app, not a customer’s',
+    body: [
+      'This identifies Engine to Google. Customers consent to it; they never create one of their own.',
+      'Set it once. Everything a customer connects — Search Console, Analytics, Business Profile — goes through it.',
+    ],
+  },
+  blocks: 'Until this is set, every Connect button on the Integrations screen stays disabled for every customer.',
+  envNote:
+    'This deployment still supplies GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI as Worker configuration. That keeps working.',
+};
+
+const GITHUB_FORM: VendorForm = {
+  vendor: 'github',
+  name: 'GitHub',
+  logoDomain: 'github.com',
+  panelTitle: 'GitHub App',
+  idLabel: 'App ID',
+  idPlaceholder: '1234567',
+  secretLabel: 'Private key',
+  secretPlaceholder: '-----BEGIN RSA PRIVATE KEY-----\n…',
+  // GitHub's download gives a multi-line PEM. Engine accepts it as downloaded,
+  // in either PKCS#1 or PKCS#8 form, so nobody has to run openssl first.
+  secretMultiline: true,
+  redirectLabel: 'Setup callback URL',
+  redirectHelp: {
+    title: 'Register this with GitHub',
+    body: [
+      'Paste this into "Setup URL" on the App’s settings page, and tick "Redirect on update".',
+      'It is where GitHub returns a customer after they choose which repositories Engine may open pull requests in.',
+    ],
+  },
+  whoFor: {
+    title: 'One App for every customer',
+    body: [
+      'This identifies Engine to GitHub. Each customer installs it on the repositories they choose; nobody hands over a personal token.',
+      'The App needs two permissions: Contents (read and write) and Pull requests (read and write).',
+    ],
+  },
+  blocks: 'Until this is set, no customer can connect GitHub, and approved fixes cannot be opened as pull requests.',
+};
+
+function clientForm(form: VendorForm, view: PlatformClientView, ctx: AppContext, reload: () => void): HTMLElement {
   const clientId = el('input', {
     class: 'field',
     type: 'text',
     autocomplete: 'off',
     spellcheck: 'false',
-    placeholder: '1234567890-abcdefg.apps.googleusercontent.com',
+    placeholder: form.idPlaceholder,
     value: view.client?.clientId ?? '',
   }) as HTMLInputElement;
 
   // Never prefilled, even when one is stored. The API cannot return it, and a
   // masked placeholder that submits blank is how a secret gets silently
   // cleared on an unrelated edit.
-  const clientSecret = el('input', {
-    class: 'field',
-    type: 'password',
-    autocomplete: 'off',
-    spellcheck: 'false',
-    placeholder: view.client ? 'Enter to replace the stored secret' : 'GOCSPX-…',
-  }) as HTMLInputElement;
+  const clientSecret = (
+    form.secretMultiline
+      ? el('textarea', {
+          class: 'field platform-pem',
+          rows: '6',
+          autocomplete: 'off',
+          spellcheck: 'false',
+          placeholder: view.client ? 'Paste to replace the stored key' : form.secretPlaceholder,
+        })
+      : el('input', {
+          class: 'field',
+          type: 'password',
+          autocomplete: 'off',
+          spellcheck: 'false',
+          placeholder: view.client ? 'Enter to replace the stored secret' : form.secretPlaceholder,
+        })
+  ) as HTMLInputElement | HTMLTextAreaElement;
 
   const redirectUri = el('input', {
     class: 'field',
@@ -116,29 +215,29 @@ function clientForm(view: PlatformClientView, ctx: AppContext, reload: () => voi
       const id = clientId.value.trim();
       const secret = clientSecret.value.trim();
       const uri = redirectUri.value.trim();
-      if (!id) return ctx.toast('Client ID is required.');
-      if (!secret) return ctx.toast('Client secret is required.');
-      if (!/^https:\/\//.test(uri)) return ctx.toast('Redirect URI must be an https URL.');
+      if (!id) return ctx.toast(`${form.idLabel} is required.`);
+      if (!secret) return ctx.toast(`${form.secretLabel} is required.`);
+      if (!/^https:\/\//.test(uri)) return ctx.toast(`${form.redirectLabel} must be an https URL.`);
       try {
-        await savePlatformClient('google', { clientId: id, clientSecret: secret, redirectUri: uri });
+        await savePlatformClient(form.vendor, { clientId: id, clientSecret: secret, redirectUri: uri });
         // Cleared on success: a secret left in a DOM node is still on the page.
         clientSecret.value = '';
-        ctx.toast('Google client saved. Customers can connect now.');
+        ctx.toast(`${form.name} saved. Customers can connect now.`);
         reload();
       } catch (err) {
         ctx.toast(`Could not save: ${readableError(err)}`);
       }
     },
-  }, [view.client ? 'Replace client' : 'Save client']);
+  }, [view.client ? `Replace ${form.name === 'GitHub' ? 'App' : 'client'}` : `Save ${form.name === 'GitHub' ? 'App' : 'client'}`]);
 
   const remove = view.client
     ? el('button', {
         class: 'btn',
         onclick: async () => {
-          if (!window.confirm('Remove Engine’s Google client? No customer will be able to connect or refresh until it is set again.')) return;
+          if (!window.confirm(`Remove Engine’s ${form.name} credentials? No customer will be able to connect until they are set again.`)) return;
           try {
-            await clearPlatformClient('google');
-            ctx.toast('Google client removed.');
+            await clearPlatformClient(form.vendor);
+            ctx.toast(`${form.name} credentials removed.`);
             reload();
           } catch (err) {
             ctx.toast(`Could not remove: ${readableError(err)}`);
@@ -149,23 +248,17 @@ function clientForm(view: PlatformClientView, ctx: AppContext, reload: () => voi
 
   return el('div', { class: 'intg-apikey' }, [
     el('div', { class: 'form-row' }, [
-      el('label', { class: 'label' }, ['Client ID']),
+      el('label', { class: 'label' }, [form.idLabel]),
       clientId,
     ]),
     el('div', { class: 'form-row' }, [
-      el('label', { class: 'label' }, ['Client secret', el('span', { class: 'tagband' }, ['secret'])]),
+      el('label', { class: 'label' }, [form.secretLabel, el('span', { class: 'tagband' }, ['secret'])]),
       clientSecret,
     ]),
     el('div', { class: 'form-row' }, [
       el('label', { class: 'label' }, [
-        'Redirect URI',
-        infoCard('Where this value goes', {
-          title: 'Register this with Google',
-          body: [
-            'Paste this into Authorised redirect URIs on the OAuth client in Google Cloud Console.',
-            'Google compares it byte for byte. A mismatch is the most common setup failure and shows as redirect_uri_mismatch at consent time.',
-          ],
-        }),
+        form.redirectLabel,
+        infoCard('Where this value goes', form.redirectHelp),
       ]),
       redirectUri,
       copyableUri(view.client?.redirectUri ?? view.suggestedRedirectUri, ctx),
@@ -287,42 +380,50 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
   }
   if (!isAdmin) return host;
 
-  const render = async () => {
-    host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
+  /** One panel per identity Engine registers. */
+  const vendorPanel = async (form: VendorForm, reload: () => void): Promise<HTMLElement> => {
     let view: PlatformClientView;
     try {
-      view = await fetchPlatformClient('google');
+      view = await fetchPlatformClient(form.vendor);
     } catch (err) {
-      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
-      return;
+      return el('section', { class: 'panel' }, [
+        el('header', {}, [logoTile(form.logoDomain, form.name), el('h3', {}, [form.panelTitle])]),
+        el('div', { class: 'fq-note' }, [readableError(err)]),
+      ]);
     }
+    return el('section', { class: 'panel' }, [
+      el('header', {}, [
+        logoTile(form.logoDomain, form.name),
+        el('h3', {}, [form.panelTitle]),
+        infoCard('Who this is for', form.whoFor),
+      ]),
+      el('div', { class: 'intg-body' }, [
+        statusLine(form, view),
+        clientForm(form, view, ctx, reload),
+        view.events.length > 0
+          ? el('div', { class: 'fhint num' }, [
+              `Last change: ${view.events[0].type} by ${view.events[0].actor} · ${new Date(
+                view.events[0].occurredAt,
+              ).toLocaleString()}`,
+            ])
+          : null,
+      ].filter(Boolean) as HTMLElement[]),
+    ]);
+  };
+
+  const render = async () => {
+    host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
+    const reload = () => void render();
+    const [google, github, users] = await Promise.all([
+      vendorPanel(GOOGLE_FORM, reload),
+      vendorPanel(GITHUB_FORM, reload),
+      usersPanel(ctx),
+    ]);
     host.replaceChildren(
       el('div', { class: 'settings-sec' }, ['Platform']),
-      el('section', { class: 'panel' }, [
-        el('header', {}, [
-          logoTile('google.com', 'Google'),
-          el('h3', {}, ['Google OAuth client']),
-          infoCard('Who this is for', {
-            title: 'Engine’s app, not a customer’s',
-            body: [
-              'This identifies Engine to Google. Customers consent to it; they never create one of their own.',
-              'Set it once. Everything a customer connects — Search Console, Analytics, Business Profile — goes through it.',
-            ],
-          }),
-        ]),
-        el('div', { class: 'intg-body' }, [
-          statusLine(view),
-          clientForm(view, ctx, () => void render()),
-          view.events.length > 0
-            ? el('div', { class: 'fhint num' }, [
-                `Last change: ${view.events[0].type} by ${view.events[0].actor} · ${new Date(
-                  view.events[0].occurredAt,
-                ).toLocaleString()}`,
-              ])
-            : null,
-        ].filter(Boolean) as HTMLElement[]),
-      ]),
-      await usersPanel(ctx),
+      google,
+      github,
+      users,
     );
   };
 

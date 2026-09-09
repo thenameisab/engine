@@ -1510,12 +1510,44 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     // transition rather than a separate push step.
     let detail = body.detail;
     if (to === 'deployed' && action.target.kind === 'github-pr') {
-      if (!c.env.GITHUB_TOKEN) {
-        console.warn('GitHub PR export is not configured: set GITHUB_TOKEN');
-        return c.json({ error: 'Publishing to GitHub is not configured on this deployment.' }, 503);
+      // The token comes from this account's own GitHub App installation.
+      //
+      // It used to be one platform-wide `GITHUB_TOKEN`: a single credential,
+      // held by us, that cannot reach two customers' repositories and that no
+      // customer would hand over in a form. An installation token is minted
+      // per call from Engine's App key plus the installation the customer
+      // created, and reaches only the repositories they ticked.
+      //
+      // `GITHUB_TOKEN` stays as a fallback so a deployment that has not
+      // registered the App keeps working, and warns when it is used, because
+      // relying on it is a state to leave rather than to settle in. Same
+      // shape as the GBP path's legacy single-tenant secret below.
+      let token: string;
+      try {
+        const accountId = await getProjectAccountId(db, projectId);
+        if (!accountId) return c.json({ error: 'project not found', projectId }, 404);
+        token = await getAccessToken(db, accountId, 'github', await keyringFrom(c.env), c.env);
+      } catch (err) {
+        if (!(err instanceof ConnectionUnavailableError)) {
+          return c.json({ error: `GitHub deploy failed: ${(err as Error).message}` }, 502);
+        }
+        if (!c.env.GITHUB_TOKEN) {
+          return c.json(
+            {
+              error:
+                'GitHub is not connected for this client. Connect it on the Integrations screen and choose which repositories Engine may open pull requests in.',
+              reason: err.reason,
+            },
+            503,
+          );
+        }
+        console.warn(
+          `github-pr deploy fell back to the deployment-wide GITHUB_TOKEN for project ${projectId}: ${err.message}`,
+        );
+        token = c.env.GITHUB_TOKEN;
       }
       try {
-        const pr = await exportActionAsPr(c.env.GITHUB_TOKEN, action);
+        const pr = await exportActionAsPr(token, action);
         detail = { ...detail, prUrl: pr.url, prNumber: pr.number };
       } catch (err) {
         return c.json({ error: `GitHub PR export failed: ${(err as Error).message}` }, 502);

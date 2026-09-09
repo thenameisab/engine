@@ -15,7 +15,7 @@
  */
 
 /** How a customer proves they own the account being connected. */
-export type AuthMethod = OAuth2Auth | ApiKeyAuth;
+export type AuthMethod = OAuth2Auth | ApiKeyAuth | GitHubAppAuth;
 
 export interface OAuth2Auth {
   kind: 'oauth2';
@@ -114,6 +114,43 @@ export type ApiKeyPlacement =
   | { in: 'header'; name: string; prefix?: string }
   | { in: 'query'; name: string };
 
+/**
+ * A GitHub App installation — the third arm, and the one that justifies this
+ * being a union rather than a flag.
+ *
+ * It is not `oauth2`: there is no authorization/token URL pair, no code
+ * exchange and no refresh token. It is not `api_key`: the customer pastes
+ * nothing. The customer picks an account and a set of repositories on
+ * GitHub's own screen, and what comes back is an **installation id** — an
+ * identifier, not a credential. Nothing per-customer is secret, so nothing
+ * per-customer is sealed; the only secret is Engine's App private key, held
+ * once in `platform_credentials`.
+ *
+ * Access is minted per call: a short-lived JWT signed with that private key
+ * is exchanged for an installation token good for an hour. So there is also
+ * nothing to refresh, nothing to rotate, and nothing that expires quietly in
+ * the night.
+ */
+export interface GitHubAppAuth {
+  kind: 'github_app';
+  /**
+   * Where the browser is sent to choose an account and repositories.
+   * `{slug}` is substituted with the App's own slug, read from GitHub at
+   * connect time rather than stored — an administrator who renames the App
+   * would otherwise leave a link that 404s, and the App itself is the
+   * authority on its current slug.
+   */
+  installUrlTemplate: string;
+  /** Base for the vendor's REST API — token minting, repository listing. */
+  apiBaseUrl: string;
+  /**
+   * The permissions the App is expected to hold, for the connect panel to
+   * state plainly before someone installs it. Display only: GitHub enforces
+   * whatever was actually granted, and this list cannot widen it.
+   */
+  permissions: string[];
+}
+
 /** Broad grouping, used to organise the connect UI. */
 export type ProviderCategory =
   | 'search-console'
@@ -123,7 +160,11 @@ export type ProviderCategory =
   | 'crm'
   | 'cms'
   | 'seo-data'
-  | 'social';
+  | 'social'
+  // Where a headless site's source lives. Not 'cms': for a repo-backed site
+  // the repository *is* the CMS, and a customer looking for GitHub will not
+  // look under a heading that names something else.
+  | 'code';
 
 /**
  * Whether a provider is offered to customers today.

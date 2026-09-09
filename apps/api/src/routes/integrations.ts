@@ -31,6 +31,9 @@ import {
   validateApiKeySubmission,
   missingScopes,
   listResources,
+  signAppJwt,
+  fetchAppIdentity,
+  fetchInstallation,
   IntegrationError,
   isIntegrationError,
   type IntegrationProvider,
@@ -56,6 +59,7 @@ import {
   setPlatformRole,
   countAdmins,
   getPlatformClientStatus,
+  resolveGitHubApp,
   setPlatformClient,
   clearPlatformClient,
   listPlatformEvents,
@@ -65,6 +69,7 @@ import {
   listConnections,
   getConnection,
   upsertConnection,
+  upsertAppInstallation,
   disconnect,
   getAccessToken,
   getApiKeyCredential,
@@ -287,14 +292,21 @@ integrationsRoutes.get('/accounts/:accountId/integrations', async (c) => {
 
   const gsc = getProvider('gsc');
   // A missing or unusable keyring is not an error here — it means nothing can
-  // be connected, which is exactly what `oauthConfigured: false` says.
+  // be connected, which is exactly what a `false` here says.
   const keyring = await keyringFrom(c.env).catch(() => undefined);
+  const googleReady = Boolean(gsc && keyring && (await clientFor(gsc, c.env, db, keyring)));
+  const githubReady = Boolean(keyring && (await resolveGitHubApp(db, keyring).catch(() => null)));
   return c.json({
     connections: await listConnections(db, accountId),
-    // Engine's own OAuth client, from `platform_credentials` first and the
-    // environment second. `clientFor` is the one place that changes when a
-    // second vendor arrives.
-    oauthConfigured: Boolean(gsc && (await clientFor(gsc, c.env, db, keyring))),
+    // Per vendor, because "is Engine's own identity registered" now has more
+    // than one answer. This route's previous comment predicted the day a
+    // second vendor arrived; the GitHub App is it. A deployment can have
+    // Google set up and GitHub not, and one boolean would tell a customer the
+    // wrong thing about one of them.
+    vendorsConfigured: { google: googleReady, github: githubReady },
+    // Kept so a dashboard build that predates the field still works: a Pages
+    // deploy and a Worker deploy never land in the same instant.
+    oauthConfigured: googleReady,
   });
 });
 
@@ -321,11 +333,118 @@ integrationsRoutes.get('/accounts/:accountId/integrations/events', async (c) => 
  * screen. Starting a flow we cannot complete would walk them through granting
  * access and then fail — having obtained access we are unable to store.
  */
+/**
+ * Step 1 for a GitHub App: the install link.
+ *
+ * The customer is sent to GitHub's install screen rather than a consent
+ * screen, and chooses there which repositories Engine may touch. What comes
+ * back is an installation id — an identifier, not a credential — so this
+ * stores no verifier and there is nothing to exchange. The signed state still
+ * rides along, and the flow row is still written, because replay protection is
+ * the part that matters either way.
+ *
+ * The App slug is read from GitHub instead of stored: an administrator who
+ * renames the App would otherwise leave every customer a link that 404s, and
+ * the App is the authority on its own name.
+ */
+async function githubInstallUrl(
+  c: Context<Env>,
+  provider: IntegrationProvider,
+  accountId: string,
+) {
+  if (provider.auth.kind !== 'github_app') {
+    return c.json({ error: `${provider.name} is not installed as an app`, field: 'provider' }, 400);
+  }
+
+  let keyring;
+  try {
+    keyring = await keyringFrom(c.env);
+  } catch {
+    return c.json({ error: 'ENCRYPTION_KEY (or ENCRYPTION_KEYS) is not configured — cannot start a connection' }, 503);
+  }
+  const db = createDb(c.env.DATABASE_URL);
+
+  const app = await resolveGitHubApp(db, keyring);
+  if (!app) {
+    return c.json(
+      {
+        error: 'Engine’s GitHub App has not been configured. An administrator sets it once under Settings → Platform.',
+        reason: 'platform-client-missing',
+      },
+      503,
+    );
+  }
+
+  const stateSecret = await resolveStateSecret(c.env, db, keyring);
+  if (!stateSecret) {
+    return c.json(
+      { error: 'Could not obtain a signing secret for the connection link.', reason: 'state-secret-unavailable' },
+      503,
+    );
+  }
+
+  const guard = await requireOwner(c, db, accountId);
+  if ('error' in guard) return guard.error;
+
+  const body = (await c.req.json<{ returnTo?: string }>().catch(() => ({}))) as { returnTo?: string };
+  const userId = c.get('user').id;
+
+  let slug: string;
+  try {
+    const jwt = await signAppJwt(app.appId, app.privateKeyPem);
+    slug = (await fetchAppIdentity(provider.auth.apiBaseUrl, jwt)).slug;
+  } catch (err) {
+    // An App id that does not match its private key fails here, before the
+    // customer is sent anywhere — which is the whole point of checking every
+    // precondition in step 1.
+    const message = isIntegrationError(err) && err.reason === 'not_configured'
+      ? 'Engine’s GitHub App credentials are not valid. An administrator should re-enter them under Settings → Platform.'
+      : `GitHub could not be reached: ${(err as Error).message}`;
+    return c.json({ error: message, reason: 'platform-client-invalid' }, 503);
+  }
+
+  const state = await signOAuthState(
+    { accountId, userId, provider: provider.id, returnTo: body.returnTo },
+    stateSecret,
+  );
+  const verified = await verifyOAuthState(state, stateSecret);
+  /* c8 ignore next -- we just signed it with the same secret. */
+  if (!verified.ok) return c.json({ error: 'could not mint a connection link' }, 500);
+
+  await startFlow(db, keyring, {
+    nonce: verified.claims.nonce,
+    accountId,
+    provider: provider.id,
+    userId,
+    returnTo: body.returnTo,
+  });
+  await recordEvent(db, {
+    accountId,
+    provider: provider.id,
+    type: 'connect_started',
+    actor: { kind: 'user', userId },
+  });
+
+  const url = new URL(provider.auth.installUrlTemplate.replace('{slug}', slug));
+  url.searchParams.set('state', state);
+  return c.json({ url: url.toString(), provider: provider.id });
+}
+
 integrationsRoutes.post('/accounts/:accountId/integrations/:provider/connect-url', async (c) => {
   const accountId = c.req.param('accountId');
   if (!UUID_RE.test(accountId)) return c.json({ error: 'accountId must be a uuid', field: 'accountId' }, 400);
   const provider = readProvider(c);
   if (!provider) return c.json({ error: 'unknown provider', field: 'provider' }, 400);
+
+  // A GitHub App is installed, not consented to: the customer goes to
+  // GitHub's own install screen, picks an account and the repositories to
+  // grant, and comes back with an installation id. Same signed single-use
+  // state, no code exchange. Handled in its own function so the OAuth path
+  // below stays exactly as it was.
+  if (provider.auth.kind === 'github_app') {
+    return githubInstallUrl(c, provider, accountId);
+  }
+
   if (provider.auth.kind !== 'oauth2') {
     return c.json(
       { error: `${provider.name} is connected with an API key, not a consent flow`, field: 'provider' },
@@ -623,6 +742,129 @@ integrationsRoutes.get('/oauth/google/callback', async (c) => {
 });
 
 /**
+ * The GitHub App's setup callback.
+ *
+ * Not behind `requireAuth`, for the same reason the Google callback is not: a
+ * browser arriving from GitHub's install screen carries no Authorization
+ * header. The signed, single-use `state` is what authenticates it.
+ *
+ * GitHub sends `installation_id` and `setup_action` rather than a code. There
+ * is nothing to exchange and nothing secret to store — the installation id is
+ * an identifier, useless without Engine's App private key — so this writes the
+ * connection with no credential row at all. That is the honest shape: a
+ * GitHub App connection has no per-customer secret, and inventing a sealed
+ * blob to fill a column would say otherwise.
+ */
+integrationsRoutes.get('/github/setup/callback', async (c) => {
+  const setupAction = c.req.query('setup_action');
+  const installationId = c.req.query('installation_id');
+  const state = c.req.query('state');
+
+  if (!state) return callbackPage(c, 'error', 'The redirect from GitHub was missing its state.');
+  if (!installationId) {
+    // Reached by "Cancel" on the install screen, and by GitHub's own link to
+    // the App's page — neither is our failure to report as one.
+    return callbackPage(c, 'cancelled', 'No repositories were connected.');
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  let keyring;
+  try {
+    keyring = await keyringFrom(c.env);
+  } catch {
+    return callbackPage(c, 'error', 'ENCRYPTION_KEY is not configured on this deployment.');
+  }
+  const stateSecret = await resolveStateSecret(c.env, db, keyring);
+
+  const verified = await verifyOAuthState(state, stateSecret);
+  if (!verified.ok) {
+    const message =
+      verified.reason === 'expired'
+        ? 'This connection link expired. Start again from the Integrations screen.'
+        : verified.reason === 'unconfigured'
+          ? 'Connection-link signing is not configured on this deployment.'
+          : 'This connection link was not valid.';
+    return callbackPage(c, verified.reason === 'expired' ? 'expired' : 'error', message);
+  }
+
+  const { accountId, userId, provider: providerId, nonce } = verified.claims;
+  let provider: IntegrationProvider;
+  try {
+    provider = assertConnectable(providerId);
+  } catch {
+    return callbackPage(c, 'error', 'Unknown provider in the connection link.');
+  }
+  if (provider.auth.kind !== 'github_app') {
+    return callbackPage(c, 'error', 'Unknown provider in the connection link.');
+  }
+
+  const app = await resolveGitHubApp(db, keyring);
+  if (!app) return callbackPage(c, 'error', 'Engine’s GitHub App is not configured on this deployment.');
+
+  // Claim before anything else, so a replayed callback stops here.
+  const claim = await claimFlow(db, keyring, nonce, accountId, providerId);
+  if (!claim.ok) {
+    const message =
+      claim.reason === 'already-used'
+        ? 'This connection link was already used. Start again from the Integrations screen.'
+        : claim.reason === 'expired'
+          ? 'This connection link expired. Start again from the Integrations screen.'
+          : 'This connection link was not valid.';
+    await recordEvent(db, {
+      accountId,
+      provider: providerId,
+      type: 'connect_failed',
+      actor: { kind: 'user', userId },
+      reason: claim.reason,
+    });
+    return callbackPage(c, claim.reason === 'expired' ? 'expired' : 'error', message);
+  }
+
+  // Name the connection after the account that installed it, and prove in the
+  // same call that the installation really is ours to use — a fabricated
+  // `installation_id` in the query string fails here rather than being stored.
+  let login: string;
+  try {
+    const jwt = await signAppJwt(app.appId, app.privateKeyPem);
+    login = (await fetchInstallation(provider.auth.apiBaseUrl, jwt, installationId)).login;
+  } catch (err) {
+    await recordEvent(db, {
+      accountId,
+      provider: providerId,
+      type: 'connect_failed',
+      actor: { kind: 'user', userId },
+      reason: 'vendor_error',
+    });
+    return callbackPage(c, 'error', `GitHub did not recognise that installation: ${(err as Error).message}`);
+  }
+
+  await upsertAppInstallation(db, {
+    accountId,
+    provider: providerId,
+    installationId,
+    label: login,
+    connectedBy: userId,
+  });
+  await recordEvent(db, {
+    accountId,
+    provider: providerId,
+    type: 'connected',
+    actor: { kind: 'user', userId },
+    metadata: { kind: 'github_app', account: login },
+  });
+
+  return callbackPage(
+    c,
+    'connected',
+    setupAction === 'update'
+      ? `Updated which of ${login}’s repositories Engine can open pull requests in.`
+      : `Connected ${login}. Engine can open pull requests in the repositories you chose.`,
+    claim.returnTo,
+  );
+});
+
+
+/**
  * Only allow a same-origin-ish return target.
  *
  * `returnTo` comes from the connect request and rides through Google inside the
@@ -712,7 +954,9 @@ integrationsRoutes.get('/accounts/:accountId/integrations/:provider/resources', 
   // so asking for one would fail before the vendor was ever called.
   const ctx: { accessToken?: string; apiKey?: ApiKeyCredential } = {};
   try {
-    if (provider.auth.kind === 'oauth2') {
+    // A GitHub App installation token is a bearer token like an OAuth one, so
+    // it rides the same field; `getAccessToken` knows how to produce each.
+    if (provider.auth.kind === 'oauth2' || provider.auth.kind === 'github_app') {
       ctx.accessToken = await getAccessToken(db, accountId, provider.id, await keyringFrom(c.env), c.env);
     } else {
       ctx.apiKey = await getApiKeyCredential(db, accountId, provider.id, await keyringFrom(c.env));
@@ -1034,7 +1278,11 @@ integrationsRoutes.get('/platform/oauth-clients/:vendor', async (c) => {
   // The URI the operator must register with the vendor, derived from this
   // request rather than typed by hand — a mistyped redirect URI is the single
   // most common setup failure, and the vendor compares it byte for byte.
-  const suggestedRedirectUri = new URL('/oauth/google/callback', new URL(c.req.url).origin).toString();
+  // Per vendor: Google returns to the consent callback, GitHub to the App's
+  // setup callback. Suggesting the wrong one produces a mismatch the vendor
+  // reports only at the moment a customer tries to connect.
+  const callbackPath = vendor === 'github' ? '/github/setup/callback' : '/oauth/google/callback';
+  const suggestedRedirectUri = new URL(callbackPath, new URL(c.req.url).origin).toString();
 
   return c.json({
     vendor,

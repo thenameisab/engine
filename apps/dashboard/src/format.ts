@@ -157,7 +157,11 @@ export interface IntegrationTileState {
 export function integrationTileState(
   entry: Pick<ProviderCatalogEntry, 'availability' | 'authKind'>,
   connection: Pick<IntegrationConnection, 'status' | 'scopesSufficient'> | undefined,
-  opts: { oauthConfigured: boolean; isAdmin: boolean },
+  // `platformReady` is per vendor now: whether Engine's own identity with
+  // *this* provider's vendor is registered. One boolean for every provider
+  // said "not available yet" about GitHub whenever Google was unset, and the
+  // reverse.
+  opts: { platformReady: boolean; isAdmin: boolean },
 ): IntegrationTileState {
   if (entry.availability === 'planned') return { label: 'Coming soon', tone: 'muted', sort: 3 };
   if (connection?.status === 'connected') {
@@ -166,7 +170,7 @@ export function integrationTileState(
       : { label: 'Connected', tone: 'good', sort: 0 };
   }
   if (connection?.status === 'needs_reauth') return { label: 'Reconnect needed', tone: 'watch', sort: 0 };
-  if (entry.authKind !== 'api_key' && !opts.oauthConfigured) {
+  if (entry.authKind !== 'api_key' && !opts.platformReady) {
     return opts.isAdmin
       ? { label: 'Needs setup', tone: 'watch', sort: 2 }
       : { label: 'Not available yet', tone: 'muted', sort: 2 };

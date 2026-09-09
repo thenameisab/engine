@@ -22,10 +22,18 @@ import {
 } from '@engine/integrations';
 import type { Db } from '../db.js';
 
-/** Vendors that can have a platform OAuth client. */
-export type PlatformVendor = 'google';
+/**
+ * Vendors Engine holds its own identity with.
+ *
+ * 'github' shares this table without stretching it, because the three columns
+ * mean the same things: `client_id` is the App id (public, and the `iss` of
+ * every App JWT), `client_secret_sealed` is the App private key, and
+ * `redirect_uri` is the setup callback registered on the App. What differs is
+ * only that GitHub's secret is a PEM rather than a short string.
+ */
+export type PlatformVendor = 'google' | 'github';
 
-const VENDORS: readonly string[] = ['google'];
+const VENDORS: readonly string[] = ['google', 'github'];
 
 export function isPlatformVendor(value: string): value is PlatformVendor {
   return VENDORS.includes(value);
@@ -432,4 +440,31 @@ export async function listPlatformEvents(db: Db, limit = 50): Promise<PlatformEv
     detail: r.detail ?? undefined,
     occurredAt: r.occurred_at.toISOString(),
   }));
+}
+
+/** Engine's GitHub App: the App id and its private key. */
+export interface ResolvedGitHubApp {
+  appId: string;
+  privateKeyPem: string;
+  setupRedirectUri: string;
+}
+
+/**
+ * Engine's GitHub App credentials, or null when no administrator has
+ * registered one. Separate from `resolvePlatformClient` because the two are
+ * different things behind the same columns — an OAuth client id and secret
+ * against an App id and a signing key — and a caller that wanted one and got
+ * the other would fail somewhere much less obvious than here.
+ */
+export async function resolveGitHubApp(
+  db: Db,
+  keyring: Keyring,
+): Promise<ResolvedGitHubApp | null> {
+  const resolved = await resolvePlatformClient(db, keyring, 'github');
+  if (!resolved) return null;
+  return {
+    appId: resolved.clientId,
+    privateKeyPem: resolved.clientSecret,
+    setupRedirectUri: resolved.redirectUri,
+  };
 }
