@@ -773,3 +773,6 @@
 - Verified in the browser as a non-admin: 11 tiles in the expected order; Google Search Console panel reads "Sign-in with Google is not set up for this workspace yet. Ask your administrator to finish the setup." with no button; Escape closes; Bing panel shows one password field and "Connect Bing Webmaster Tools"; the close button closes; Settings shows no operator panels. Admin path verified by promoting the local tester in the scratch database (see next lines).
 - Green before push: typecheck 41/41, build 24/24, test 39/39 tasks (dashboard 44, three new).
 - Admin path verified after promoting the local tester in the scratch database (reverted afterwards): the Google tile reads "Needs setup", its panel offers "Finish Google setup", and clicking it lands on Settings, which now shows the Platform (Google OAuth client, Users) and Vendor keys sections. Found and fixed on the way: the dialog lives on `document.body`, so it stayed open over the next screen after navigating; it now closes on `hashchange`.
+
+## 2026-09-09 (MCP moved to the roadmap)
+- User decision: MCP support is deferred; the next work is week 2 of the ship-readiness review. Added "MCP client integrations" to `docs/10-Roadmap.md` Phase 3 scope and as milestone M3.6, distinct from the existing M3.2 (Engine as an MCP server). Branch `docs/mcp-on-roadmap` off `origin/main`.
