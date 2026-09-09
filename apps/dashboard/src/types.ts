@@ -390,7 +390,7 @@ export interface ProviderCatalogEntry {
   /** 'available' | 'beta' | 'planned'. Planned rows are shown but not connectable. */
   availability?: 'available' | 'beta' | 'planned';
   /** How this provider is connected: a consent flow, or a pasted key. */
-  authKind?: 'oauth2' | 'api_key';
+  authKind?: 'oauth2' | 'api_key' | 'github_app';
   /** Present for an api_key provider — the form to render. */
   fields?: ProviderField[];
   scopes: string[];

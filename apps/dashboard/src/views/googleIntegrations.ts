@@ -257,7 +257,7 @@ interface ProviderPanelInput {
   entry: ProviderCatalogEntry;
   connection: IntegrationConnection | undefined;
   assignments: IntegrationAssignment[];
-  oauthConfigured: boolean;
+  platformReady: boolean;
   isAdmin: boolean;
   reload: () => void;
 }
@@ -346,10 +346,13 @@ function syncButton(
 }
 
 function providerPanel(input: ProviderPanelInput): HTMLElement {
-  const { ctx, accountId, entry, connection, assignments, oauthConfigured, isAdmin, reload } = input;
+  const { ctx, accountId, entry, connection, assignments, platformReady, isAdmin, reload } = input;
   const live = connection?.status === 'connected';
   const problem = connection ? healthProblem(connection) : null;
   const isApiKey = entry.authKind === 'api_key';
+  // A GitHub App is installed on repositories, not signed in to. The verbs on
+  // this panel are the customer's only clue about what is about to happen.
+  const isApp = entry.authKind === 'github_app';
   const vendor = entry.vendor ?? 'the provider';
 
   const purpose = el('p', { class: 'intg-purpose' }, [entry.purpose]);
@@ -367,13 +370,13 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     ]);
   }
 
-  if (!isApiKey && !oauthConfigured && !live) {
+  if (!isApiKey && !platformReady && !live) {
     return el('div', { class: 'intg-panel' }, [
       purpose,
       el('div', { class: 'intg-note warn' }, [
         isAdmin
-          ? `Sign-in with ${vendor} is not set up for this workspace yet. Register Engine's ${vendor} app once under Settings, and every client can connect from here.`
-          : `Sign-in with ${vendor} is not set up for this workspace yet. Ask your administrator to finish the setup.`,
+          ? `Engine's ${vendor} app is not registered for this workspace yet. Register it once under Settings, and every client can connect from here.`
+          : `${vendor} is not set up for this workspace yet. Ask your administrator to finish the setup.`,
       ]),
       isAdmin
         ? el('div', { class: 'form-actions' }, [
@@ -405,7 +408,17 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
         ctx.toast(`Could not start the connection: ${readableError(err)}`);
       }
     },
-  }, [live || connection?.status === 'needs_reauth' ? `Reconnect ${vendor}` : `Sign in with ${vendor}`]);
+  }, [
+    isApp
+      ? live
+        ? 'Change which repositories'
+        : connection?.status === 'needs_reauth'
+          ? `Install on ${vendor} again`
+          : `Install on ${vendor}`
+      : live || connection?.status === 'needs_reauth'
+        ? `Reconnect ${vendor}`
+        : `Sign in with ${vendor}`,
+  ]);
 
   const disconnectButton = connection && connection.status !== 'revoked'
     ? el('button', {
@@ -642,7 +655,7 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
   const render = async () => {
     let catalog: ProviderCatalogEntry[];
     let connections: IntegrationConnection[];
-    let oauthConfigured: boolean;
+    let vendorsConfigured: Record<string, boolean>;
     let assignments: IntegrationAssignment[];
     let isAdmin: boolean;
     try {
@@ -656,7 +669,7 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
       ]);
       catalog = cat;
       connections = connectionState.connections;
-      oauthConfigured = connectionState.oauthConfigured;
+      vendorsConfigured = connectionState.vendorsConfigured;
       assignments = projectState.assignments;
       isAdmin = access.isAdmin;
     } catch (err) {
@@ -665,6 +678,15 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
     }
 
     const byProvider = new Map<ProviderId, IntegrationConnection>(connections.map((c) => [c.provider, c]));
+
+    /**
+     * Whether Engine's own identity with this provider's vendor is
+     * registered. Per vendor, so an unregistered GitHub App cannot make the
+     * Google tiles read "not available yet", or the reverse.
+     */
+    const platformReadyFor = (entry: ProviderCatalogEntry): boolean =>
+      vendorsConfigured[(entry.vendor ?? '').toLowerCase()] ?? false;
+
     const panelFor = (entry: ProviderCatalogEntry) =>
       providerPanel({
         ctx,
@@ -672,13 +694,19 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
         entry,
         connection: byProvider.get(entry.id),
         assignments: assignments.filter((a) => a.provider === entry.id),
-        oauthConfigured,
+        platformReady: platformReadyFor(entry),
         isAdmin,
         reload: () => void render(),
       });
 
     const tiles = catalog
-      .map((entry) => ({ entry, state: integrationTileState(entry, byProvider.get(entry.id), { oauthConfigured, isAdmin }) }))
+      .map((entry) => ({
+        entry,
+        state: integrationTileState(entry, byProvider.get(entry.id), {
+          platformReady: platformReadyFor(entry),
+          isAdmin,
+        }),
+      }))
       .sort((a, b) => a.state.sort - b.state.sort)
       .map(({ entry, state }) =>
         providerTile(entry, state, () => {

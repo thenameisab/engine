@@ -569,12 +569,25 @@ export async function fetchProviderCatalog(includePlanned = false): Promise<Prov
   return resp.providers;
 }
 
+/**
+ * An account's connections, plus whether Engine's own identity is registered
+ * with each vendor. `vendorsConfigured` is read per vendor because the answer
+ * differs — Google can be set up while the GitHub App is not. `oauthConfigured`
+ * is the older single boolean, kept as a fallback for the moments when the
+ * Worker is a deploy behind the dashboard.
+ */
 export async function fetchConnections(
   accountId: string,
-): Promise<{ connections: IntegrationConnection[]; oauthConfigured: boolean }> {
-  return request<{ connections: IntegrationConnection[]; oauthConfigured: boolean }>(
-    `/accounts/${accountId}/integrations`,
-  );
+): Promise<{ connections: IntegrationConnection[]; vendorsConfigured: Record<string, boolean> }> {
+  const resp = await request<{
+    connections: IntegrationConnection[];
+    vendorsConfigured?: Record<string, boolean>;
+    oauthConfigured?: boolean;
+  }>(`/accounts/${accountId}/integrations`);
+  return {
+    connections: resp.connections,
+    vendorsConfigured: resp.vendorsConfigured ?? { google: Boolean(resp.oauthConfigured) },
+  };
 }
 
 /**

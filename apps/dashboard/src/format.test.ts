@@ -397,7 +397,7 @@ describe('auditRequestStatusLine', () => {
 });
 
 describe('integrationTileState', () => {
-  const configured = { oauthConfigured: true, isAdmin: false };
+  const configured = { platformReady: true, isAdmin: false };
   it('puts connected providers first and coming-soon ones last', () => {
     const connected = integrationTileState({ authKind: 'oauth2' }, { status: 'connected', scopesSufficient: true }, configured);
     const idle = integrationTileState({ authKind: 'api_key' }, undefined, configured);
@@ -407,11 +407,14 @@ describe('integrationTileState', () => {
     expect(planned).toEqual({ label: 'Coming soon', tone: 'muted', sort: 3 });
   });
   it('tells an administrator to set up, and everyone else that it is not available', () => {
-    const unset = { oauthConfigured: false, isAdmin: false };
+    const unset = { platformReady: false, isAdmin: false };
     expect(integrationTileState({ authKind: 'oauth2' }, undefined, unset)).toEqual({ label: 'Not available yet', tone: 'muted', sort: 2 });
     expect(integrationTileState({ authKind: 'oauth2' }, undefined, { ...unset, isAdmin: true })).toEqual({ label: 'Needs setup', tone: 'watch', sort: 2 });
-    // An API-key provider does not depend on the OAuth client at all.
+    // An API-key provider does not depend on Engine's own app at all.
     expect(integrationTileState({ authKind: 'api_key' }, undefined, unset).label).toBe('Not connected');
+    // A GitHub App does: without one registered, nobody can install it.
+    expect(integrationTileState({ authKind: 'github_app' }, undefined, unset).label).toBe('Not available yet');
+    expect(integrationTileState({ authKind: 'github_app' }, undefined, configured).label).toBe('Not connected');
   });
   it('flags a grant that needs attention on the watch tone', () => {
     expect(integrationTileState({ authKind: 'oauth2' }, { status: 'needs_reauth', scopesSufficient: true }, configured).tone).toBe('watch');

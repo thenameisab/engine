@@ -18,6 +18,7 @@
  * than showing it greyed out with the reason.
  */
 import { IntegrationError } from './errors.js';
+import { listInstallationRepositories } from './githubApp.js';
 import { vendorFetch, parseJson, type HttpOptions } from './http.js';
 import { applyApiKey, type ApiKeyCredential } from './credentials.js';
 import type { IntegrationProvider } from './types.js';
@@ -102,6 +103,39 @@ function requireApiKey(ctx: ListerContext): ApiKeyCredential {
   }
   return ctx.apiKey;
 }
+
+/**
+ * GitHub — the repositories this installation may touch.
+ *
+ * Exactly what the customer ticked when installing the App, no more. This is
+ * what turns the deploy-target repository field from a box someone types a
+ * guess into to a list of real choices, and it cannot offer a repository
+ * Engine has no access to.
+ */
+registerLister('github', async (ctx) => {
+  if (ctx.provider.auth.kind !== 'github_app') {
+    throw new IntegrationError('not_configured', `${ctx.provider.name} is not installed as an app`, {
+      providerId: ctx.provider.id,
+    });
+  }
+  if (!ctx.accessToken) {
+    throw new IntegrationError('invalid_credentials', `${ctx.provider.name} needs an installation token`, {
+      providerId: ctx.provider.id,
+    });
+  }
+  const repositories = await listInstallationRepositories(ctx.provider.auth.apiBaseUrl, ctx.accessToken);
+  return {
+    resources: repositories.map((r) => ({
+      id: r.fullName,
+      label: r.fullName,
+      selectable: true,
+      // The default branch is what a pull request will target, so it belongs
+      // on the choice rather than being discovered after the fact.
+      detail: r.private ? `private · ${r.defaultBranch}` : r.defaultBranch,
+    })),
+    truncated: false,
+  };
+});
 
 /**
  * Bing Webmaster Tools — the verified sites on the key's account.

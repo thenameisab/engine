@@ -160,6 +160,37 @@ export const PROVIDERS: IntegrationProvider[] = [
     writes: false,
     docsUrl: 'https://learn.microsoft.com/en-us/bingwebmaster/getting-access',
   },
+  {
+    id: 'github',
+    name: 'GitHub',
+    vendor: 'GitHub',
+    logoDomain: 'github.com',
+    category: 'code',
+    availability: 'available',
+    // The Fix Queue's 'github-pr' target ran on one platform-wide
+    // GITHUB_TOKEN: a single token, held by us, that cannot reach two
+    // customers' repositories and that no customer would hand over in a form.
+    // An App installation is the shape that works — the customer grants
+    // access to the repositories they choose, revocable by them, and Engine
+    // never holds a token belonging to a person.
+    purpose: 'Open approved fixes as pull requests in the repositories you choose.',
+    auth: {
+      kind: 'github_app',
+      installUrlTemplate: 'https://github.com/apps/{slug}/installations/new',
+      apiBaseUrl: 'https://api.github.com',
+      // What the App asks for, and nothing more: write a branch and a file,
+      // open a pull request. No access to Actions, secrets, or other people's
+      // repositories.
+      permissions: ['Contents: read and write', 'Pull requests: read and write'],
+    },
+    resourceNoun: 'repository',
+    resourceScope: 'project',
+    writes: true,
+    setupSteps: [
+      'Register a GitHub App with Contents and Pull requests write permissions, and paste its App ID and private key into Settings.',
+    ],
+    docsUrl: 'https://docs.github.com/en/apps/creating-github-apps',
+  },
   /* ── Planned ───────────────────────────────────────────────────────────
      Ordered by what the product can already use. Each row is complete enough
      to connect the day it is switched to 'available'; what is missing is the

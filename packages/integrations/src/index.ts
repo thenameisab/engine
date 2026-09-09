@@ -22,3 +22,4 @@ export * from './redact.js';
 export * from './http.js';
 export * from './resources.js';
 export * from './audit.js';
+export * from './githubApp.js';

@@ -22,8 +22,10 @@ const http = (impl: typeof fetch) => ({ fetchImpl: impl, sleep: async () => unde
 const key = (secrets: Record<string, string>): ApiKeyCredential => ({ kind: 'api_key', secrets, public: {} });
 
 describe('the lister registry', () => {
-  it('registers the API-key listers this package owns', () => {
-    expect(providersWithListers()).toEqual(['bing-webmaster', 'cloudflare']);
+  it('registers the listers this package owns', () => {
+    // The API layer registers Google's separately, because those need
+    // @engine/connectors; these are the ones whose listing is one REST call.
+    expect(providersWithListers().sort()).toEqual(['bing-webmaster', 'cloudflare', 'github']);
   });
 
   it('fails a provider with no lister rather than returning an empty list', async () => {
