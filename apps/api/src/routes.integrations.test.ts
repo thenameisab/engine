@@ -48,7 +48,15 @@ describe('GET /integrations/providers', () => {
     const res = await request('/integrations/providers');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { providers: { id: string; requiresAccessRequest: boolean; writes: boolean }[] };
-    expect(body.providers.map((p) => p.id).sort()).toEqual(['bing-webmaster', 'cloudflare', 'ga4', 'gbp', 'github', 'gsc']);
+    expect(body.providers.map((p) => p.id).sort()).toEqual([
+      'bing-webmaster',
+      'cloudflare',
+      'ga4',
+      'gbp',
+      'github',
+      'gsc',
+      'serper',
+    ]);
   });
 
   it('flags that GBP needs an approved access request, so the UI can say so up front', async () => {

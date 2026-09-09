@@ -24,5 +24,6 @@ describe('createLlmConnectors', () => {
       'openai',
       'gemini',
     ]);
+    expect(createLlmConnectors({ SARVAM_API_KEY: 's' }).map((c) => c.engine)).toEqual(['sarvam']);
   });
 });

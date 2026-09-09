@@ -42,13 +42,18 @@ crons = ["15 3 * * *"]
 #                         it never touches a customer's repository.
 #   STRIPE_WEBHOOK_SECRET Stripe webhook signing secret
 #   STRIPE_SECRET_KEY     Stripe secret key (optional — outbound calls only)
-#   SERPER_API_KEY        Serper.dev SERP API key (A1 rank tracking)
-#   OPENAI_API_KEY        OpenAI API key (A2 AI visibility)
-#   GEMINI_API_KEY        Google Gemini API key (A2 AI visibility)
+#   SERPER_API_KEY        Serper.dev SERP API key (A1 rank tracking). Now the
+#                         *fallback*: Serper is a connectable provider, and a
+#                         client's own key wins (see `resolveSerpKey`).
+#   SARVAM_API_KEY        Sarvam API subscription key (A2 AI visibility). The
+#                         engine this deployment polls.
+#   OPENAI_API_KEY        OpenAI API key (A2 AI visibility, optional)
+#   GEMINI_API_KEY        Google Gemini API key (A2 AI visibility, optional)
 #
 # Non-secret vars (safe to set as plaintext `vars` per environment, or in
 # `.dev.vars` locally): GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI, DASHBOARD_URL,
-# ALLOWED_EMAILS, STRIPE_PRICE_TO_TIER, SERP_PROVIDER, OPENAI_MODEL, GEMINI_MODEL.
+# ALLOWED_EMAILS, STRIPE_PRICE_TO_TIER, SERP_PROVIDER, SARVAM_MODEL,
+# OPENAI_MODEL, GEMINI_MODEL.
 #
 # ALLOWED_EMAILS is the invite list. Left unset, any Google account that clears
 # the consent screen can sign in and create its own account — the "invite-only"

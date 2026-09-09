@@ -60,6 +60,7 @@ import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { keyringFrom } from './repositories/oauthFlows.js';
+import { resolveSerpKey } from './repositories/serpKey.js';
 import { isPlatformAdmin, getPlatformClientStatus } from './repositories/platformCredentials.js';
 import { createEntity, listEntitiesByProject, getEntityInProject, setEntitySchemaType } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
@@ -448,8 +449,10 @@ app.get('/health/integrations', async (c) => {
 
 /**
  * A1 rank poll. Fetches live SERP results for the supplied queries via the
- * configured SERP connector (Serper.dev by default). Returns 503 when no SERP
- * key is wired, so a missing account degrades cleanly instead of 500-ing.
+ * configured SERP connector (Serper.dev by default), on the client's own
+ * Serper key where one is connected and on the platform key otherwise
+ * (`resolveSerpKey`). Returns 503 when neither exists, so a missing account
+ * degrades cleanly instead of 500-ing.
  *
  * `entityId` is optional and applies to the whole batch: the SERP Inspector
  * (dashboard) uses this route for one-off ad-hoc lookups that aren't tracked
@@ -460,17 +463,31 @@ app.get('/health/integrations', async (c) => {
  * of discarding each poll after responding.
  */
 app.post('/projects/:projectId/rank/poll', async (c) => {
-  const connector = createSerpConnector(c.env as unknown as Record<string, string | undefined>);
-  if (!connector) {
-    console.warn('SERP provider not configured: set SERPER_API_KEY');
-    return c.json({ error: 'Search-ranking lookups are not configured on this deployment.' }, 503);
-  }
   const projectId = c.req.param('projectId');
   const body = await c.req.json<{ queries: SerpQuery[]; entityId?: string }>();
   const db = createDb(c.env.DATABASE_URL);
 
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
+
+  // Whose key pays for this lookup: the client's own Serper connection, or
+  // ours as the fallback. Resolved after the access check, so an unauthorised
+  // caller never reaches a credential read. The project is read once for both
+  // its account (whose key) and its domain (whose position to record).
+  const project = await getProject(db, projectId);
+  if (!project) return c.json({ error: 'project not found', projectId }, 404);
+  const apiKey = await resolveSerpKey(db, project.accountId, await keyringFrom(c.env), c.env);
+  const connector = createSerpConnector({
+    ...(c.env as unknown as Record<string, string | undefined>),
+    SERPER_API_KEY: apiKey ?? undefined,
+  });
+  if (!connector) {
+    console.warn('SERP provider not configured: no client Serper connection and no SERPER_API_KEY');
+    return c.json(
+      { error: 'Search-ranking lookups are not set up for this client yet. Connect Serper on the Integrations screen.' },
+      503,
+    );
+  }
 
   // Check tenancy before spending SERP credit: an entityId from another
   // project would otherwise either trip the insert's FK as a 500, or — worse,
@@ -485,7 +502,7 @@ app.post('/projects/:projectId/rank/poll', async (c) => {
 
   const results = await Promise.all((body.queries ?? []).map((q) => connector.fetch(q)));
   if (body.entityId) {
-    await insertSerpPositions(db, body.entityId, results);
+    await insertSerpPositions(db, body.entityId, results, project.domain);
   }
   return c.json({ projectId, vendor: connector.vendor, results });
 });

@@ -9,6 +9,7 @@ import type { LlmEngineConnector } from './llmEngine.js';
 import { SerperConnector } from './serpSerper.js';
 import { OpenAIConnector } from './llmOpenAI.js';
 import { GeminiConnector } from './llmGemini.js';
+import { SarvamConnector } from './llmSarvam.js';
 
 type EnvRecord = Record<string, string | undefined>;
 
@@ -35,6 +36,9 @@ export function createLlmConnectors(env: EnvRecord): LlmEngineConnector[] {
   }
   if (env.GEMINI_API_KEY) {
     connectors.push(new GeminiConnector({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL }));
+  }
+  if (env.SARVAM_API_KEY) {
+    connectors.push(new SarvamConnector({ apiKey: env.SARVAM_API_KEY, model: env.SARVAM_MODEL }));
   }
   return connectors;
 }

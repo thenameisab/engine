@@ -161,6 +161,42 @@ export const PROVIDERS: IntegrationProvider[] = [
     docsUrl: 'https://learn.microsoft.com/en-us/bingwebmaster/getting-access',
   },
   {
+    id: 'serper',
+    name: 'Serper',
+    vendor: 'Serper',
+    logoDomain: 'serper.dev',
+    category: 'seo-data',
+    availability: 'available',
+    // Held platform-wide until 2026-09-09. Rank tracking is priced per lookup,
+    // so one key on our cost base sets a ceiling on how many keywords every
+    // customer together may track. Bring-your-own moves both the cost and the
+    // rate limit to the customer who is spending it; `resolveSerpKey` in the
+    // API still falls back to the platform key, so a customer who pastes
+    // nothing keeps working.
+    purpose: 'Track search rankings and read SERP features, including AI Overviews.',
+    auth: {
+      kind: 'api_key',
+      fields: [
+        {
+          name: 'apiKey',
+          label: 'API key',
+          secret: true,
+          help: 'serper.dev \u2192 Dashboard \u2192 API key.',
+          pattern: '[0-9a-f]{32,64}',
+        },
+      ],
+      placement: { in: 'header', name: 'X-API-KEY' },
+      // Serper's own balance endpoint: authenticated, free, and the only GET
+      // it offers. Verifying against /search would spend a search credit to
+      // check a key.
+      verifyUrl: 'https://google.serper.dev/account',
+    },
+    resourceNoun: 'account',
+    resourceScope: 'project',
+    writes: false,
+    docsUrl: 'https://serper.dev/dashboard',
+  },
+  {
     id: 'github',
     name: 'GitHub',
     vendor: 'GitHub',

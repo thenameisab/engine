@@ -33,7 +33,7 @@ export interface LlmAnswerSample {
 }
 
 export interface LlmAnswerResult {
-  engine: 'openai' | 'gemini' | 'perplexity' | 'anthropic' | 'google-ai-overview';
+  engine: 'openai' | 'gemini' | 'sarvam' | 'perplexity' | 'anthropic' | 'google-ai-overview';
   query: PromptQuery;
   method: CitationMethod;
   samples: LlmAnswerSample[]; // n=3-5 per cycle, aggregated into a CitationMeasurement upstream

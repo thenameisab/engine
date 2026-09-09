@@ -276,7 +276,8 @@ export const INTEGRATIONS: IntegrationDef[] = [
       },
       {
         name: 'SERPER_API_KEY',
-        description: 'Serper.dev API key (X-API-KEY header). Bound as a Worker secret.',
+        description:
+          "Serper.dev API key (X-API-KEY header). Bound as a Worker secret. Since 2026-09-09 Serper is also connectable per client, and a client's own key wins over this one; this is the fallback for clients that have connected none.",
         secret: true,
         required: true,
         example: 'serper_xxxxxxxxxxxxxxxxxxxxxxxx',
@@ -292,7 +293,10 @@ export const INTEGRATIONS: IntegrationDef[] = [
     purpose: 'A2 AI visibility: poll OpenAI for answers to tracked prompts, extract citations/sources (n-sampling → confidence band).',
     account: 'OpenAI API account with a funded key.',
     logoDomain: 'openai.com',
-    requiredForMvp: true,
+    // Sarvam is the engine this deployment has credit on, so OpenAI is no
+    // longer what makes the AI-visibility surface work. Built and tested; a
+    // funded key switches it on alongside Sarvam.
+    requiredForMvp: false,
     env: [
       {
         name: 'OPENAI_API_KEY',
@@ -336,6 +340,35 @@ export const INTEGRATIONS: IntegrationDef[] = [
       },
     ],
     notes: 'Built and fixture-tested for readiness. Can run in parallel with OpenAI once a key is set.',
+  },
+  {
+    id: 'llm-sarvam',
+    name: 'Sarvam (LLM engine)',
+    category: 'llm',
+    purpose:
+      'A2 AI visibility: poll Sarvam for answers to tracked prompts and extract citations. The engine this deployment runs on.',
+    account: 'Sarvam AI account with API credits.',
+    logoDomain: 'sarvam.ai',
+    requiredForMvp: true,
+    env: [
+      {
+        name: 'SARVAM_API_KEY',
+        description: 'Sarvam API subscription key (api-subscription-key header). Bound as a Worker secret.',
+        secret: true,
+        required: true,
+        example: 'sk_xxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxx',
+      },
+      {
+        name: 'SARVAM_MODEL',
+        description:
+          "Sarvam model id to poll. Defaults to 'sarvam-105b'. The key's own model list is the authority on what is accepted.",
+        secret: false,
+        required: false,
+        example: 'sarvam-105b',
+      },
+    ],
+    notes:
+      'sarvam-105b is a reasoning model: it spends the token budget thinking before it answers, so the connector asks for 4,000 tokens and refuses a reply that was truncated before any answer text. It does not browse, so cited sources are only the URLs the answer itself contains.',
   },
   {
     id: 'github-pr',
