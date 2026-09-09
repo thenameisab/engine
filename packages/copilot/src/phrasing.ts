@@ -17,6 +17,19 @@ export interface PhrasingModel {
   phrase(answer: CopilotAnswer): Promise<string>;
 }
 
+/**
+ * The instruction every phrasing model is given, batch or streamed.
+ *
+ * Shared rather than written twice because it is the whole safety property of
+ * the phrasing layer: the model receives an answer that is already final and
+ * is allowed to change only its wording. Two copies of this that drift would
+ * mean the streamed path permits something the batch path forbids.
+ */
+export const PHRASING_SYSTEM_PROMPT =
+  'You reword an SEO/GEO analytics answer for a concise, friendly tone. ' +
+  'Preserve every number, percentage, range, position, and entity name EXACTLY as given. ' +
+  'Never add facts or figures not present. Return only the reworded sentence(s).';
+
 /** The default: return the deterministic prose unchanged. Zero-cost, instant, always correct. */
 export const templatePhrasing: PhrasingModel = {
   phrase: (answer) => Promise.resolve(answer.answer),
@@ -60,13 +73,7 @@ export function openAiPhrasing(options: OpenAiPhrasingOptions): PhrasingModel {
           body: JSON.stringify({
             model: options.model ?? DEFAULT_MODEL,
             messages: [
-              {
-                role: 'system',
-                content:
-                  'You reword an SEO/GEO analytics answer for a concise, friendly tone. ' +
-                  'Preserve every number, percentage, range, position, and entity name EXACTLY as given. ' +
-                  'Never add facts or figures not present. Return only the reworded sentence(s).',
-              },
+              { role: 'system', content: PHRASING_SYSTEM_PROMPT },
               { role: 'user', content: answer.answer },
             ],
           }),

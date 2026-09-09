@@ -9,8 +9,9 @@
  */
 import { el, clear } from './dom.js';
 import { icon, ICONS } from './icons.js';
-import { fetchEntities, fetchCopilotSummary, askCopilot, proposeFix, getApiBaseUrl } from './api.js';
-import type { ApiEntity, CopilotSummary, CopilotAnswer } from './types.js';
+import { fetchEntities, fetchCopilotSummary, askCopilot, proposeFix, getApiBaseUrl, streamAi, fetchAiModels } from './api.js';
+import { modelPicker } from './modelPicker.js';
+import type { ApiEntity, CopilotSummary, CopilotAnswer, AiModels } from './types.js';
 
 function summaryBlock(s: CopilotSummary): HTMLElement {
   const ai = s.ai.samplesObserved > 0
@@ -116,6 +117,8 @@ export function mountCopilot(root: HTMLElement): void {
   root.append(overlay);
 
   let entities: ApiEntity[] | null = null;
+  /** The model catalogue, read once the panel is first opened. */
+  let models: AiModels | null = null;
 
   function close(): void {
     overlay.classList.remove('open');
@@ -129,18 +132,98 @@ export function mountCopilot(root: HTMLElement): void {
       placeholder: 'Ask anything — e.g. “what should I fix for Acme Corp?”',
     }) as HTMLInputElement;
     const out = el('div', { class: 'copilot-ask-out' });
+    const picker = modelPicker(models);
+    /** Aborts a stream still running when a second question is asked. */
+    let controller: AbortController | null = null;
 
+    /**
+     * Ask, streamed.
+     *
+     * The order matters and is the whole design. `POST /ai/stream` in 'ask'
+     * mode sends the deterministic, cited answer *first* — computed from the
+     * customer's own data, with every figure carrying the table it came from —
+     * and only then streams a model rewording of that prose. So the answer
+     * a person can act on is on screen before the model produces a token, and
+     * a model that stalls, fails or truncates costs tone and nothing else.
+     * The citations, the drilldown and the Propose-fix button are rendered
+     * once from the grounded event and never touched by the stream, which is
+     * the same guarantee `applyPhrasing` gives the batch path.
+     *
+     * Falls back to the non-streaming `askCopilot` when streaming is not
+     * available at all (no engine wired, a 503), so the Copilot keeps working
+     * exactly as it did before this existed.
+     */
     async function run(): Promise<void> {
       const question = input.value.trim();
       if (!question) return;
+      controller?.abort();
+      controller = new AbortController();
+      const signal = controller.signal;
+
       out.className = 'copilot-ask-out';
-      out.replaceChildren(el('div', { class: 'loading num' }, ['thinking…']));
+      const status = el('div', { class: 'loading num' }, ['reading your data…']);
+      out.replaceChildren(status);
+
+      /** The prose node the stream writes into, once the grounded answer lands. */
+      let prose: HTMLElement | null = null;
+      let streamed = '';
+
       try {
-        const { answer, latencyMs } = await askCopilot(question);
-        out.replaceChildren(answerBlock(answer, latencyMs, () => void 0));
+        await streamAi(
+          { mode: 'ask', question, ...(picker.current() ? { model: picker.current()! } : {}) },
+          {
+            onGrounded: (grounded) => {
+              const block = answerBlock(
+                {
+                  intent: grounded.intent,
+                  answer: grounded.answer,
+                  citations: grounded.citations,
+                  drilldown: grounded.drilldown,
+                  ...(grounded.suggestedAction ? { suggestedAction: grounded.suggestedAction } : {}),
+                },
+                grounded.latencyMs,
+                () => void 0,
+              );
+              out.replaceChildren(block);
+              prose = block.querySelector('.copilot-answer-text');
+            },
+            onThinking: () => {
+              // The grounded answer is already readable, so this is a quiet
+              // note that better wording is on its way — not a spinner over
+              // the top of an answer the user can already act on.
+              if (prose && !prose.classList.contains('rewording')) {
+                prose.classList.add('rewording');
+              }
+            },
+            onText: (delta) => {
+              streamed += delta;
+              if (prose) prose.textContent = streamed;
+            },
+            onError: () => {
+              // The deterministic answer stands. Nothing is shown for a
+              // phrasing failure: the user asked a question and got a correct,
+              // cited answer, and "the rewriter broke" is not their problem.
+              prose?.classList.remove('rewording');
+            },
+            onDone: () => {
+              prose?.classList.remove('rewording');
+            },
+          },
+          signal,
+        );
       } catch (err) {
-        out.className = 'copilot-ask-out';
-        out.replaceChildren(el('div', { class: 'errbox' }, [`Could not answer: ${(err as Error).message}`]));
+        if (signal.aborted) return;
+        // Streaming is unavailable (typically a 503 with no engine wired).
+        // The deterministic answer is the product; fall back to it.
+        try {
+          const { answer, latencyMs } = await askCopilot(question);
+          out.replaceChildren(answerBlock(answer, latencyMs, () => void 0));
+        } catch (fallbackErr) {
+          out.replaceChildren(
+            el('div', { class: 'errbox' }, [`Could not answer: ${(fallbackErr as Error).message}`]),
+          );
+        }
+        void err;
       }
     }
 
@@ -152,6 +235,7 @@ export function mountCopilot(root: HTMLElement): void {
     });
     return el('div', { class: 'copilot-ask' }, [
       el('div', { class: 'copilot-ask-row' }, [input, el('button', { class: 'btn', onclick: () => void run() }, ['Ask'])]),
+      picker.root,
       out,
     ]);
   }
@@ -163,6 +247,13 @@ export function mountCopilot(root: HTMLElement): void {
     if (!getApiBaseUrl()) {
       panel.append(el('div', { class: 'copilot-empty' }, ['Set an API base URL under Settings first.']));
       return;
+    }
+    // The catalogue decides whether the ask bar carries a picker at all, so it
+    // is read before the bar is built. A failure is not surfaced: the bar
+    // works without a picker and the route falls back to the deployment's own
+    // model.
+    if (models === null) {
+      models = await fetchAiModels().catch(() => null);
     }
     // Stable regions: the ask bar (with any typed question) survives while the
     // entities region loads independently below it.

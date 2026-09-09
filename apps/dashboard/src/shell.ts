@@ -33,7 +33,7 @@ const ROUTES: Route[] = [
   { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
   { id: 'entity-graph', label: 'Entity Graph', iconMarkup: ICONS.entity, view: entityGraphView },
   { id: 'competitors', label: 'Competitors', iconMarkup: ICONS.versus, view: competitorsView },
-  { id: 'offsite', label: 'Backlinks', iconMarkup: ICONS.link, view: offsiteView },
+  { id: 'offsite', label: 'AI answers', iconMarkup: ICONS.link, view: offsiteView },
   { id: 'local', label: 'Local SEO', iconMarkup: ICONS.pin, view: localView },
   { id: 'integrations', label: 'Integrations', iconMarkup: ICONS.plug, view: integrationsView },
   { id: 'clients', label: 'Clients', iconMarkup: ICONS.clients, view: accountsView },

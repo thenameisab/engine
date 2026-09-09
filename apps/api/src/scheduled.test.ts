@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import worker from './index.js';
+import { AI_POLL_CRON } from './repositories/aiPoll.js';
+import { RANK_POLL_CRON } from './repositories/rankPoll.js';
 
 /**
  * The nightly sync's own gate.
@@ -75,5 +77,51 @@ describe('scheduled sync gate', () => {
       ),
     ).rejects.toThrow(/never\.connected\.invalid/);
     expect(lines.join('\n')).not.toContain('scheduled sync skipped');
+  });
+});
+
+/**
+ * The three-way cron branch.
+ *
+ * Nothing watches a cron, and the branch is a string comparison against
+ * `wrangler.toml` — so the failure mode is silent: one pass never runs and
+ * another runs twice in its slot. `routes.aiAnswers.test.ts` checks the
+ * expressions match the toml; these check the dispatch picks the right pass.
+ */
+describe('scheduled cron dispatch', () => {
+  it('routes the AI cron to the AI poll, not the Google sync', async () => {
+    const lines = logs();
+    await worker.scheduled(
+      { cron: AI_POLL_CRON } as ScheduledController,
+      { DATABASE_URL: UNREACHABLE } as never,
+      ctx,
+    ).catch(() => undefined);
+    const out = lines.join('\n');
+    // With no LLM key the AI poll skips before it queries, which is itself
+    // proof it was the pass that ran.
+    expect(out).toContain('scheduled AI poll skipped');
+    expect(out).not.toContain('scheduled sync');
+  });
+
+  it('routes the rank cron to the rank poll, not the AI poll', async () => {
+    const lines = logs();
+    await worker.scheduled(
+      { cron: RANK_POLL_CRON } as ScheduledController,
+      { DATABASE_URL: UNREACHABLE } as never,
+      ctx,
+    ).catch(() => undefined);
+    const out = lines.join('\n');
+    expect(out).toContain('scheduled rank poll skipped');
+    expect(out).not.toContain('AI poll');
+  });
+
+  it('routes an unrecognised cron to the Google sync, so no slot does nothing', async () => {
+    const lines = logs();
+    await worker.scheduled(
+      { cron: '15 3 * * *' } as ScheduledController,
+      { DATABASE_URL: UNREACHABLE } as never,
+      ctx,
+    ).catch(() => undefined);
+    expect(lines.join('\n')).toContain('no encryption key is configured');
   });
 });

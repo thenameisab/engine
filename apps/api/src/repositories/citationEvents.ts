@@ -1,4 +1,6 @@
 import type { LlmAnswerResult } from '@engine/connectors';
+import type { ConfidenceBand } from '@engine/core';
+import { citationBandFromSamples, type CitationSample } from '@engine/scoring';
 import type { Db } from '../db.js';
 
 /**
@@ -53,4 +55,73 @@ export async function citationEventsByEntity(
     order by sampled_at desc
   `;
   return rows;
+}
+
+/** Cited share for one engine, as a Wilson band over its stored samples. */
+export interface EngineCitedShare {
+  engine: string;
+  prompts: number;
+  samples: number;
+  cited: number;
+  /** Wilson 95% band over `cited`/`samples` — never a bare point estimate. */
+  band: ConfidenceBand;
+  /** How many of the samples carried any source URL at all. */
+  samplesWithSources: number;
+  lastSampledAt: string;
+}
+
+/**
+ * Cited share per engine over a lookback window — the top half of the AI
+ * answers screen.
+ *
+ * The band comes from `citationBandFromSamples` rather than from
+ * `cited/samples`, because A2's rule is that an AI citation rate is only ever
+ * shown as an interval: at n=3 a single cited answer is 33% with a band from
+ * 6% to 79%, and the point on its own reads as precision the sample cannot
+ * support.
+ *
+ * `samplesWithSources` is counted here and shown on screen because it is the
+ * honest limit of this deployment: Sarvam does not browse, so it names sources
+ * almost never, and a citation-opportunity panel mined from `sources_cited`
+ * will be empty for reasons that have nothing to do with the customer's site.
+ */
+export async function citedShareByEngine(
+  db: Db,
+  entityId: string,
+  sinceDays = 30,
+): Promise<EngineCitedShare[]> {
+  const rows = await db<
+    { engine: string; prompt: string; cited: boolean; has_sources: boolean; sampled_at: Date }[]
+  >`
+    select engine, prompt, cited,
+           array_length(sources_cited, 1) is not null as has_sources,
+           sampled_at
+    from citation_events
+    where entity_id = ${entityId} and sampled_at >= now() - (${sinceDays}::text || ' days')::interval
+  `;
+
+  const byEngine = new Map<string, { prompts: Set<string>; samples: CitationSample[]; withSources: number; last: Date }>();
+  for (const r of rows) {
+    let g = byEngine.get(r.engine);
+    if (!g) {
+      g = { prompts: new Set(), samples: [], withSources: 0, last: r.sampled_at };
+      byEngine.set(r.engine, g);
+    }
+    g.prompts.add(r.prompt);
+    g.samples.push({ cited: r.cited });
+    if (r.has_sources) g.withSources++;
+    if (r.sampled_at > g.last) g.last = r.sampled_at;
+  }
+
+  return [...byEngine.entries()]
+    .map(([engine, g]) => ({
+      engine,
+      prompts: g.prompts.size,
+      samples: g.samples.length,
+      cited: g.samples.filter((s) => s.cited).length,
+      band: citationBandFromSamples(g.samples),
+      samplesWithSources: g.withSources,
+      lastSampledAt: g.last.toISOString(),
+    }))
+    .sort((a, b) => b.band.point - a.band.point || a.engine.localeCompare(b.engine));
 }

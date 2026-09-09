@@ -647,3 +647,76 @@ export interface TrackedKeyword {
   polledAt: string | null;
   previousPosition: number | null;
 }
+
+/** One engine's cited share over the AI-visibility lookback window. */
+export interface EngineCitedShare {
+  engine: string;
+  prompts: number;
+  samples: number;
+  cited: number;
+  band: ScoreBand;
+  samplesWithSources: number;
+  lastSampledAt: string;
+}
+
+export interface AiVisibility {
+  entityId: string;
+  promptsTracked: number;
+  lookbackDays: number;
+  engines: EngineCitedShare[];
+  /**
+   * How many stored samples named any source at all. Shown on screen because
+   * a browsing-free engine makes this ~0, and the citation-opportunity panel
+   * is mined from exactly those sources.
+   */
+  sourceCoverage: { samples: number; withSources: number };
+}
+
+export interface EntityPrompts {
+  entityId: string;
+  prompts: string[];
+  /** Prompt seeds generated from the brand's tracked keywords. */
+  suggestions: string[];
+  keywordsTracked: number;
+}
+
+/** The deterministic, cited answer Ask Engine sends before any model token. */
+export interface GroundedAnswer {
+  answer: string;
+  intent: CopilotAnswer['intent'];
+  citations: CopilotAnswer['citations'];
+  drilldown: CopilotAnswer['drilldown'];
+  suggestedAction: CopilotAnswer['suggestedAction'] | null;
+  latencyMs: number;
+}
+
+/** Whether a streamed one-off prompt named the brand. */
+export interface PromptCitationResult {
+  cited: boolean;
+  sourcesCited: string[];
+  targets: string[];
+  engine: string;
+}
+
+/** One selectable model, as described to the customer. */
+export interface LlmModelChoice {
+  id: string;
+  engine: string;
+  label: string;
+  byline: string;
+  /** Whether the model thinks before answering — drives the thinking state. */
+  reasons: boolean;
+  maxTokens: number;
+}
+
+export interface AiModels {
+  /** Empty when this deployment has no LLM key wired. */
+  models: LlmModelChoice[];
+  defaultModel: string;
+  /**
+   * The model the scheduled poll uses. Not selectable: a citation band mixed
+   * across models would report a change in the instrument as a change in the
+   * brand.
+   */
+  pollModel: string;
+}

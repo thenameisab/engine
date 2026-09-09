@@ -46,6 +46,11 @@ import type {
   ProviderResource,
   SyncOutcome,
   SearchTraffic,
+  AiVisibility,
+  EntityPrompts,
+  GroundedAnswer,
+  PromptCitationResult,
+  AiModels,
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
@@ -54,6 +59,7 @@ import { getStoredApiToken } from './auth/session.js';
 const BASE_KEY = 'engine.apiBaseUrl';
 const PROJECT_KEY = 'engine.projectId';
 const ACCOUNT_KEY = 'engine.accountId';
+const AI_MODEL_KEY = 'engine.aiModel';
 
 declare global {
   interface Window {
@@ -815,4 +821,166 @@ export async function trackKeyword(
 
 export async function untrackKeyword(keywordId: string): Promise<void> {
   await request<{ ok: boolean }>(`/projects/${requireProjectId()}/keywords/${keywordId}`, { method: 'DELETE' });
+}
+
+/** The prompt bank for one brand, with seeds from its tracked keywords. */
+export function fetchEntityPrompts(entityId: string): Promise<EntityPrompts> {
+  return request<EntityPrompts>(`/projects/${requireProjectId()}/entities/${entityId}/prompts`);
+}
+
+/** Replace the prompt bank. The editor sends the list it is showing. */
+export function saveEntityPrompts(entityId: string, prompts: string[]): Promise<{ prompts: string[] }> {
+  return request<{ prompts: string[] }>(`/projects/${requireProjectId()}/entities/${entityId}/prompts`, {
+    method: 'PUT',
+    body: JSON.stringify({ prompts }),
+  });
+}
+
+/** Cited share by engine over the stored samples. */
+export function fetchAiVisibility(entityId: string): Promise<AiVisibility> {
+  return request<AiVisibility>(`/projects/${requireProjectId()}/entities/${entityId}/ai-visibility`);
+}
+
+export interface AiStreamHandlers {
+  /** Ask Engine only: the cited answer, before any model token. */
+  onGrounded?: (grounded: GroundedAnswer) => void;
+  /** The model is still reasoning. */
+  onThinking?: (delta: string) => void;
+  onText?: (delta: string) => void;
+  /** Prompt mode only: whether the finished answer named the brand. */
+  onResult?: (result: PromptCitationResult) => void;
+  onError?: (message: string) => void;
+  onDone?: (info: { rephrased: boolean }) => void;
+}
+
+export type AiStreamRequest =
+  | { mode: 'prompt'; entityId: string; prompt: string; model?: string }
+  | { mode: 'ask'; question: string; model?: string };
+
+/** Which models this deployment can offer, and which the poll is pinned to. */
+export function fetchAiModels(): Promise<AiModels> {
+  return request<AiModels>(`/projects/${requireProjectId()}/ai/models`);
+}
+
+/**
+ * The model the person last picked, remembered per browser.
+ *
+ * Per viewer rather than per project because it is a preference about waiting,
+ * not a property of the brand being measured: one person wants a fast answer
+ * while they work and another wants the considered one. Nothing stored depends
+ * on it — the scheduled poll has its own fixed model.
+ */
+export function getAiModel(): string | null {
+  try {
+    return localStorage.getItem(AI_MODEL_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAiModel(id: string): void {
+  try {
+    localStorage.setItem(AI_MODEL_KEY, id);
+  } catch {
+    /* a browser with site data blocked still gets the default */
+  }
+}
+
+/**
+ * Read one streamed answer from `POST /projects/:id/ai/stream`.
+ *
+ * Written by hand rather than with `EventSource`, which cannot POST, cannot
+ * carry an `authorization` header, and reconnects on its own — all three wrong
+ * here: the request has a body, every project route is gated by a bearer
+ * token, and a silent retry would ask a reasoning model the same question
+ * twice and bill for both.
+ *
+ * `request` is not reused either, because its 8-second timeout is shorter than
+ * a measured Sarvam answer (7.5 s to complete, 3.2 s to its first answer
+ * token). The caller passes a signal instead, so a person can stop a stream
+ * and closing the panel does not leave one running.
+ */
+export async function streamAi(
+  body: AiStreamRequest,
+  handlers: AiStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error('no API base URL configured');
+  const token = await authToken();
+
+  const res = await fetch(`${base}/projects/${requireProjectId()}/ai/stream`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  // A refusal arrives as ordinary JSON with a status, before the stream opens
+  // — that is why the route settles every error case first.
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.body) throw new Error('the response carried no body');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  /** Dispatch one complete `event:`/`data:` block. */
+  const dispatch = (block: string): void => {
+    let event = 'message';
+    const data: string[] = [];
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) data.push(line.slice(5).trim());
+    }
+    if (data.length === 0) return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(data.join('\n'));
+    } catch {
+      return;
+    }
+    switch (event) {
+      case 'grounded':
+        handlers.onGrounded?.(payload as GroundedAnswer);
+        break;
+      case 'thinking':
+        handlers.onThinking?.((payload as { delta: string }).delta);
+        break;
+      case 'text':
+        handlers.onText?.((payload as { delta: string }).delta);
+        break;
+      case 'result':
+        handlers.onResult?.(payload as PromptCitationResult);
+        break;
+      case 'error':
+        handlers.onError?.((payload as { message: string }).message);
+        break;
+      case 'done':
+        handlers.onDone?.(payload as { rephrased: boolean });
+        break;
+    }
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Events are separated by a blank line, and a network chunk can split
+      // one anywhere — so only whole blocks are dispatched and the remainder
+      // is carried forward.
+      let split: number;
+      while ((split = buffer.indexOf('\n\n')) !== -1) {
+        dispatch(buffer.slice(0, split));
+        buffer = buffer.slice(split + 2);
+      }
+    }
+    if (buffer.trim()) dispatch(buffer);
+  } finally {
+    reader.releaseLock();
+  }
 }
