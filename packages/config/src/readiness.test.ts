@@ -86,10 +86,27 @@ describe('evaluateReadiness', () => {
 
   it('stays mvpReady even if only an optional (non-MVP) integration is missing', () => {
     const env = fullEnv();
-    // Gemini is the one requiredForMvp:false integration — drop its key.
+    // Gemini is requiredForMvp:false — drop its key.
     delete env.GEMINI_API_KEY;
     const report = evaluateReadiness(env);
     expect(report.mvpReady).toBe(true);
     expect(report.integrations.find((i) => i.id === 'llm-gemini')!.status).toBe('missing');
+  });
+
+  /**
+   * Which LLM engine this deployment actually polls. Sarvam is the one with
+   * credit on it, so a deployment with no Sarvam key is not ready, and one
+   * with no OpenAI key still is.
+   */
+  it('requires Sarvam for MVP and no longer requires OpenAI', () => {
+    const env = fullEnv();
+    delete env.OPENAI_API_KEY;
+    expect(evaluateReadiness(env).mvpReady).toBe(true);
+
+    const withoutSarvam = fullEnv();
+    delete withoutSarvam.SARVAM_API_KEY;
+    const report = evaluateReadiness(withoutSarvam);
+    expect(report.mvpReady).toBe(false);
+    expect(report.integrations.find((i) => i.id === 'llm-sarvam')!.status).toBe('missing');
   });
 });

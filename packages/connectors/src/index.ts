@@ -4,5 +4,6 @@ export * from './serpSerper.js';
 export * from './llmCitation.js';
 export * from './llmOpenAI.js';
 export * from './llmGemini.js';
+export * from './llmSarvam.js';
 export * from './factory.js';
 export * from './google/index.js';

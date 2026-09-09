@@ -66,12 +66,13 @@ STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
 # Account: Serper.dev account (2,500 free credits on signup; prepaid credits after — cannot bill-shock).
 # Which SERP adapter to use. 'serper' today; the interface also supports 'dataforseo'/'serpapi' for a later switch. [config, optional]
 SERP_PROVIDER=serper
-# Serper.dev API key (X-API-KEY header). Bound as a Worker secret. [secret, required]
+# Serper.dev API key (X-API-KEY header). Bound as a Worker secret. Since 2026-09-09 Serper is also connectable per client, and a client's own key wins over this one; this is the fallback for clients that have connected none. [secret, required]
 SERPER_API_KEY=serper_xxxxxxxxxxxxxxxxxxxxxxxx
 
 # ── OpenAI (LLM engine) (llm) ──
 # A2 AI visibility: poll OpenAI for answers to tracked prompts, extract citations/sources (n-sampling → confidence band).
 # Account: OpenAI API account with a funded key.
+# (optional for pre-alpha)
 # OpenAI API key. Bound as a Worker secret. [secret, required]
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx
 # Model id to poll (defaults to a current small model if unset). [config, optional]
@@ -85,6 +86,14 @@ OPENAI_MODEL=gpt-4o-mini
 GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxx
 # Gemini model id to poll (defaults to a current flash model if unset). [config, optional]
 GEMINI_MODEL=gemini-2.0-flash
+
+# ── Sarvam (LLM engine) (llm) ──
+# A2 AI visibility: poll Sarvam for answers to tracked prompts and extract citations. The engine this deployment runs on.
+# Account: Sarvam AI account with API credits.
+# Sarvam API subscription key (api-subscription-key header). Bound as a Worker secret. [secret, required]
+SARVAM_API_KEY=sk_xxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxx
+# Sarvam model id to poll. Defaults to 'sarvam-105b'. The key's own model list is the authority on what is accepted. [config, optional]
+SARVAM_MODEL=sarvam-105b
 
 # ── GitHub (PR export) (deploy) ──
 # C4.5 GitHub PR export: for headless sites with no edge worker or CMS plugin, deploy a fix as a reviewable PR against the customer's repo (@engine/deploy's 'github-pr' DeployTarget).

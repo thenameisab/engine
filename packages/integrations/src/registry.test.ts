@@ -78,7 +78,15 @@ describe('listProviders', () => {
   it('hides planned providers by default', () => {
     const live = listProviders();
     expect(live.every((p) => p.availability !== 'planned')).toBe(true);
-    expect(live.map((p) => p.id).sort()).toEqual(['bing-webmaster', 'cloudflare', 'ga4', 'gbp', 'github', 'gsc']);
+    expect(live.map((p) => p.id).sort()).toEqual([
+      'bing-webmaster',
+      'cloudflare',
+      'ga4',
+      'gbp',
+      'github',
+      'gsc',
+      'serper',
+    ]);
   });
 
   it('includes them when asked, so the UI can show what is coming', () => {
