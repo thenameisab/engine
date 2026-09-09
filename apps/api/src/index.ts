@@ -60,7 +60,7 @@ import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
 import { keyringFrom } from './repositories/oauthFlows.js';
-import { isPlatformAdmin } from './repositories/platformCredentials.js';
+import { isPlatformAdmin, getPlatformClientStatus } from './repositories/platformCredentials.js';
 import { createEntity, listEntitiesByProject, getEntityInProject, setEntitySchemaType } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -177,6 +177,8 @@ interface Env extends AuthEnv, DispatchEnv {
   GOOGLE_REDIRECT_URI?: string;
   /** base64 of 32 random bytes (`openssl rand -base64 32`). Seals refresh tokens at rest. */
   ENCRYPTION_KEY?: string;
+  /** The rotation form of the above: `v2:<key>,v1:<key>`, newest first. Either satisfies the seal. */
+  ENCRYPTION_KEYS?: string;
   /** Signs the OAuth `state` parameter, so a callback cannot be pointed at another account. */
   OAUTH_STATE_SECRET?: string;
   /** Dashboard origin, for the post-consent return link. */
@@ -2027,14 +2029,38 @@ app.route('/', integrationsRoutes);
  * exactly what an uncaught throw in a scheduled handler does.
  */
 async function scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.ENCRYPTION_KEY) {
-    // Nothing can be connected without these, so there is nothing to sync. A
-    // no-op beats a cron that logs a failure every night on a deployment that
-    // has simply not wired Google yet.
-    console.log('scheduled sync skipped: Google integrations are not configured');
+  // `ENCRYPTION_KEY` is the one hard requirement: a stored refresh token
+  // cannot be opened without it, so there is genuinely nothing to sync.
+  if (!env.ENCRYPTION_KEY && !env.ENCRYPTION_KEYS) {
+    console.log('scheduled sync skipped: no encryption key is configured');
     return;
   }
   const db = createDb(env.DATABASE_URL);
+
+  // Engine's OAuth client used to live only in the environment, and this gate
+  // asked for `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` on that basis. Since
+  // migration 0019 the client is normally configured *in the product* and
+  // stored in `platform_credentials`, with the environment as a fallback — so
+  // that check skipped the nightly sync on exactly the deployments where a
+  // customer had successfully connected, and said "not configured" while the
+  // connect flow worked. Ask the question the connect flow itself asks.
+  //
+  // The environment is checked first so a deployment configured that way needs
+  // no query at all. A database error on the second check is left to
+  // propagate: "Google is not wired" and "the database is unreachable" are
+  // different answers, and reporting the second as the first would turn an
+  // outage into a nightly skip nobody reads. A thrown scheduled handler is
+  // recorded as a failed cron run, which is what an outage should look like.
+  const configured =
+    Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) ||
+    (await getPlatformClientStatus(db, 'google')) !== null;
+  if (!configured) {
+    // A no-op beats a cron that logs a failure every night on a deployment
+    // that has simply not wired Google yet.
+    console.log('scheduled sync skipped: Google integrations are not configured');
+    return;
+  }
+
   const summary = await runScheduledSync(db, env);
   console.log(
     `scheduled sync: ${summary.succeeded}/${summary.attempted} succeeded` +

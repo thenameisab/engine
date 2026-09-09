@@ -316,6 +316,35 @@ function providerBadges(entry: ProviderCatalogEntry): HTMLElement[] {
  * first thing in the panel. If no, the reason is, in words, with the one thing
  * that would change it.
  */
+/**
+ * "Sync now". A 28-day Search Console window is thousands of rows and takes
+ * real seconds, so the button says so and cannot be pressed twice — every
+ * other action in this screen already does that, and this one did not.
+ */
+function syncButton(
+  entry: { id: ProviderId; name: string },
+  ctx: AppContext,
+  reload: () => void,
+): HTMLElement {
+  const btn = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      btn.setAttribute('disabled', 'true');
+      btn.textContent = 'Syncing…';
+      try {
+        await syncProvider(entry.id);
+        ctx.toast(`${entry.name} sync finished.`);
+        reload();
+      } catch (err) {
+        ctx.toast(`Sync failed: ${readableError(err)}`);
+        btn.removeAttribute('disabled');
+        btn.textContent = 'Sync now';
+      }
+    },
+  }, ['Sync now']);
+  return btn;
+}
+
 function providerPanel(input: ProviderPanelInput): HTMLElement {
   const { ctx, accountId, entry, connection, assignments, oauthConfigured, isAdmin, reload } = input;
   const live = connection?.status === 'connected';
@@ -510,18 +539,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
             : `synced ${relativeTime(a.lastSyncedAt)}${a.lastSyncRows !== undefined && a.lastSyncRows !== null ? ` · ${a.lastSyncRows} rows` : ''}`,
         ]),
       ]),
-      el('button', {
-        class: 'btn',
-        onclick: async () => {
-          try {
-            await syncProvider(entry.id);
-            ctx.toast(`${entry.name} sync finished.`);
-            reload();
-          } catch (err) {
-            ctx.toast(`Sync failed: ${readableError(err)}`);
-          }
-        },
-      }, ['Sync now']),
+      syncButton(entry, ctx, reload),
       el('button', {
         class: 'btn',
         onclick: async () => {

@@ -21,6 +21,11 @@ export function readableError(err: unknown): string {
   } catch {
     /* not JSON — show the body as-is */
   }
+  // 401 has one cause a customer can act on and one they cannot: the session
+  // is gone, or the request carried no token. Either way "missing bearer
+  // token" is our vocabulary, not theirs, so it is replaced rather than
+  // appended to.
+  if (status === '401') return 'Your session has expired. Sign in again.';
   if (status === '403') return `${detail}. Pick the right client from the Clients grid.`;
   if (status === '404') return `${detail}.`;
   if (status === '503') return detail;
