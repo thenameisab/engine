@@ -104,7 +104,13 @@ the wrong number entirely. See the 2026-09-09 entry in `working_log.md`.
   with no client key and a platform key set, a rank poll still succeeds; with neither, the
   screen says so in the customer's words.
 
-### Step 2 — Rankings: tracked keywords and a poller (M)
+### Step 2 — Rankings: tracked keywords and a poller (M) — **done, PR pending**
+
+Built as described. Two things not in the plan: the poll runs *daily* and asks each keyword's
+cadence whether it is due (a weekly cron cannot serve a keyword tracked at daily cadence), and
+the per-run lookup cap exists because Serper bills per lookup. See the 2026-09-09 entry in
+`working_log.md`.
+
 
 - The seed list already exists. #83's `search-traffic` route computes `withinReach` and
   `topQueries` from Search Console — for TartanHQ that is *income verification api*, *payroll

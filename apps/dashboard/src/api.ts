@@ -33,6 +33,7 @@ import type {
   ActionStatus,
   DeployTarget,
   SerpInspectResult,
+  TrackedKeyword,
   GoogleProviderId,
   ProviderId,
   IntegrationEvent,
@@ -776,4 +777,42 @@ export async function setUserRole(userId: string, role: 'admin' | 'user'): Promi
     method: 'PUT',
     body: JSON.stringify({ role }),
   });
+}
+
+/**
+ * The project's tracked keywords with their current position. Read from
+ * `serp_positions`, not from a live lookup: the table must render in the same
+ * time whether Serper is up or not, and a page load must never spend a
+ * per-lookup credit.
+ */
+export function fetchTrackedKeywords(): Promise<TrackedKeyword[]> {
+  return request<{ keywords: TrackedKeyword[] }>(`/projects/${requireProjectId()}/keywords`).then((r) => r.keywords);
+}
+
+/**
+ * Start tracking a keyword against an entity. The scheduled poll picks it up
+ * on its next pass; nothing is polled here, so adding twenty keywords costs
+ * twenty rows and no credit.
+ */
+export async function trackKeyword(
+  entityId: string,
+  body: { keyword: string; geoCountry: string; device?: 'desktop' | 'mobile'; language?: string },
+): Promise<void> {
+  await request<{ config: TrackedKeyword }>(
+    `/projects/${requireProjectId()}/entities/${entityId}/keywords`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        keyword: body.keyword,
+        geoCountry: body.geoCountry,
+        device: body.device ?? 'desktop',
+        language: body.language ?? 'en',
+        engine: 'google',
+      }),
+    },
+  );
+}
+
+export async function untrackKeyword(keywordId: string): Promise<void> {
+  await request<{ ok: boolean }>(`/projects/${requireProjectId()}/keywords/${keywordId}`, { method: 'DELETE' });
 }

@@ -14,13 +14,21 @@ compatibility_flags = ["nodejs_compat"]
 AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json"
 
 # ── Scheduled work ─────────────────────────────────────────────────────────
-# Nightly Google sync (GSC + GA4 + GBP). 03:15 UTC — after Google's own daily
+# Two passes, told apart by the cron expression on the event (see `scheduled`
+# in src/index.ts, which pins '30 4 * * *' as RANK_POLL_CRON).
+#
+# 03:15 UTC — nightly Google sync (GSC + GA4 + GBP). After Google's own daily
 # processing settles, and off the hour so it does not pile onto the platform's
 # busiest cron minute. GSC data still lags ~2 days and is revised for several
 # more, so each run re-fetches a 28-day window and upserts; that is how a
 # revision lands rather than being missed.
+#
+# 04:30 UTC — rank poll. Daily rather than weekly because a keyword tracked at
+# 'daily' cadence cannot be polled daily by a weekly cron; the handler decides
+# what is due, so a weekly keyword is still polled weekly. After the Google
+# sync, so the two never contend for the same database.
 [triggers]
-crons = ["15 3 * * *"]
+crons = ["15 3 * * *", "30 4 * * *"]
 
 # ── External integrations ──────────────────────────────────────────────────
 # Secrets (set via `wrangler secret put <NAME>`, never committed):

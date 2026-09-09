@@ -735,3 +735,36 @@ export function providerNextStep(status: ProviderStatus, providerName: string, d
     button: 'Sync now on Integrations',
   };
 }
+
+/**
+ * How a tracked keyword's rank reads on screen.
+ *
+ * A rank is better when the number is *lower*, so a naive "+3" for a position
+ * going 4 → 7 would say the opposite of what happened. This returns the
+ * direction as well as the text, so the colour and the arrow agree with the
+ * words.
+ *
+ * Entering or leaving the tracked depth are their own cases: 12 → null is not
+ * "no change", and null → 12 is not an improvement of nothing.
+ */
+export interface RankChange {
+  text: string;
+  direction: 'better' | 'worse' | 'flat' | 'entered' | 'left' | 'unknown';
+}
+
+export function rankChange(position: number | null, previous: number | null): RankChange {
+  if (previous === null) {
+    return position === null ? { text: '—', direction: 'unknown' } : { text: 'first poll', direction: 'unknown' };
+  }
+  if (position === null) return { text: 'dropped out', direction: 'left' };
+  const delta = previous - position;
+  if (delta === 0) return { text: 'no change', direction: 'flat' };
+  if (delta > 0) return { text: `up ${delta}`, direction: 'better' };
+  return { text: `down ${-delta}`, direction: 'worse' };
+}
+
+/** A position as a rank, or the honest absence of one. */
+export function rankLabel(position: number | null, polledAt: string | null): string {
+  if (position !== null) return `#${position}`;
+  return polledAt === null ? 'not polled yet' : 'not in top 10';
+}
