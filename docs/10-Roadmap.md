@@ -122,6 +122,7 @@ Full phase criteria carried from the blueprint are in each section below.
 - C6 Citation-earning playbooks.
 - D2 Attribution & forecasting suite.
 - D4 **API + MCP server GA**; ACP/UCP agent-ready commerce feeds.
+- **MCP client integrations**: a customer connects their own MCP server from the Integrations page (server URL plus token, stored like an API key, verified by listing its tools); the server's tools appear in the Copilot. Deferred here on 2026-09-09 so the ship-readiness work (docs/reviews/2026-09-08-ship-readiness-review.md, week 2) comes first.
 - A6.3 **Proprietary web-scale mention index**.
 - More engines: **Baidu / Naver / Yandex** tracking.
 - **EU + India data residency.**
@@ -134,6 +135,7 @@ Full phase criteria carried from the blueprint are in each section below.
 | M3.3 | **Mention index v1** | Proprietary index replaces licensed mention data for core markets |
 | M3.4 | **Forecasting suite** | Ranking→traffic→revenue forecast shipped to executive view |
 | M3.5 | **Multi-engine GA** | Baidu/Naver/Yandex tracked for relevant markets |
+| M3.6 | **MCP client integrations** | A customer's MCP server connects as an integration; its tools are listed and callable from the Copilot |
 
 ### Exit criteria (from blueprint)
 - **First $50k+ enterprise contracts.**
