@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayOffset, defaultWindow } from './googleSync.js';
+import { dayOffset, defaultWindow, widenForBackfill, chunk, gscDailyRows, ga4DailyRows, BATCH_ROWS } from './googleSync.js';
 
 /**
  * The date-window logic, which is where a sync quietly goes wrong.
@@ -86,5 +86,85 @@ describe('defaultWindow', () => {
     const { from, to } = defaultWindow('gsc', now);
     expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('widenForBackfill', () => {
+  const window = { from: '2026-08-10', to: '2026-09-06' };
+
+  it('reaches back a second period when nothing is stored yet', () => {
+    const { window: widened, backfilled } = widenForBackfill(window, null);
+    expect(backfilled).toBe(true);
+    expect(widened).toEqual({ from: '2026-07-13', to: '2026-09-06' });
+  });
+
+  it('reaches back when stored rows start inside the previous period', () => {
+    // Production on 2026-09-09: rows from 2026-08-10 only.
+    expect(widenForBackfill(window, '2026-08-10').backfilled).toBe(true);
+  });
+
+  it('leaves the window alone once the previous period is covered', () => {
+    expect(widenForBackfill(window, '2026-07-13')).toEqual({ window, backfilled: false });
+    expect(widenForBackfill(window, '2026-01-01').backfilled).toBe(false);
+  });
+});
+
+describe('chunk', () => {
+  it('splits into statements of at most the batch size', () => {
+    const rows = Array.from({ length: 1201 }, (_, i) => i);
+    const batches = chunk(rows, BATCH_ROWS);
+    expect(batches.map((b) => b.length)).toEqual([500, 500, 201]);
+    expect(chunk([], BATCH_ROWS)).toEqual([]);
+  });
+});
+
+describe('gscDailyRows', () => {
+  it('names dimensions, drops rows with a missing key, and keeps the last of a repeated key', () => {
+    const rows = gscDailyRows(
+      [
+        { keys: ['2026-09-01', 'tartan'], clicks: 3, impressions: 40, ctr: 0.075, position: 3.2 },
+        { keys: ['2026-09-01'], clicks: 1, impressions: 1, ctr: 1, position: 1 },
+        { keys: ['2026-09-01', 'tartan'], clicks: 4, impressions: 41, ctr: 0.1, position: 3.1 },
+      ],
+      'query',
+      'p1',
+    );
+    expect(rows).toEqual([
+      { project_id: 'p1', date: '2026-09-01', key: 'tartan', clicks: 4, impressions: 41, ctr: 0.1, position: 3.1 },
+    ]);
+  });
+
+  it('shapes property totals with no key', () => {
+    const rows = gscDailyRows([{ keys: ['2026-09-01'], clicks: 19, impressions: 400, ctr: 0.05, position: 14.4 }], null, 'p1');
+    expect(rows).toEqual([{ project_id: 'p1', date: '2026-09-01', clicks: 19, impressions: 400, ctr: 0.05, position: 14.4 }]);
+    expect('key' in rows[0]).toBe(false);
+  });
+});
+
+describe('ga4DailyRows', () => {
+  it("converts GA4's YYYYMMDD dates, defaults an empty channel, and skips malformed dates", () => {
+    const report = {
+      dimensionHeaders: ['date', 'sessionDefaultChannelGroup', 'sessionSource'],
+      metricHeaders: ['sessions', 'engagedSessions', 'conversions', 'totalRevenue'],
+      rows: [
+        { dimensionValues: ['20260901', 'AI Assistant', 'chatgpt.com'], metricValues: [5, 3, 1, 0] },
+        { dimensionValues: ['20260901', '', 'x'], metricValues: [1, 0, 0, 0] },
+        { dimensionValues: ['(other)', 'Direct', '(direct)'], metricValues: [9, 9, 9, 9] },
+      ],
+      rowCount: 3,
+    };
+    const rows = ga4DailyRows(report, 'p1');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({
+      project_id: 'p1',
+      date: '2026-09-01',
+      channel_group: 'AI Assistant',
+      source: 'chatgpt.com',
+      sessions: 5,
+      engaged_sessions: 3,
+      conversions: 1,
+      revenue: 0,
+    });
+    expect(rows[1].channel_group).toBe('(not set)');
   });
 });

@@ -193,12 +193,15 @@ export function namedGa4Row(row: Ga4Row, report: Ga4Report): Record<string, stri
 /**
  * The channel-group report behind AI-referral attribution (PRD D2.1).
  *
- * `sessionDefaultChannelGroup` is GA4's own channel classification. It does not
- * isolate AI assistants — traffic from ChatGPT or Perplexity lands in Referral
- * or Organic Social depending on the referrer — so this is the denominator and
- * the session source/medium breakdown, not an "AI traffic" number. Claiming
- * otherwise would be the kind of made-up metric the PRD's confidence-band rule
- * exists to prevent.
+ * `sessionDefaultChannelGroup` is GA4's own channel classification. When this
+ * was written it did not isolate AI assistants; migration 0015's comment says
+ * so. Checked against a real property in September 2026, GA4 now reports an
+ * "AI Assistant" group and put chatgpt.com, claude.ai, perplexity.ai and
+ * gemini.google.com in it, while copilot.com still landed in Unassigned. So
+ * the source is stored beside the group, and the read side
+ * (apps/api/src/repositories/googleMetrics.ts) counts GA4's group plus a short
+ * list of known assistant hosts, and says which of the two classified each
+ * source. Nothing here claims a channel GA4 does not report.
  */
 export async function ga4ChannelReport(
   accessToken: string,
