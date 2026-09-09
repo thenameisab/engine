@@ -20,7 +20,7 @@ import {
   setProjectId,
 } from '../api.js';
 import { readableError } from '../errors.js';
-import { onboardingDefaults } from '../format.js';
+import { onboardingDefaults, ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND } from '../format.js';
 import type { AppContext } from '../context.js';
 import type { AccountCard, ApiProject } from '../types.js';
 
@@ -109,6 +109,14 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
   const siteName = el('input', { class: 'field', type: 'text', placeholder: 'Filled from the web address if left blank' }) as HTMLInputElement;
   const brandName = el('input', { class: 'field', type: 'text', placeholder: 'Filled from the client name if left blank' }) as HTMLInputElement;
 
+  // What the brand *is*. Engine writes this into the structured data it
+  // proposes; without it the best it could say was "a thing", which is valid
+  // and tells a search engine nothing.
+  const brandKind = el('select', { class: 'field' }, ENTITY_KIND_OPTIONS.map((k) =>
+    el('option', { value: k.value }, [k.label]),
+  )) as HTMLSelectElement;
+  brandKind.value = DEFAULT_ENTITY_KIND;
+
   const errorBox = el('div', { class: 'form-error', role: 'alert' });
   errorBox.hidden = true;
   const showError = (message: string) => {
@@ -143,7 +151,7 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
         accountId = account.id;
       }
       const project = await createProjectApi(accountId, d.siteName, d.domain);
-      await createEntityApi(project.id, d.brandName);
+      await createEntityApi(project.id, d.brandName, brandKind.value);
       setAccountId(accountId);
       setProjectId(project.id);
       try {
@@ -181,6 +189,9 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
     el('label', { class: 'flabel' }, ['Brand or business name']),
     brandName,
     el('div', { class: 'fhint' }, ['How search engines and AI answers should refer to this business. Engine checks that they do.']),
+    el('label', { class: 'flabel' }, ['What kind of thing is it?']),
+    brandKind,
+    el('div', { class: 'fhint' }, ['Engine tells search engines and assistants what this is. You can change it later in Settings.']),
     errorBox,
     el('div', { class: 'form-actions' }, [submit]),
   ]);

@@ -156,6 +156,33 @@ a { color: inherit; text-decoration: none; }
 .card-act { margin-top: 9px; width: 100%; padding: 5px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface); color: var(--accent); font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; transition: background .12s var(--ease), border-color .12s var(--ease); }
 .card-act:hover { background: var(--accent-wash); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .card-act[disabled] { opacity: .6; cursor: default; }
+.pill.needs-review { color: var(--watch); background: color-mix(in srgb, var(--watch) 10%, transparent); border-color: color-mix(in srgb, var(--watch) 26%, transparent); }
+.pill.reviewed { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent); border-color: color-mix(in srgb, var(--good) 22%, transparent); }
+
+/* What a fix changes, and the before/after of it, on the card itself. A
+   customer approving a change has to be able to see the change. */
+.card-what { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+.card-diff { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.cd-row { display: flex; gap: 7px; padding: 6px 7px; align-items: baseline; }
+.cd-row + .cd-row { border-top: 1px solid var(--border); }
+.cd-tag { font-family: var(--mono); font-size: 9.5px; letter-spacing: .03em; text-transform: uppercase; flex: none; padding-top: 1px; }
+.cd-tag.now { color: var(--text-faint); }
+.cd-tag.next { color: var(--good); }
+.cd-text { font-size: 11.5px; line-height: 1.45; word-break: break-word; min-width: 0; }
+.cd-text.empty { color: var(--text-faint); font-style: italic; }
+.card-link { display: block; margin-top: 7px; padding: 0; border: none; background: none; color: var(--accent); font-family: var(--font); font-size: 11.5px; cursor: pointer; text-align: left; }
+.card-link:hover { text-decoration: underline; }
+
+/* The whole change, line by line, in a dialog. */
+.diff-what { font-size: 12.5px; color: var(--text-muted); margin: 0 0 10px; line-height: 1.5; }
+.difflines { border: 1px solid var(--border); border-radius: var(--r-sm); overflow: auto; max-height: 55vh; background: var(--bg); }
+.dl { display: flex; gap: 8px; padding: 2px 8px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.dl-mark { flex: none; color: var(--text-faint); }
+.dl.added { background: color-mix(in srgb, var(--good) 9%, transparent); }
+.dl.added .dl-mark { color: var(--good); }
+.dl.removed { background: color-mix(in srgb, var(--risk) 9%, transparent); color: var(--text-muted); }
+.dl.removed .dl-mark { color: var(--risk); }
+
 .lane-empty { font-family: var(--mono); font-size: 11px; color: var(--text-faint); padding: 12px 8px; text-align: center; border: 1px dashed var(--border); border-radius: var(--r); }
 /* Whole-board state: an empty queue, or a queue that could not be loaded. */
 .fq-note { font-size: 13px; color: var(--text-muted); padding: 24px 16px; text-align: center; }
@@ -282,6 +309,15 @@ a { color: inherit; text-decoration: none; }
 .dialog-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; margin: 0; flex: 1; min-width: 0; }
 .dialog-close { margin-left: auto; flex: none; }
 .dialog-body { padding: 16px; }
+
+/* Reading and editing a proposed rewrite before it can be approved. */
+.review-side { margin-top: 12px; }
+.rs-label { font-family: var(--mono); font-size: 10px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 5px; }
+.rs-text { font-size: 12.5px; line-height: 1.55; color: var(--text-muted); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px; max-height: 22vh; overflow: auto; white-space: pre-wrap; }
+/* Element+class, so it wins over `.field`'s monospace regardless of order:
+   the reviewer is reading copy that will appear on their site, and it should
+   look the way it will look there. */
+textarea.review-editor { width: 100%; font-family: var(--font); font-size: 12.5px; line-height: 1.55; resize: vertical; }
 /* space-between is right for a two-child header; with a logo ahead of the
    title it would strand the mark at the far edge, and with three children it
    spreads them across the panel. Pack from the start wherever a header carries

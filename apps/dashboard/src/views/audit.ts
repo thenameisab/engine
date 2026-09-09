@@ -23,9 +23,12 @@ function proposeButton(f: FindingRow, hasTarget: boolean, ctx: AppContext): HTML
       btn.setAttribute('disabled', 'true');
       btn.textContent = 'Proposing…';
       try {
-        const { actions, note } = await proposeFix(f.id);
+        const { actions, skipped } = await proposeFix(f.id);
         if (actions.length === 0) {
-          ctx.toast(note ?? 'No fix could be generated for this finding.');
+          // Say what stopped it, in the words the API sent back — a thin page
+          // and a brand with no kind set are different problems, and "no fix
+          // could be generated" told the customer neither.
+          ctx.toast(skipped[0]?.reason ?? 'No fix could be generated for this finding.');
           btn.removeAttribute('disabled');
           btn.textContent = 'Propose fix';
           return;

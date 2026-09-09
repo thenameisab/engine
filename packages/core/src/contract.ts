@@ -73,4 +73,14 @@ export interface Action {
   diff: Diff;
   status: ActionStatus;
   auditLog: AuditEntry[];
+  /**
+   * When a person read this fix's wording and confirmed it, ISO-8601. Only
+   * `content` actions need it (see `requiresHumanReview`): they carry model
+   * output built from crawled page text, so approving one without reading it
+   * would publish words nobody chose. Absent on every other type, and on a
+   * content action nobody has read yet.
+   */
+  reviewedAt?: string;
+  /** Who confirmed the wording — the reviewer's identity, never self-reported. */
+  reviewedBy?: string;
 }

@@ -73,15 +73,28 @@ export interface ApiAction {
   diff: { before: string; after: string; format: string; field?: string };
   status: ActionStatus;
   predictedImpact: number;
+  /** Set once a person has read this fix's wording (content rewrites only). */
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 export interface ActionCard {
   id: string;
+  /** The Action's own type, kept alongside `kind` because behaviour depends on it, not on the label. */
+  type: string;
   kind: string; // Schema / Robots / Meta / Redirect …
   title: string;
+  /** What the fix changes: what is on the page now, and what would replace it. */
+  diff: { before: string; after: string; format: string; field?: string };
+  /** What this card changes on the site, in one line ("The page title", "The words on the page"). */
+  changes: string;
   impact?: number;
   effort?: string;
   status: ActionStatus;
+  /** True when a person must read the wording before this fix can be approved. */
+  needsReview: boolean;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 /** A `Finding` as `GET /projects/:id/audit` returns it (@engine/core's contract). */
@@ -187,6 +200,8 @@ export interface SerpInspectResult {
 export interface ApiEntity {
   id: string;
   canonicalName: string;
+  /** The schema.org type Engine writes into this brand's structured data. */
+  schemaType?: string;
 }
 
 /**

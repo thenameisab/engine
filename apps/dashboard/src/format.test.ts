@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
+import { diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -125,12 +125,36 @@ describe('toActionCard', () => {
     const card = toActionCard(base);
     expect(card).toEqual({
       id: 'aa11',
+      type: 'meta',
       kind: 'Meta',
       title: 'Regenerate title · acme-edge',
+      diff: base.diff,
+      changes: 'The page title, as search results and AI answers show it',
       impact: 7,
       effort: 'edge',
       status: 'proposed',
+      needsReview: false,
+      reviewedAt: undefined,
+      reviewedBy: undefined,
     });
+  });
+
+  it('carries the diff onto the card, so a card can show what it changes', () => {
+    expect(toActionCard(base).diff).toEqual(base.diff);
+  });
+
+  it('marks a content rewrite as needing a person to read it, and nothing else', () => {
+    expect(toActionCard({ ...base, type: 'content' }).needsReview).toBe(true);
+    expect(toActionCard({ ...base, type: 'schema' }).needsReview).toBe(false);
+    expect(toActionCard({ ...base, type: 'content', reviewedAt: '2026-09-09T10:00:00.000Z' }).reviewedAt)
+      .toBe('2026-09-09T10:00:00.000Z');
+  });
+
+  it('says what each fix changes in the customer\'s terms', () => {
+    expect(actionChanges({ ...base, type: 'content' })).toBe('The words on the page itself');
+    expect(actionChanges({ ...base, type: 'robots' })).toBe('Which AI crawlers your site lets in, in robots.txt');
+    expect(actionChanges({ ...base, diff: { ...base.diff, field: 'description' } }))
+      .toBe('The description under the page title in search results');
   });
 
   it('titles each action type from its diff and target', () => {
@@ -391,5 +415,42 @@ describe('integrationTileState', () => {
   it('flags a grant that needs attention on the watch tone', () => {
     expect(integrationTileState({ authKind: 'oauth2' }, { status: 'needs_reauth', scopesSufficient: true }, configured).tone).toBe('watch');
     expect(integrationTileState({ authKind: 'oauth2' }, { status: 'connected', scopesSufficient: false }, configured).label).toBe('Missing a permission');
+  });
+});
+
+describe('diffLines', () => {
+  it('marks a replaced line as one removal and one addition', () => {
+    expect(diffLines('Acme Dental', 'Teeth whitening — Acme Dental')).toEqual([
+      { kind: 'removed', text: 'Acme Dental' },
+      { kind: 'added', text: 'Teeth whitening — Acme Dental' },
+    ]);
+  });
+
+  it('keeps shared lines and marks only what changed', () => {
+    const before = '{\n  "@type": "Thing",\n  "name": "Acme"\n}';
+    const after = '{\n  "@type": "Dentist",\n  "name": "Acme"\n}';
+    expect(diffLines(before, after)).toEqual([
+      { kind: 'same', text: '{' },
+      { kind: 'removed', text: '  "@type": "Thing",' },
+      { kind: 'added', text: '  "@type": "Dentist",' },
+      { kind: 'same', text: '  "name": "Acme"' },
+      { kind: 'same', text: '}' },
+    ]);
+  });
+
+  it('reports an empty before as pure addition — nothing is there to remove', () => {
+    expect(diffLines('', 'A new title')).toEqual([{ kind: 'added', text: 'A new title' }]);
+  });
+
+  it('reports no change when the two sides match', () => {
+    expect(diffLines('same', 'same')).toEqual([{ kind: 'same', text: 'same' }]);
+  });
+
+  it('handles an inserted line without re-reporting the lines around it', () => {
+    expect(diffLines('a\nc', 'a\nb\nc')).toEqual([
+      { kind: 'same', text: 'a' },
+      { kind: 'added', text: 'b' },
+      { kind: 'same', text: 'c' },
+    ]);
   });
 });

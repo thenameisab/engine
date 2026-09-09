@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { Action, Finding } from '@engine/core';
 import type { ActionContext } from './context.js';
-import { BuildEnv, buildAction, canTransition, transition } from './build.js';
+import { BuildEnv, buildAction, canTransition, isSkipped, requiresHumanReview, reviewMarked, transition } from './build.js';
 import { buildJsonLd, generateSchemaAction } from './schema.js';
-import { proposeTitle, proposeDescription, TITLE_MAX } from './meta.js';
+import { proposeTitle, proposeDescription, TITLE_MAX, DESC_MAX, isProposal } from './meta.js';
 import { unblockCrawlers } from './robots.js';
 import { resolveRedirectPair, generateRedirectAction } from './redirect.js';
 import { buildHreflangTags, generateHreflangAction } from './hreflang.js';
@@ -16,8 +16,9 @@ function ctx(overrides: Partial<ActionContext> = {}): ActionContext {
   return {
     url: 'https://acme.com/widget',
     target: { kind: 'edge-worker', workerName: 'acme-edge' },
-    entity: { schemaType: 'Product', name: 'Acme Widget', description: 'A great widget.' },
+    entity: { schemaType: 'Product', name: 'Acme Widget', description: 'A great widget for people who like widgets.' },
     leadHeading: 'The Acme Widget',
+    currentBodyText: 'The Acme Widget grinds coffee in under ten seconds. It fits a standard kitchen counter and comes with a two-year warranty.',
     ...overrides,
   };
 }
@@ -50,33 +51,81 @@ describe('buildJsonLd', () => {
 
 describe('schema action', () => {
   it('generates a proposed json-ld diff', () => {
-    const a = generateSchemaAction('fnd_1', ctx(), ENV)!;
+    const a = generateSchemaAction('fnd_1', ctx(), ENV);
+    if (isSkipped(a)) throw new Error(a.reason);
     expect(a.type).toBe('schema');
     expect(a.status).toBe('proposed');
     expect(a.diff.format).toBe('json-ld');
     expect(JSON.parse(a.diff.after).name).toBe('Acme Widget');
   });
 
-  it('returns null when no entity facts are available', () => {
-    expect(generateSchemaAction('fnd_1', ctx({ entity: undefined }), ENV)).toBeNull();
+  it('explains itself instead of guessing when no entity facts are available', () => {
+    const r = generateSchemaAction('fnd_1', ctx({ entity: undefined }), ENV);
+    expect(isSkipped(r)).toBe(true);
+    expect(isSkipped(r) && r.reason).toMatch(/which brand/i);
+  });
+
+  it('refuses to emit @type Thing, which describes nothing', () => {
+    const r = generateSchemaAction('fnd_1', ctx({ entity: { schemaType: 'Thing', name: 'Acme Dental' } }), ENV);
+    expect(isSkipped(r)).toBe(true);
+    expect(isSkipped(r) && r.reason).toMatch(/what kind of business/i);
   });
 });
 
+function text(p: ReturnType<typeof proposeTitle>): string {
+  if (!isProposal(p)) throw new Error(p.reason);
+  return p.text;
+}
+
 describe('meta proposals', () => {
-  it('joins heading and entity name within the title budget', () => {
-    const t = proposeTitle(ctx());
-    expect(t).toBe('The Acme Widget — Acme Widget');
+  it('leads with the page heading and adds the brand as a suffix', () => {
+    const t = text(proposeTitle(ctx({ leadHeading: 'Coffee grinders' })));
+    expect(t).toBe('Coffee grinders — Acme Widget');
     expect(t.length).toBeLessThanOrEqual(TITLE_MAX);
   });
 
-  it('truncates a long title with an ellipsis', () => {
-    const t = proposeTitle(ctx({ leadHeading: 'x'.repeat(100), entity: undefined }));
+  it('does not repeat the brand when the heading already contains it', () => {
+    expect(text(proposeTitle(ctx()))).toBe('The Acme Widget');
+  });
+
+  it('reads the heading off the crawled headings when no lead heading is given', () => {
+    const t = text(proposeTitle(ctx({ leadHeading: undefined, headings: [{ level: 2, text: 'Delivery' }, { level: 1, text: 'Coffee grinders' }] })));
+    expect(t).toBe('Coffee grinders — Acme Widget');
+  });
+
+  it('truncates a long title with an ellipsis and keeps the page subject', () => {
+    const t = text(proposeTitle(ctx({ leadHeading: 'x'.repeat(100), entity: undefined })));
     expect(t.length).toBeLessThanOrEqual(TITLE_MAX);
     expect(t.endsWith('…')).toBe(true);
   });
 
-  it('derives a description from the entity description', () => {
-    expect(proposeDescription(ctx())).toBe('A great widget.');
+  it('uses the opening sentence when the heading is just the brand name', () => {
+    const t = text(proposeTitle(ctx({ leadHeading: 'Acme Widget' })));
+    expect(t).toMatch(/grinds coffee/);
+    expect(t).not.toBe('Acme Widget');
+  });
+
+  it('refuses rather than proposing the brand name as the title of a page it knows nothing about', () => {
+    const p = proposeTitle(ctx({ leadHeading: undefined, headings: [], currentBodyText: undefined }));
+    expect(isProposal(p)).toBe(false);
+    expect(!isProposal(p) && p.reason).toMatch(/no heading or visible text/i);
+  });
+
+  it('describes the page from its own opening sentences', () => {
+    const d = text(proposeDescription(ctx()));
+    expect(d).toMatch(/grinds coffee in under ten seconds/);
+    expect(d.length).toBeLessThanOrEqual(DESC_MAX);
+  });
+
+  it('falls back to the entity description, never to the entity name alone', () => {
+    const d = text(proposeDescription(ctx({ currentBodyText: undefined })));
+    expect(d).toBe('A great widget for people who like widgets.');
+  });
+
+  it('refuses when the page has too little text to describe', () => {
+    const p = proposeDescription(ctx({ currentBodyText: 'Hello.', entity: { schemaType: 'Product', name: 'Acme Widget' } }));
+    expect(isProposal(p)).toBe(false);
+    expect(!isProposal(p) && p.reason).toMatch(/too little text/i);
   });
 });
 
@@ -230,7 +279,7 @@ describe('generateActions dispatcher', () => {
       issueType: 'sparse-internal-linking',
       actionTemplates: [{ type: 'internal-link', label: 'Add internal links', description: '' }],
     });
-    const actions = generateActions(
+    const { actions } = generateActions(
       f,
       ctx({ currentBodyHtml: '<p>our pricing page</p>', internalLinkSuggestions: [{ anchor: 'pricing', href: 'https://acme.com/pricing' }] }),
       ENV,
@@ -241,7 +290,7 @@ describe('generateActions dispatcher', () => {
 
   it('emits a schema action for a schema finding', () => {
     const f = finding({ actionTemplates: [{ type: 'schema', label: 'Generate JSON-LD', description: '' }] });
-    const actions = generateActions(f, ctx(), ENV);
+    const { actions } = generateActions(f, ctx(), ENV);
     expect(actions.map((a) => a.type)).toEqual(['schema']);
   });
 
@@ -250,7 +299,7 @@ describe('generateActions dispatcher', () => {
       issueType: 'meta-title-missing',
       actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }],
     });
-    const actions = generateActions(f, ctx({ currentTitle: '', currentMetaDescription: 'present' }), ENV);
+    const { actions } = generateActions(f, ctx({ currentTitle: '', currentMetaDescription: 'present' }), ENV);
     expect(actions).toHaveLength(1);
     expect(actions[0].diff.field).toBe('title');
     expect(actions[0].diff.after).toContain('Acme Widget');
@@ -261,7 +310,7 @@ describe('generateActions dispatcher', () => {
       issueType: 'meta-description-missing',
       actionTemplates: [{ type: 'meta', label: 'Regenerate meta description', description: '' }],
     });
-    const actions = generateActions(f, ctx({ currentTitle: 'present', currentMetaDescription: '' }), ENV);
+    const { actions } = generateActions(f, ctx({ currentTitle: 'present', currentMetaDescription: '' }), ENV);
     expect(actions).toHaveLength(1);
     expect(actions[0].diff.field).toBe('description');
   });
@@ -280,13 +329,13 @@ describe('generateActions dispatcher', () => {
       actionTemplates: [{ type: 'meta', label: 'Regenerate meta description', description: '' }],
     });
     const pageCtx = ctx({ currentTitle: '', currentMetaDescription: '' });
-    const actions = [...generateActions(titleFinding, pageCtx, ENV), ...generateActions(descriptionFinding, pageCtx, ENV)];
+    const actions = [...generateActions(titleFinding, pageCtx, ENV).actions, ...generateActions(descriptionFinding, pageCtx, ENV).actions];
     expect(actions.map((a) => a.diff.field).sort()).toEqual(['description', 'title']);
   });
 
   it('emits nothing for an unrecognized meta issue type', () => {
     const f = finding({ actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }] });
-    expect(generateActions(f, ctx({ currentTitle: '', currentMetaDescription: '' }), ENV)).toEqual([]);
+    expect(generateActions(f, ctx({ currentTitle: '', currentMetaDescription: '' }), ENV).actions).toEqual([]);
   });
 
   it('dispatches a hreflang-missing finding to the hreflang generator, not title/description', () => {
@@ -294,7 +343,7 @@ describe('generateActions dispatcher', () => {
       issueType: 'hreflang-missing',
       actionTemplates: [{ type: 'meta', label: 'Generate hreflang', description: '' }],
     });
-    const actions = generateActions(
+    const { actions } = generateActions(
       f,
       ctx({ hreflangAlternates: [{ lang: 'en', href: 'https://acme.com/en/widget' }] }),
       ENV,
@@ -308,7 +357,7 @@ describe('generateActions dispatcher', () => {
       evidence: { url: 'https://acme.com/widget', blocked: ['GPTBot', 'ClaudeBot'] },
       actionTemplates: [{ type: 'robots', label: 'Allow AI crawlers', description: '' }],
     });
-    const actions = generateActions(f, ctx({ currentRobotsTxt: 'User-agent: *\nDisallow: /\n' }), ENV);
+    const { actions } = generateActions(f, ctx({ currentRobotsTxt: 'User-agent: *\nDisallow: /\n' }), ENV);
     expect(actions).toHaveLength(1);
     expect(actions[0].type).toBe('robots');
     expect(actions[0].diff.after).toMatch(/GPTBot/);
@@ -321,14 +370,28 @@ describe('generateActions dispatcher', () => {
       evidence: { url: 'https://acme.com/final', chain: ['https://acme.com/old'] },
       actionTemplates: [{ type: 'redirect', label: 'Collapse redirect chain', description: '' }],
     });
-    const actions = generateActions(f, ctx(), ENV);
+    const { actions } = generateActions(f, ctx(), ENV);
     expect(actions).toHaveLength(1);
     expect(actions[0].type).toBe('redirect');
     expect(actions[0].diff.after).toBe('https://acme.com/final');
   });
 
   it('yields no actions for a finding with no templates (non-executable diagnosis)', () => {
-    expect(generateActions(finding({ actionTemplates: [] }), ctx(), ENV)).toEqual([]);
+    expect(generateActions(finding({ actionTemplates: [] }), ctx(), ENV)).toEqual({ actions: [], skipped: [] });
+  });
+
+  it('reports why a fix could not be built instead of returning silence', () => {
+    const f = finding({
+      issueType: 'meta-title-missing',
+      actionTemplates: [{ type: 'meta', label: 'Regenerate title', description: '' }],
+    });
+    const { actions, skipped } = generateActions(
+      f,
+      ctx({ currentTitle: '', leadHeading: undefined, headings: [], currentBodyText: undefined }),
+      ENV,
+    );
+    expect(actions).toEqual([]);
+    expect(skipped).toEqual([{ type: 'meta', reason: expect.stringMatching(/no heading or visible text/i) }]);
   });
 });
 
@@ -371,5 +434,50 @@ describe('Fix Queue lifecycle (build.ts)', () => {
     transition(base, 'approved', ENV);
     expect(base.status).toBe('proposed');
     expect(base.auditLog).toHaveLength(1);
+  });
+});
+
+describe('human review of content rewrites', () => {
+  const rewrite: Action = buildAction({
+    findingId: 'fnd_2',
+    type: 'content',
+    target: { kind: 'github-pr', repo: 'acme/site', branch: 'main', path: 'index.html' },
+    diff: { before: 'Old copy.', after: 'New copy.', format: 'text' },
+    env: ENV,
+  });
+
+  it('marks content as needing review and nothing else', () => {
+    expect(requiresHumanReview('content')).toBe(true);
+    expect(requiresHumanReview('schema')).toBe(false);
+    expect(requiresHumanReview('meta')).toBe(false);
+  });
+
+  it('refuses to approve a rewrite nobody has read', () => {
+    expect(() => transition(rewrite, 'approved', ENV, 'alice')).toThrow(/read and confirmed/i);
+  });
+
+  it('approves once a person has confirmed the wording', () => {
+    const reviewed = reviewMarked(rewrite, ENV, 'alice@acme.com');
+    expect(reviewed.reviewedBy).toBe('alice@acme.com');
+    expect(reviewed.reviewedAt).toBe(ENV.now());
+    expect(reviewed.auditLog.map((e) => e.event)).toEqual(['proposed', 'reviewed']);
+    expect(transition(reviewed, 'approved', ENV, 'alice@acme.com').status).toBe('approved');
+  });
+
+  it('keeps the reviewer\'s edit as the text that deploys', () => {
+    const reviewed = reviewMarked(rewrite, ENV, 'alice@acme.com', 'Copy the customer actually wants.');
+    expect(reviewed.diff.after).toBe('Copy the customer actually wants.');
+    expect(reviewed.auditLog[1].detail).toEqual({ edited: true });
+  });
+
+  it('does not mutate the reviewed action', () => {
+    reviewMarked(rewrite, ENV, 'alice@acme.com', 'edited');
+    expect(rewrite.diff.after).toBe('New copy.');
+    expect(rewrite.reviewedAt).toBeUndefined();
+  });
+
+  it('only reviews a proposed fix', () => {
+    const reviewed = transition(reviewMarked(rewrite, ENV, 'alice'), 'approved', ENV, 'alice');
+    expect(() => reviewMarked(reviewed, ENV, 'alice')).toThrow(/proposed/i);
   });
 });

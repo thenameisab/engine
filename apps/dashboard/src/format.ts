@@ -263,17 +263,128 @@ export function toPulseData(resp: ApiPulseResponse): PulseData {
   };
 }
 
+/**
+ * Fix types whose `after` is written by a model rather than derived — the
+ * customer has to read the words before approving. Mirrors
+ * `requiresHumanReview` in @engine/actions, which is what actually enforces it.
+ */
+const REVIEW_REQUIRED_TYPES = new Set(['content']);
+
+/**
+ * What a fix changes on the site, in the customer's terms. The card shows a
+ * before/after; this says what the two halves *are*, so a reader knows whether
+ * they are looking at a page title or the whole body of the page.
+ */
+export function actionChanges(a: ApiAction): string {
+  switch (a.type) {
+    case 'meta':
+      if (a.diff.field === 'title') return 'The page title, as search results and AI answers show it';
+      if (a.diff.field === 'description') return 'The description under the page title in search results';
+      if (a.diff.field === 'hreflang') return 'The links between this page’s language versions';
+      return 'A tag in the page’s head';
+    case 'schema':
+      return 'The structured data that tells search engines and assistants what this page is about';
+    case 'robots':
+      return 'Which AI crawlers your site lets in, in robots.txt';
+    case 'redirect':
+      return 'Where this address sends visitors';
+    case 'content':
+      return 'The words on the page itself';
+    case 'internal-link':
+      return 'Links from this page to your other pages';
+    case 'gbp':
+      return 'Your Google Business Profile listing';
+    default:
+      return 'This page';
+  }
+}
+
 /** Map a persisted Action from the API onto the card the Fix Queue renders. */
 export function toActionCard(a: ApiAction): ActionCard {
   return {
     id: a.id,
+    type: a.type,
     kind: actionKindLabel(a.type),
     title: actionTitle(a),
+    diff: a.diff,
+    changes: actionChanges(a),
     impact: impactPoints(a.predictedImpact),
     effort: effortLabel(a.target.kind),
     status: a.status,
+    needsReview: REVIEW_REQUIRED_TYPES.has(a.type),
+    reviewedAt: a.reviewedAt,
+    reviewedBy: a.reviewedBy,
   };
 }
+
+/** One line of a rendered before/after comparison. */
+export interface DiffLine {
+  kind: 'same' | 'removed' | 'added';
+  text: string;
+}
+
+/**
+ * Line-by-line comparison of a fix's before and after, so a customer sees the
+ * change rather than two walls of text. A longest-common-subsequence walk:
+ * lines both versions share are marked `same`, the rest are the removals and
+ * additions between them.
+ *
+ * Line-level, not word-level, on purpose. Every diff in the queue is either a
+ * single line (a title, a description) or a block of prose or JSON where the
+ * unit a reader checks is the line.
+ */
+export function diffLines(before: string, after: string): DiffLine[] {
+  const a = before === '' ? [] : before.split('\n');
+  const b = after === '' ? [] : after.split('\n');
+
+  // lcs[i][j] = length of the longest common subsequence of a[i…] and b[j…].
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const out: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      out.push({ kind: 'same', text: a[i] });
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      out.push({ kind: 'removed', text: a[i] });
+      i++;
+    } else {
+      out.push({ kind: 'added', text: b[j] });
+      j++;
+    }
+  }
+  while (i < a.length) out.push({ kind: 'removed', text: a[i++] });
+  while (j < b.length) out.push({ kind: 'added', text: b[j++] });
+  return out;
+}
+
+/** What an empty `before` means on a card: there is nothing there today. */
+export const NOTHING_THERE = 'Nothing there now';
+
+/**
+ * What kind of thing a brand is, in the customer's words. Mirrors
+ * `ENTITY_KINDS` in @engine/core, which is the source of truth and what the
+ * API validates against — the dashboard compiles standalone and does not
+ * import the package (same reason `types.ts` mirrors the API's shapes).
+ */
+export const ENTITY_KIND_OPTIONS = [
+  { value: 'LocalBusiness', label: 'A business people visit in person' },
+  { value: 'Organization', label: 'An online business or organisation' },
+  { value: 'Product', label: 'A product' },
+  { value: 'Service', label: 'A service' },
+  { value: 'SoftwareApplication', label: 'Software or an app' },
+  { value: 'Person', label: 'A person' },
+] as const;
+
+export const DEFAULT_ENTITY_KIND = 'Organization';
 
 /**
  * Human copy for each B1 issue type. Presentation only — the vocabulary itself

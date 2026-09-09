@@ -1,4 +1,5 @@
 import type { CrawledPage } from '@engine/diagnosis';
+import { toJsonb } from '../db.js';
 import type { Db } from '../db.js';
 
 /**
@@ -17,6 +18,12 @@ export interface StoredPage {
   bodyText: string | null;
   bodyHtml: string | null;
   internalLinkCount: number | null;
+  /**
+   * The page's visible headings, in document order. Stored because a proposed
+   * <title> has to be written from what the page says it is about; without
+   * them every page of a site was proposed the brand name as its title.
+   */
+  headings: { level: number; text: string }[];
 }
 
 interface PageRow {
@@ -27,6 +34,7 @@ interface PageRow {
   body_text: string | null;
   body_html: string | null;
   internal_link_count: number | null;
+  headings: { level: number; text: string }[] | null;
 }
 
 function toStoredPage(row: PageRow): StoredPage {
@@ -38,6 +46,7 @@ function toStoredPage(row: PageRow): StoredPage {
     bodyText: row.body_text,
     bodyHtml: row.body_html,
     internalLinkCount: row.internal_link_count,
+    headings: row.headings ?? [],
   };
 }
 
@@ -56,11 +65,12 @@ export async function upsertCrawledPages(db: Db, projectId: string, pages: reado
   for (const page of pages) {
     await db`
       insert into crawled_pages (
-        project_id, entity_id, url, title, meta_description, body_text, body_html, internal_link_count, updated_at
+        project_id, entity_id, url, title, meta_description, body_text, body_html, internal_link_count, headings, updated_at
       )
       values (
         ${projectId}, ${page.entityId ?? null}, ${page.url}, ${page.title ?? null}, ${page.metaDescription ?? null},
-        ${page.bodyText ?? null}, ${page.bodyHtml ?? null}, ${page.internalLinkCount ?? null}, now()
+        ${page.bodyText ?? null}, ${page.bodyHtml ?? null}, ${page.internalLinkCount ?? null},
+        ${toJsonb(db, page.headings ?? [])}, now()
       )
       on conflict (project_id, url) do update set
         entity_id = excluded.entity_id,
@@ -69,6 +79,7 @@ export async function upsertCrawledPages(db: Db, projectId: string, pages: reado
         body_text = excluded.body_text,
         body_html = excluded.body_html,
         internal_link_count = excluded.internal_link_count,
+        headings = excluded.headings,
         updated_at = now()
     `;
     written++;
@@ -105,7 +116,7 @@ export async function listInternalLinkTargets(
 /** The stored page for one URL in a project, or null if this project never crawled it. */
 export async function getCrawledPage(db: Db, projectId: string, url: string): Promise<StoredPage | null> {
   const rows = await db<PageRow[]>`
-    select url, entity_id, title, meta_description, body_text, body_html, internal_link_count
+    select url, entity_id, title, meta_description, body_text, body_html, internal_link_count, headings
     from crawled_pages
     where project_id::text = ${projectId} and url = ${url}
     limit 1
