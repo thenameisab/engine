@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readableError } from './errors.js';
 import { diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
@@ -452,5 +453,34 @@ describe('diffLines', () => {
       { kind: 'added', text: 'b' },
       { kind: 'same', text: 'c' },
     ]);
+  });
+});
+
+describe('readableError', () => {
+  it('replaces a 401 with a sentence about the session, not our vocabulary', () => {
+    // The bug this guards: "Sync failed: missing bearer token" reached a
+    // customer's toast. `missing bearer token` is the API's phrasing for a
+    // request it could not authenticate; nobody outside this repo can act on it.
+    expect(readableError(new Error('401 {"error":"missing bearer token"}'))).toBe(
+      'Your session has expired. Sign in again.',
+    );
+  });
+
+  it('pulls the error field out of a JSON body', () => {
+    expect(readableError(new Error('503 {"error":"Publishing to GitHub is not configured on this deployment."}')))
+      .toBe('Publishing to GitHub is not configured on this deployment.');
+  });
+
+  it('points a 403 at the client picker', () => {
+    expect(readableError(new Error('403 {"error":"project not in your account"}')))
+      .toBe('project not in your account. Pick the right client from the Clients grid.');
+  });
+
+  it('passes through a message that is not a status-prefixed body', () => {
+    expect(readableError(new Error('no API base URL configured'))).toBe('no API base URL configured');
+  });
+
+  it('falls back to the status when the body is empty', () => {
+    expect(readableError(new Error('500 '))).toBe('Request failed (500).');
   });
 });

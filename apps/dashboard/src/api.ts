@@ -143,16 +143,32 @@ export function setAccountId(id: string): void {
   localStorage.setItem(ACCOUNT_KEY, id);
 }
 
+/**
+ * The bearer token for this session, from whichever sign-in produced it.
+ *
+ * Two sources, checked in that order. A password sign-in stores a token the
+ * API minted and verifies itself; a Google sign-in has none stored and mints
+ * one per request from the Neon Auth cookie. Null when neither applies: the
+ * request then 401s, rather than the API quietly being open.
+ *
+ * One function, because this has now been the cause of two identical bugs.
+ * `request` had both sources from the start, but every call that hand-rolls
+ * its own fetch to get a different timeout re-derived the token — and each
+ * one that reached only for the Google path answered "missing bearer token"
+ * to every password user. It happened to the branded report (fixed in #71)
+ * and then again to Sync now. A caller that cannot use `request` must still
+ * not have to remember this.
+ */
+async function authToken(): Promise<string | null> {
+  return getStoredApiToken() ?? (await getApiToken());
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getApiBaseUrl();
   if (!base) throw new Error('no API base URL configured');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  // Two token sources, checked in that order. A password sign-in stores a
-  // token the API minted and verifies itself; a Google sign-in has none stored
-  // and mints one per request from the Neon Auth cookie. Null when neither
-  // applies: the request then 401s, rather than the API quietly being open.
-  const token = getStoredApiToken() ?? (await getApiToken());
+  const token = await authToken();
   try {
     const res = await fetch(`${base}${path}`, {
       ...init,
@@ -530,10 +546,7 @@ export async function updateBrandingApi(accountId: string, branding: ApiAccountB
 export async function fetchReportUrl(accountId: string): Promise<string> {
   const base = getApiBaseUrl();
   if (!base) throw new Error('no API base URL configured');
-  // Same token resolution as `request()`. This used to call `getApiToken()`
-  // alone, which only knows the Google path, so every password session opened
-  // the report to a raw 401.
-  const token = getStoredApiToken() ?? (await getApiToken());
+  const token = await authToken();
   const res = await fetch(`${base}/accounts/${accountId}/report`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
@@ -672,7 +685,7 @@ export async function syncProvider(
 ): Promise<SyncOutcome | { locations: number; skipped: number }> {
   const base = getApiBaseUrl();
   if (!base) throw new Error('no API base URL configured');
-  const token = await getApiToken();
+  const token = await authToken();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
