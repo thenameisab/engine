@@ -95,6 +95,8 @@ import { getProjectDeployTarget, setProjectDeployTarget } from './repositories/p
 import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
+import { brandTerms, searchSummary, trafficSummary, type SyncState } from './repositories/googleMetrics.js';
+import { listAssignments, listConnections, connectedProvidersByAccount } from './repositories/integrations.js';
 import { getProject,
   upsertUser,
   createAccount,
@@ -1033,6 +1035,62 @@ app.get('/projects/:projectId/pulse', async (c) => {
 });
 
 /**
+ * What the synced Google tables say about this site: Search Console clicks,
+ * impressions, queries and pages; Analytics sessions, key events, channels and
+ * visits from AI assistants. Each half is null until its provider has synced,
+ * and `connections` says why — not connected, connected but no property
+ * chosen, or chosen and waiting for the first sync — so Pulse can offer the
+ * one next step instead of an empty panel.
+ */
+app.get('/projects/:projectId/search-traffic', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const projectId = c.req.param('projectId');
+  const invalidId = checkUuidParam(projectId, 'projectId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const project = await getProject(db, projectId);
+  if (!project) return c.json({ error: 'project not found', projectId }, 404);
+  const [assignments, connections, entities] = await Promise.all([
+    listAssignments(db, projectId),
+    listConnections(db, project.accountId),
+    listEntitiesByProject(db, projectId),
+  ]);
+
+  const stateFor = (provider: 'gsc' | 'ga4') => {
+    const connection = connections.find((x) => x.provider === provider);
+    const assignment = assignments.find((a) => a.provider === provider);
+    const sync: SyncState = {
+      resourceId: assignment?.resourceId ?? null,
+      syncedAt: assignment?.lastSyncedAt ?? null,
+      syncError: assignment?.lastSyncError ?? null,
+    };
+    return {
+      sync,
+      status: {
+        connected: connection?.status === 'connected',
+        needsReauth: connection?.status === 'needs_reauth',
+        assigned: Boolean(assignment),
+        resourceLabel: assignment?.resourceLabel ?? assignment?.resourceId ?? null,
+        ...sync,
+      },
+    };
+  };
+  const gsc = stateFor('gsc');
+  const ga4 = stateFor('ga4');
+  const terms = brandTerms(
+    project.domain,
+    entities.map((e) => e.canonicalName),
+  );
+  const [search, traffic] = await Promise.all([
+    searchSummary(db, projectId, terms, gsc.sync),
+    trafficSummary(db, projectId, ga4.sync),
+  ]);
+  return c.json({ projectId, search, traffic, connections: { gsc: gsc.status, ga4: ga4.status } });
+});
+
+/**
  * Run the B1 technical audit (M1.3) over a set of crawled pages and return the
  * scored `Finding` inventory plus the lead technical-health score. The crawl
  * itself (B1.1 Playwright, Cloudflare Queues) runs out-of-band and persists
@@ -1940,7 +1998,13 @@ app.get('/accounts', async (c) => {
   const user = c.get('user');
   await upsertUser(db, user);
   const accounts = await listAccountsForUser(db, user.id);
-  return c.json({ accounts });
+  // Which providers each client has connected, so the Integrations screen can
+  // say "connected under <other client>" instead of reading as disconnected
+  // when the selected client is not the one that signed in.
+  const connected = await connectedProvidersByAccount(db, accounts.map((a) => a.id));
+  return c.json({
+    accounts: accounts.map((a) => ({ ...a, connectedProviders: connected.get(a.id) ?? [] })),
+  });
 });
 
 app.post('/accounts/:accountId/projects', async (c) => {

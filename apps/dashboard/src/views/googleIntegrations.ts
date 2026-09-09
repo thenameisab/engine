@@ -3,9 +3,11 @@ import { logoTile } from '../logo.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
 import { openDialog, type DialogHandle } from '../dialog.js';
 import { readableError } from '../errors.js';
-import { integrationTileState } from '../format.js';
+import { integrationTileState, relativeTime, syncStatusLine } from '../format.js';
 import {
   getAccountId,
+  setAccountId,
+  fetchAccounts,
   fetchProviderCatalog,
   fetchConnections,
   fetchConnectUrl,
@@ -76,19 +78,6 @@ function healthProblem(
     };
   }
   return null;
-}
-
-function relativeTime(iso: string | undefined): string {
-  if (!iso) return 'never';
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return 'never';
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 90) return 'just now';
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 36) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 /**
@@ -260,6 +249,10 @@ interface ProviderPanelInput {
   platformReady: boolean;
   isAdmin: boolean;
   reload: () => void;
+  /** The client these connections belong to, by name. */
+  clientName: string | null;
+  /** Other clients of this user under which the provider is connected. */
+  elsewhere: string[];
 }
 
 /** The status pill shared by the tile and the panel header. */
@@ -333,7 +326,7 @@ function syncButton(
       btn.textContent = 'Syncing…';
       try {
         await syncProvider(entry.id);
-        ctx.toast(`${entry.name} sync finished.`);
+        ctx.toast(`${entry.name} sync finished. Pulse shows the new data.`);
         reload();
       } catch (err) {
         ctx.toast(`Sync failed: ${readableError(err)}`);
@@ -346,7 +339,7 @@ function syncButton(
 }
 
 function providerPanel(input: ProviderPanelInput): HTMLElement {
-  const { ctx, accountId, entry, connection, assignments, platformReady, isAdmin, reload } = input;
+  const { ctx, accountId, entry, connection, assignments, platformReady, isAdmin, reload, clientName, elsewhere } = input;
   const live = connection?.status === 'connected';
   const problem = connection ? healthProblem(connection) : null;
   const isApiKey = entry.authKind === 'api_key';
@@ -370,9 +363,20 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     ]);
   }
 
+  // A connection under another of this user's clients is not a failure
+  // here. Say where it is connected, and that connections do not carry over.
+  const elsewhereNote =
+    !live && elsewhere.length > 0
+      ? el('div', { class: 'fhint num' }, [
+          `Connected under ${elsewhere.join(' and ')}, not under ${clientName ?? 'this client'}. ` +
+            'Connections belong to one client, so sign in here to use it for this one.',
+        ])
+      : null;
+
   if (!isApiKey && !platformReady && !live) {
     return el('div', { class: 'intg-panel' }, [
       purpose,
+      elsewhereNote,
       el('div', { class: 'intg-note warn' }, [
         isAdmin
           ? `Engine's ${vendor} app is not registered for this workspace yet. Register it once under Settings, and every client can connect from here.`
@@ -546,11 +550,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     el('div', { class: 'intg-assign' }, [
       el('div', { class: 'intg-assign-main' }, [
         el('span', { class: 'intg-assign-label' }, [a.resourceLabel || a.resourceId]),
-        el('span', { class: 'num' }, [
-          a.lastSyncError
-            ? `sync failed: ${a.lastSyncError}`
-            : `synced ${relativeTime(a.lastSyncedAt)}${a.lastSyncRows !== undefined && a.lastSyncRows !== null ? ` · ${a.lastSyncRows} rows` : ''}`,
-        ]),
+        el('span', { class: `num intg-status-line ${syncStatusLine(a).tone}` }, [syncStatusLine(a).text]),
       ]),
       syncButton(entry, ctx, reload),
       el('button', {
@@ -575,6 +575,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     purpose,
     badges.length > 0 ? el('div', { class: 'intg-badges' }, badges) : null,
 
+    elsewhereNote,
     // The primary action first, once, and only when it is the next step.
     !live && !isApiKey ? el('div', { class: 'intg-primary' }, [signIn]) : null,
     !live && isApiKey ? apiKeyForm({ ctx, accountId, entry, connected: false, reload }) : null,
@@ -635,7 +636,15 @@ function providerTile(entry: ProviderCatalogEntry, state: { label: string; tone:
  * disconnect.
  */
 export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement> {
-  const accountId = getAccountId();
+  // The client is the selected project's client, when a project is selected.
+  // The stored client id can drift from the project (the branded report and
+  // branding links set only the client), and a screen reading connections for
+  // one client while showing another's project made a connected provider read
+  // as disconnected. The project's client wins, and the stored id is healed.
+  const projectState = await fetchProjectIntegrations().catch(() => null);
+  const projectAccount = projectState?.account ?? null;
+  if (projectAccount && projectAccount.id !== getAccountId()) setAccountId(projectAccount.id);
+  const accountId = projectAccount?.id ?? getAccountId();
   const host = el('div', { class: 'intg-gallery' }, []);
 
   if (!accountId) {
@@ -658,20 +667,29 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
     let vendorsConfigured: Record<string, boolean>;
     let assignments: IntegrationAssignment[];
     let isAdmin: boolean;
+    let clientName: string | null = projectAccount?.name ?? null;
+    let otherClients: { name: string; connectedProviders: ProviderId[] }[] = [];
     try {
-      const [cat, connectionState, projectState, access] = await Promise.all([
+      const [cat, connectionState, fresh, access, accounts] = await Promise.all([
         fetchProviderCatalog(true),
         fetchConnections(accountId),
         // A project may not be selected or reachable; assignments are then
         // simply unknown, which must not blank out the tiles.
         fetchProjectIntegrations().catch(() => ({ assignments: [] as IntegrationAssignment[], connections: [] })),
         fetchPlatformAccess().catch(() => ({ isAdmin: false })),
+        // Every client this user belongs to, with what each has connected, so
+        // a provider connected under another client is named as such.
+        fetchAccounts().catch(() => []),
       ]);
       catalog = cat;
       connections = connectionState.connections;
       vendorsConfigured = connectionState.vendorsConfigured;
-      assignments = projectState.assignments;
+      assignments = fresh.assignments;
       isAdmin = access.isAdmin;
+      clientName = clientName ?? accounts.find((a) => a.id === accountId)?.name ?? null;
+      otherClients = accounts
+        .filter((a) => a.id !== accountId)
+        .map((a) => ({ name: a.name, connectedProviders: a.connectedProviders }));
     } catch (err) {
       host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
       return;
@@ -697,6 +715,8 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
         platformReady: platformReadyFor(entry),
         isAdmin,
         reload: () => void render(),
+        clientName,
+        elsewhere: otherClients.filter((a) => a.connectedProviders.includes(entry.id)).map((a) => a.name),
       });
 
     const tiles = catalog
@@ -726,7 +746,14 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
           });
         }),
       );
-    host.replaceChildren(...tiles);
+    host.replaceChildren(
+      el('div', { class: 'intg-scope' }, [
+        'Connections for ',
+        el('b', {}, [clientName ?? 'the selected client']),
+        '. Every site of this client shares them; another client’s connections do not carry over.',
+      ]),
+      ...tiles,
+    );
 
     // The panel that is open re-renders with the fresh state, so the customer
     // sees "Connected" and the property picker without closing and reopening.

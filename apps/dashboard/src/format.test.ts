@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -485,5 +485,87 @@ describe('readableError', () => {
 
   it('falls back to the status when the body is empty', () => {
     expect(readableError(new Error('500 '))).toBe('Request failed (500).');
+  });
+});
+
+describe('pctChange / fmtChange', () => {
+  it('is null without a previous period or against a previous zero', () => {
+    expect(pctChange(10, null)).toBeNull();
+    expect(pctChange(10, undefined)).toBeNull();
+    expect(pctChange(10, 0)).toBeNull();
+  });
+
+  it('formats up, down and flat with a sign', () => {
+    expect(fmtChange(pctChange(110, 100)!)).toBe('+10%');
+    expect(fmtChange(pctChange(90, 100)!)).toBe('−10%');
+    expect(fmtChange(pctChange(100, 100)!)).toBe('±0%');
+  });
+});
+
+describe('fmtRatio / fmtPosition', () => {
+  it('keeps one decimal only for small rates', () => {
+    expect(fmtRatio(0.068)).toBe('6.8%');
+    expect(fmtRatio(0.284)).toBe('28%');
+    expect(fmtRatio(0)).toBe('0%');
+  });
+
+  it('shows a dash for an unmeasured position', () => {
+    expect(fmtPosition(13.34)).toBe('13.3');
+    expect(fmtPosition(0)).toBe('–');
+  });
+});
+
+describe('syncStatusLine', () => {
+  const now = Date.parse('2026-09-09T12:00:00Z');
+
+  it('never shows a row count', () => {
+    const { text } = syncStatusLine({ lastSyncedAt: '2026-09-09T10:00:00Z', lastSyncError: undefined }, now);
+    expect(text).toBe('Synced 2h ago');
+    expect(text).not.toMatch(/rows/);
+  });
+
+  it('says a sync never finished, with the step that failed', () => {
+    const { text, tone } = syncStatusLine(
+      { lastSyncedAt: undefined, lastSyncError: 'pages failed after 56 rows were stored: Google API searchAnalytics.query failed' },
+      now,
+    );
+    expect(text).toMatch(/^Sync did not finish: pages failed/);
+    expect(tone).toBe('watch');
+  });
+
+  it('keeps the last good sync visible when a later one failed', () => {
+    const { text } = syncStatusLine({ lastSyncedAt: '2026-09-07T10:00:00Z', lastSyncError: 'channels failed: 503' }, now);
+    expect(text).toMatch(/^Last sync failed\. Data is from 2d ago\./);
+  });
+
+  it('reads "not synced yet" for a fresh assignment', () => {
+    expect(syncStatusLine({ lastSyncedAt: undefined, lastSyncError: undefined }, now)).toEqual({
+      text: 'Not synced yet',
+      tone: 'muted',
+    });
+  });
+});
+
+describe('providerNextStep', () => {
+  const base = { resourceId: null, syncedAt: null, syncError: null, connected: false, needsReauth: false, assigned: false, resourceLabel: null };
+
+  it('walks connect, choose, sync in the order a customer does them', () => {
+    expect(providerNextStep(base, 'Google Search Console', 'clicks').button).toBe('Connect Google Search Console');
+    expect(providerNextStep({ ...base, connected: true }, 'Google Search Console', 'clicks').button).toBe('Choose a property');
+    expect(
+      providerNextStep({ ...base, connected: true, assigned: true, resourceLabel: 'sc-domain:tartanhq.com' }, 'Google Search Console', 'clicks').line,
+    ).toMatch(/^sc-domain:tartanhq\.com is connected\. Data appears after the first sync/);
+  });
+
+  it('puts a failed sync and a needed reconnect in front of everything else', () => {
+    expect(providerNextStep({ ...base, connected: true, assigned: true, syncError: 'pages failed' }, 'X', 'y').button).toBe('Sync again');
+    expect(providerNextStep({ ...base, needsReauth: true }, 'X', 'y').button).toBe('Reconnect on Integrations');
+  });
+
+  it('never names an environment variable or API path', () => {
+    for (const s of [base, { ...base, connected: true }, { ...base, connected: true, assigned: true }]) {
+      const step = providerNextStep(s, 'Google Analytics', 'visits');
+      expect(step.line).not.toMatch(/[A-Z]{3,}_[A-Z_]+|\/projects\//);
+    }
   });
 });

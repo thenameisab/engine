@@ -44,6 +44,7 @@ import type {
   IntegrationAssignment,
   ProviderResource,
   SyncOutcome,
+  SearchTraffic,
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
@@ -662,10 +663,23 @@ export async function fetchIntegrationEvents(accountId: string): Promise<Integra
 export async function fetchProjectIntegrations(): Promise<{
   assignments: IntegrationAssignment[];
   connections: IntegrationConnection[];
+  /** The client the selected project belongs to. Absent from an older API deploy. */
+  account?: { id: string; name: string | null };
 }> {
-  return request<{ assignments: IntegrationAssignment[]; connections: IntegrationConnection[] }>(
-    `/projects/${requireProjectId()}/integrations`,
-  );
+  return request<{
+    assignments: IntegrationAssignment[];
+    connections: IntegrationConnection[];
+    account?: { id: string; name: string | null };
+  }>(`/projects/${requireProjectId()}/integrations`);
+}
+
+/**
+ * Search Console and Analytics figures for the selected project, from the
+ * rows the sync stored. Never a live Google call: the page must answer in the
+ * same time whether Google is up or not.
+ */
+export function fetchSearchTraffic(): Promise<SearchTraffic> {
+  return request<SearchTraffic>(`/projects/${requireProjectId()}/search-traffic`);
 }
 
 export async function assignProviderResource(

@@ -301,6 +301,19 @@ export async function listConnections(db: Db, accountId: string): Promise<Integr
   return rows.map(toConnection);
 }
 
+/** Connected provider ids per account, for a list of accounts, in one query. */
+export async function connectedProvidersByAccount(db: Db, accountIds: readonly string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (accountIds.length === 0) return out;
+  const rows = await db<{ account_id: string; provider: string }[]>`
+    select account_id::text as account_id, provider from integration_connections
+    where status = 'connected' and account_id::text = any(${[...accountIds]})
+    order by provider
+  `;
+  for (const row of rows) out.set(row.account_id, [...(out.get(row.account_id) ?? []), row.provider]);
+  return out;
+}
+
 export async function getConnection(
   db: Db,
   accountId: string,

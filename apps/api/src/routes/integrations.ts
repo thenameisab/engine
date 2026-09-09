@@ -48,7 +48,7 @@ import '../repositories/googleListers.js';
 import { signOAuthState, verifyOAuthState } from '@engine/auth';
 import { createDb, type Db } from '../db.js';
 import type { AuthEnv, AuthUser } from '../middleware/auth.js';
-import { getAccountRole, upsertUser, getProjectAccountId, isAccountMember } from '../repositories/accounts.js';
+import { getAccountRole, upsertUser, getProjectAccountId, isAccountMember, getAccount } from '../repositories/accounts.js';
 import { markGscConnected } from '../repositories/onboarding.js';
 import { syncGsc, syncGa4, syncGbp } from '../repositories/googleSync.js';
 import { startFlow, claimFlow, keyringFrom } from '../repositories/oauthFlows.js';
@@ -1037,11 +1037,19 @@ integrationsRoutes.get('/projects/:projectId/integrations', async (c) => {
   const access = await projectMemberError(c, db, projectId);
   if ('error' in access) return access.error;
 
-  const [assignments, connections] = await Promise.all([
+  const [assignments, connections, account] = await Promise.all([
     listAssignments(db, projectId),
     listConnections(db, access.accountId),
+    getAccount(db, access.accountId),
   ]);
-  return c.json({ assignments, connections });
+  // The client these connections belong to, by name. The screen scopes its
+  // copy to it, so a connection made under another client cannot read as a
+  // credential failure here.
+  return c.json({
+    assignments,
+    connections,
+    account: account ? { id: account.id, name: account.name } : { id: access.accountId, name: null },
+  });
 });
 
 /**

@@ -4,6 +4,8 @@
  * the fiddly bits are verifiable in isolation.
  */
 import type {
+  IntegrationAssignment,
+  ProviderStatus,
   ProviderCatalogEntry, IntegrationConnection,
   ApiAuditRequest,
   AccountCard,
@@ -602,7 +604,7 @@ export function statusLabel(status: ActionStatus): string {
 
 /** Map an `ApiAccount` onto the multi-client grid's card (drops `createdAt` — the grid has no use for it). */
 export function toAccountCard(a: ApiAccount): AccountCard {
-  return { id: a.id, name: a.name, branding: a.branding, projects: a.projects };
+  return { id: a.id, name: a.name, branding: a.branding, projects: a.projects, connectedProviders: a.connectedProviders ?? [] };
 }
 
 /** The Fix Queue lanes, in lifecycle order (rolled_back shown as its own lane). */
@@ -620,4 +622,116 @@ export function nextAction(status: ActionStatus): { to: ActionStatus; label: str
     default:
       return null;
   }
+}
+
+/* ── Search and traffic (Pulse) ───────────────────────────────────────────── */
+
+/** "2h ago" for a timestamp; "never" for none. */
+export function relativeTime(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return 'never';
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return 'never';
+  const seconds = Math.max(0, Math.round((now - then) / 1000));
+  if (seconds < 90) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 90) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/**
+ * Change from the previous period as a fraction, or null when there is
+ * nothing to compare against. A previous value of zero has no percentage: "up
+ * from nothing" is a fact, not a ratio, and the caller says so in words.
+ */
+export function pctChange(current: number, previous: number | null | undefined): number | null {
+  if (previous === null || previous === undefined || previous === 0) return null;
+  return (current - previous) / previous;
+}
+
+/** "+12%" / "−3%" / "±0%" for a fractional change. */
+export function fmtChange(change: number): string {
+  const pct = Math.round(change * 100);
+  if (pct === 0) return '±0%';
+  return pct > 0 ? `+${pct}%` : `−${Math.abs(pct)}%`;
+}
+
+/** A 0..1 ratio as a percentage with one decimal below 10%. */
+export function fmtRatio(ratio: number): string {
+  const pct = ratio * 100;
+  return pct >= 10 || pct === 0 ? `${Math.round(pct)}%` : `${pct.toFixed(1)}%`;
+}
+
+/** An average search position, one decimal. */
+export function fmtPosition(position: number): string {
+  return position > 0 ? position.toFixed(1) : '–';
+}
+
+/**
+ * The one line under an assigned property on the Integrations screen.
+ *
+ * Row counts are gone: the review's rule is that a sync count is shown only
+ * once synced data changes a screen, and the screen it changes is Pulse. What
+ * this line answers is "is the data current, and if not, why".
+ */
+export function syncStatusLine(
+  a: Pick<IntegrationAssignment, 'lastSyncedAt' | 'lastSyncError'>,
+  now = Date.now(),
+): { text: string; tone: 'good' | 'watch' | 'muted' } {
+  const error = a.lastSyncError ? a.lastSyncError.replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+  if (error && a.lastSyncedAt) {
+    return { text: `Last sync failed. Data is from ${relativeTime(a.lastSyncedAt, now)}. ${error}`, tone: 'watch' };
+  }
+  if (error) return { text: `Sync did not finish: ${error}`, tone: 'watch' };
+  if (a.lastSyncedAt) return { text: `Synced ${relativeTime(a.lastSyncedAt, now)}`, tone: 'good' };
+  return { text: 'Not synced yet', tone: 'muted' };
+}
+
+export interface ProviderNextStep {
+  line: string;
+  /** What the button does; null when there is nothing for the customer to do but wait. */
+  action: 'integrations' | null;
+  button: string | null;
+}
+
+/**
+ * Why a Pulse panel has no data, and the one thing that changes that. The
+ * order is the order a customer works through: connect, choose a property,
+ * wait for or start a sync.
+ */
+export function providerNextStep(status: ProviderStatus, providerName: string, dataNoun: string): ProviderNextStep {
+  if (status.needsReauth) {
+    return {
+      line: `${providerName} needs to be reconnected before ${dataNoun} can update.`,
+      action: 'integrations',
+      button: 'Reconnect on Integrations',
+    };
+  }
+  if (!status.connected) {
+    return {
+      line: `Connect ${providerName} to see ${dataNoun}.`,
+      action: 'integrations',
+      button: `Connect ${providerName}`,
+    };
+  }
+  if (!status.assigned) {
+    return {
+      line: `${providerName} is connected. Choose which property this site reads from.`,
+      action: 'integrations',
+      button: 'Choose a property',
+    };
+  }
+  if (status.syncError) {
+    return {
+      line: `The last sync did not finish: ${status.syncError.slice(0, 200)}`,
+      action: 'integrations',
+      button: 'Sync again',
+    };
+  }
+  return {
+    line: `${status.resourceLabel ?? providerName} is connected. Data appears after the first sync, which runs nightly.`,
+    action: 'integrations',
+    button: 'Sync now on Integrations',
+  };
 }

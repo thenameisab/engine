@@ -338,6 +338,8 @@ export interface ApiAccount {
   branding: ApiAccountBranding;
   createdAt: string;
   projects: ApiProject[];
+  /** Provider ids with a live connection under this client. Absent from an older API deploy. */
+  connectedProviders?: ProviderId[];
 }
 
 /** The multi-client grid's view model: one card per account. */
@@ -346,6 +348,7 @@ export interface AccountCard {
   name: string;
   branding: ApiAccountBranding;
   projects: ApiProject[];
+  connectedProviders: ProviderId[];
 }
 
 /** Whether a view is showing live API data or the built-in sample. */
@@ -461,6 +464,99 @@ export interface IntegrationAssignment {
   lastSyncedAt?: string;
   lastSyncError?: string;
   lastSyncRows?: number;
+}
+
+/* ── Search and traffic (the synced Google tables, read by Pulse) ────────── */
+
+export interface Period {
+  from: string;
+  to: string;
+}
+
+export interface DailyPoint {
+  date: string;
+  value: number;
+}
+
+export interface SearchTotals {
+  clicks: number;
+  impressions: number;
+  /** 0..1 as Google reports it. */
+  ctr: number;
+  /** Impression-weighted average position. */
+  position: number;
+}
+
+export interface SearchQueryRow extends SearchTotals {
+  query: string;
+  brand: boolean;
+}
+
+export interface SearchPageRow extends SearchTotals {
+  page: string;
+}
+
+export interface SyncState {
+  resourceId: string | null;
+  syncedAt: string | null;
+  syncError: string | null;
+}
+
+export interface SearchSummary extends SyncState {
+  current: Period;
+  previous: Period;
+  hasPrevious: boolean;
+  totals: SearchTotals;
+  previousTotals: SearchTotals | null;
+  totalsSource: 'property' | 'queries';
+  dailyClicks: DailyPoint[];
+  topQueries: SearchQueryRow[];
+  withinReach: SearchQueryRow[];
+  topPages: SearchPageRow[];
+  queryCount: number;
+  pagesSynced: boolean;
+}
+
+export interface TrafficTotals {
+  sessions: number;
+  engagedSessions: number;
+  keyEvents: number;
+}
+
+export interface TrafficChannel extends TrafficTotals {
+  key: string;
+  label: string;
+}
+
+export interface AiSource extends TrafficTotals {
+  source: string;
+  classifiedBy: 'ga4' | 'engine';
+}
+
+export interface TrafficSummary extends SyncState {
+  current: Period;
+  previous: Period;
+  hasPrevious: boolean;
+  totals: TrafficTotals;
+  previousTotals: TrafficTotals | null;
+  dailySessions: DailyPoint[];
+  channels: TrafficChannel[];
+  aiAssistants: AiSource[];
+}
+
+/** Why a half of the response is null, and the one next step. */
+export interface ProviderStatus extends SyncState {
+  connected: boolean;
+  needsReauth: boolean;
+  assigned: boolean;
+  resourceLabel: string | null;
+}
+
+export interface SearchTraffic {
+  projectId: string;
+  search: SearchSummary | null;
+  traffic: TrafficSummary | null;
+  connections: { gsc: ProviderStatus; ga4: ProviderStatus };
 }
 
 export interface SyncOutcome {
