@@ -29,6 +29,14 @@ export function detectContentIssues(
   page: CrawledPage,
   entity?: EntityCoverageFacts,
 ): { issues: RawContentIssue[]; score: ExtractabilityScore | null } {
+  // An error page says nothing about the customer's content. Same silence
+  // contract as a page with nothing captured: a 403 or 404 body scores badly
+  // on every dimension, and reporting that as "weak E-E-A-T" states a fact
+  // about the site that was never measured. Root-level errors are refused
+  // outright by `crawlSite`; this covers a discovered page that 404s, which
+  // is stored on purpose so the site's own broken links stay visible.
+  if (page.statusCode < 200 || page.statusCode >= 300) return { issues: [], score: null };
+
   const score = extractabilityScore(page, entity);
   if (!score) return { issues: [], score: null };
 

@@ -59,6 +59,11 @@ export interface CrawlSiteResult {
 const DEFAULT_MAX_PAGES = 100_000;
 const DEFAULT_DELAY_MS = 250;
 
+/** 2xx only. A redirect has already been followed by the time we see a status. */
+function isSuccess(statusCode: number): boolean {
+  return statusCode >= 200 && statusCode < 300;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -180,6 +185,33 @@ export async function crawlSite(
       expectsHreflang: options.expectsHreflang?.(url),
       pageValue: options.pageValue?.(url),
     });
+    // An error page is not the site. Refuse the whole crawl when the *root*
+    // answers non-2xx, because everything downstream treats page one as the
+    // customer's homepage: B2 scores it, the health score is computed from it,
+    // and `entities.urls` records the origin that served it.
+    //
+    // Measured on 2026-09-10: tartanhq.com's apex is behind a CloudFront WAF
+    // that answers 403 to the GitHub Actions runner while answering 301 from
+    // a residential IP. The crawl stored 515 characters of "403 ERROR /
+    // Request blocked" as the homepage and reported five content findings and
+    // a health score of 45 over it — a confident wrong answer, for a day,
+    // with nothing in the row to reveal it.
+    //
+    // Thrown rather than returned: `runQueue` already turns an exception into
+    // `finish(id, { error })`, so the request lands as `failed` with this
+    // sentence attached. A failed audit is recoverable; a plausible-looking
+    // audit of an error page is not.
+    //
+    // Only the root. A discovered page that 404s is a real finding about the
+    // site's own links, so those are kept, stored with their status, and left
+    // for the rules to judge.
+    if (pages.length === 0 && !isSuccess(page.statusCode)) {
+      throw new Error(
+        `the root page ${page.url} answered ${page.statusCode}, so there is no site to audit. ` +
+          "A crawl of an error page would be scored as the customer's own content.",
+      );
+    }
+
     pages.push(page);
     // A redirect means the URL we asked for and the URL we got are different
     // strings. Both are visited now, or the root gets crawled a second time
