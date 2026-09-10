@@ -1,7 +1,8 @@
 import { el } from '../dom.js';
-import { fetchAudit, fetchDeployTarget, fetchLatestAuditRequest, proposeBatch, proposeFix, requestAudit } from '../api.js';
+import { fetchAudit, fetchDeployTarget, fetchLatestAuditRequest, proposeBatch, proposeFix } from '../api.js';
 import { askForDeployTarget } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
+import { runAuditButton } from '../runAuditButton.js';
 import type { AppContext } from '../context.js';
 import { auditRequestStatusLine, crawlCoverageLine, groupFindings, issueExplanation, manualFixReason, pagePath, screenName } from '../format.js';
 import type { ApiAuditRequest, AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
@@ -239,27 +240,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
     }, POLL_MS);
   }
 
-  function runButton(latest: ApiAuditRequest | null): HTMLElement {
-    const busy = latest?.status === 'queued' || latest?.status === 'running';
-    const btn = el('button', {
-      class: 'btn primary',
-      ...(busy ? { disabled: 'true', title: 'An audit is already queued or running' } : {}),
-      onclick: async () => {
-        btn.setAttribute('disabled', 'true');
-        btn.textContent = 'Queuing…';
-        try {
-          const { dispatched } = await requestAudit();
-          ctx.toast(dispatched ? 'Audit queued. It usually finishes within a few minutes.' : 'Audit queued for the next scheduled pass.');
-          await load();
-        } catch (err) {
-          ctx.toast(readableError(err));
-          btn.removeAttribute('disabled');
-          btn.textContent = 'Run audit';
-        }
-      },
-    }, ['Run audit']);
-    return btn;
-  }
+  const runButton = (latest: ApiAuditRequest | null): HTMLElement => runAuditButton(ctx, latest, load);
 
   function render(data: AuditData | null, loadError: string | null, target: DeployTarget | null, latest: ApiAuditRequest | null): void {
     schedulePoll(latest);

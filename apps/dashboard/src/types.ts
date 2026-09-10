@@ -139,6 +139,12 @@ export interface ApiAuditRequest {
   id: string;
   projectId: string;
   status: 'queued' | 'running' | 'done' | 'failed';
+  /**
+   * The address the crawl was asked for. The route has always returned it —
+   * the whole `AuditRequest` row goes out — but nothing declared it, so Home
+   * could not name the site it is crawling.
+   */
+  rootUrl: string;
   maxPages: number;
   error: string | null;
   auditRunId: string | null;
