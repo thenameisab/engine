@@ -40,7 +40,18 @@ export function createLlmConnectors(env: EnvRecord): LlmEngineConnector[] {
     connectors.push(new GeminiConnector({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL }));
   }
   if (env.SARVAM_API_KEY) {
-    connectors.push(new SarvamConnector({ apiKey: env.SARVAM_API_KEY, model: env.SARVAM_MODEL }));
+    // Each Sarvam model carries its own vendor ceiling: the conversational
+    // model refuses a 16,000-token budget outright (400, not a truncated
+    // answer). The ceiling travels with the model choice, as it does for the
+    // streaming connector below.
+    const choice = env.SARVAM_MODEL ? llmModelChoice(env.SARVAM_MODEL) : undefined;
+    connectors.push(
+      new SarvamConnector({
+        apiKey: env.SARVAM_API_KEY,
+        model: env.SARVAM_MODEL,
+        ...(choice ? { maxTokens: choice.maxTokens } : {}),
+      }),
+    );
   }
   return connectors;
 }

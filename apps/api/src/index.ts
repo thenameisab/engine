@@ -72,6 +72,9 @@ import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_P
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
 import { parseAllowedEmails } from './middleware/auth.js';
 import { createEmailSender, type EmailEnv } from './email.js';
+import { shareOfVoice } from './repositories/answerMentions.js';
+import { effectiveCadenceForAccount } from './repositories/accountCadence.js';
+import { queueDueCrawls } from './repositories/crawlSchedule.js';
 import { createLoginCode, verifyLoginCode, LOGIN_CODE_TTL_SECONDS } from './repositories/loginCodes.js';
 import { firstRefusal, recordAttempt, type RateLimit } from './repositories/authAttempts.js';
 import {
@@ -95,6 +98,10 @@ import {
   AI_VISIBILITY_LOOKBACK_DAYS,
   MAX_PROMPTS_PER_ENTITY,
   MAX_PROMPT_LENGTH,
+  AI_POLL_MODEL,
+  aiPollConnectorEnv,
+  mineStoredSamples,
+  pickExtractor,
 } from './repositories/aiPoll.js';
 import { isPlatformAdmin, getPlatformClientStatus } from './repositories/platformCredentials.js';
 import {
@@ -772,7 +779,7 @@ app.post('/projects/:projectId/rank/poll', async (c) => {
  * stored rows, in @engine/scoring via the pulse rollup.
  */
 app.post('/projects/:projectId/ai/poll', async (c) => {
-  const connectors = createLlmConnectors(c.env as unknown as Record<string, string | undefined>);
+  const connectors = createLlmConnectors(aiPollConnectorEnv(c.env as unknown as Record<string, string | undefined>));
   if (connectors.length === 0) {
     // The variable names belong in the Worker log, where the operator reads
     // them, not in a message a customer sees as a toast.
@@ -794,7 +801,14 @@ app.post('/projects/:projectId/ai/poll', async (c) => {
 
   const nSamples = Math.min(Math.max(body.nSamples ?? 3, 1), 5); // A2 n=3–5
   const results = await Promise.all(connectors.map((engine) => engine.poll(body.query, nSamples)));
-  await insertCitationEvents(db, results);
+  const stored = await insertCitationEvents(db, results);
+  // Same mining pass as the scheduled poll, so a manual poll's samples carry
+  // their mentions too. Best effort: the samples are already stored.
+  try {
+    await mineStoredSamples(db, projectId, stored, pickExtractor(connectors));
+  } catch (err) {
+    console.error('mention mining failed', err);
+  }
   return c.json({ projectId, engines: connectors.map((e) => e.engine), results });
 });
 
@@ -824,7 +838,7 @@ app.get('/projects/:projectId/ai/models', async (c) => {
   return c.json({
     models: configured ? LLM_MODEL_CHOICES : [],
     defaultModel: DEFAULT_LLM_MODEL_ID,
-    pollModel: (c.env as unknown as Record<string, string | undefined>).SARVAM_MODEL ?? DEFAULT_LLM_MODEL_ID,
+    pollModel: (c.env as unknown as Record<string, string | undefined>).SARVAM_MODEL ?? AI_POLL_MODEL,
   });
 });
 
@@ -1154,7 +1168,11 @@ app.post('/projects/:projectId/entities/:entityId/keywords', async (c) => {
     );
   }
 
-  const config = await createKeywordConfig(db, entityId, body);
+  // A new keyword inherits the account's rank-poll cadence (issue 10) unless
+  // the caller named one; the account policy sets the default, it does not
+  // replace a per-keyword choice.
+  const cadence = body.cadence ?? (await effectiveCadenceForAccount(db, accountId)).policy.rankPoll;
+  const config = await createKeywordConfig(db, entityId, { ...body, cadence });
   return c.json({ config }, 201);
 });
 
@@ -1606,6 +1624,29 @@ app.get('/projects/:projectId/entities/:entityId/ai-visibility', async (c) => {
       byDomain: split.reduce((n, e) => n + (e.citedByDomain ?? 0), 0),
     },
   });
+});
+
+/**
+ * Who gets named instead of you (issue 17): how often each brand is named
+ * across the same samples the cited share is measured over, per prompt and
+ * overall, as Wilson bands.
+ *
+ * `minedSamples` against `samples` is the honesty line: a sample stored
+ * before migration 0034 kept no answer text, so it has no mentions and is
+ * excluded from every share. A window that is mostly unmined says so here
+ * rather than reporting every rival as rarely named.
+ */
+app.get('/projects/:projectId/entities/:entityId/share-of-voice', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const entity = await getEntityInProject(db, projectId, c.req.param('entityId'));
+  if (!entity) return c.json({ error: 'entity not found' }, 404);
+
+  const share = await shareOfVoice(db, entity.id, AI_VISIBILITY_LOOKBACK_DAYS);
+  return c.json({ entityId: entity.id, ...share });
 });
 
 /**
@@ -2995,6 +3036,22 @@ app.delete('/accounts/:accountId/invitations/:invitationId', async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * The rhythm this account runs on (issue 10): each cadence with where it came
+ * from, the plan default or an administrator's override. Read-only for
+ * members; overrides are set from the platform screen.
+ */
+app.get('/accounts/:accountId/cadence', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  if (!(await isAccountMember(db, accountId, c.get('user').id))) {
+    return c.json({ error: 'you are not a member of this account', accountId }, 403);
+  }
+  return c.json({ accountId, ...(await effectiveCadenceForAccount(db, accountId)) });
+});
+
 app.patch('/accounts/:accountId/branding', async (c) => {
   const accountId = c.req.param('accountId');
   const invalidId = checkUuidParam(accountId, 'accountId');
@@ -3245,6 +3302,36 @@ async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionCo
   }
   await scheduledGoogleSync(env);
   await scheduledDeterministicAudits(env);
+  await scheduledCrawlQueue(env);
+}
+
+/**
+ * The nightly crawl scheduler (issue 10). Puts an audit request in the queue
+ * for every project whose crawl cadence is due, then dispatches the runner
+ * once so they do not wait for its fifteen-minute schedule. `on_demand`
+ * accounts are never queued.
+ */
+async function scheduledCrawlQueue(env: Env): Promise<void> {
+  const db = createDb(env.DATABASE_URL);
+  try {
+    const summary = await queueDueCrawls(db, AUDIT_REQUEST_MAX_PAGES_DEFAULT);
+    if (summary.attempted === 0) {
+      console.log('scheduled crawls: nothing was due');
+      return;
+    }
+    console.log(
+      `scheduled crawls: ${summary.queued.length} queued, ${summary.alreadyQueued} already live` +
+        (summary.failed.length > 0
+          ? `; failures: ${summary.failed.map((f) => `${f.projectId}: ${f.error}`).join(' | ')}`
+          : ''),
+    );
+    if (summary.queued.length > 0) {
+      const dispatch = await dispatchCrawlWorkflow(env);
+      if (!dispatch.dispatched) console.warn(`scheduled crawls queued without dispatch: ${dispatch.reason}`);
+    }
+  } catch (error) {
+    console.error(`scheduled crawls failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 // Only handlers may be named exports of a Worker's entry module: the runtime

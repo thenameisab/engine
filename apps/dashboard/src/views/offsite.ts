@@ -8,6 +8,7 @@ import {
   fetchAiVisibility,
   fetchAiModels,
   streamAi,
+  fetchShareOfVoice,
 } from '../api.js';
 import { modelPicker } from '../modelPicker.js';
 import { readableError } from '../errors.js';
@@ -20,6 +21,8 @@ import type {
   EngineCitedShare,
   EntityPrompts,
   AiModels,
+  ShareOfVoice,
+  BrandShare,
 } from '../types.js';
 
 /**
@@ -167,6 +170,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   const runBtn = el('button', { class: 'btn' }, ['Run off-site audit']);
 
   const sharePanel = el('section', { class: 'panel' });
+  const voicePanel = el('section', { class: 'panel' });
   const promptPanel = el('section', { class: 'panel' });
   const tryPanel = el('section', { class: 'panel' });
   const leadWrap = el('section', { class: 'panel off-lead' });
@@ -199,6 +203,76 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
           ])
         : el('div', { class: 'ai-engs' }, v.engines.map((e) => engineRow(e, models))),
     );
+  }
+
+  // ---------------------------------------------------------------- panel 1b
+  /**
+   * Who gets named instead of you. The question the opportunity panel below
+   * was always trying to answer, asked of the thing this engine does produce:
+   * answers name companies, they do not cite sources. Every brand named across
+   * the same samples, as a band, with the customer's own brand marked.
+   */
+  let voice: ShareOfVoice | null = null;
+
+  function brandRow(b: BrandShare): HTMLElement {
+    return el('div', { class: 'ai-eng' }, [
+      el('div', { class: 'ai-eng-main' }, [
+        el('div', { class: 't' }, [
+          b.brand,
+          b.isSelf
+            ? el('span', { class: 'ai-eng-model num' }, ['you'])
+            : b.matchedEntityId
+              ? el('span', { class: 'ai-eng-model num' }, ['tracked competitor'])
+              : el('span', { class: 'ai-eng-model num' }, ['not tracked']),
+        ]),
+        el('div', { class: 'm num' }, [`named in ${b.named} of ${b.samples} answer${b.samples === 1 ? '' : 's'}`]),
+      ]),
+      el('div', { class: 'ai-eng-band' }, [
+        el('div', { class: 'ai-eng-pt num' }, [pct(b.band.point)]),
+        el('div', { class: 'ai-eng-rng num' }, [`${pct(b.band.low)}–${pct(b.band.high)} range`]),
+      ]),
+    ]);
+  }
+
+  function renderVoice(): void {
+    const header = el('header', {}, [
+      el('h3', {}, ['Who gets named instead of you']),
+      voice ? el('span', { class: 'num muted' }, [`last ${voice.lookbackDays} days`]) : null,
+    ].filter(Boolean) as HTMLElement[]);
+    if (!voice) {
+      voicePanel.replaceChildren(header, el('div', { class: 'errbox' }, ['Could not load share of voice for this brand.']));
+      return;
+    }
+    const v = voice;
+    let body: HTMLElement;
+    if (v.samples === 0) {
+      body = el('div', { class: 'fq-note' }, ['Nothing sampled yet. Share of voice is counted over the same answers as the cited share above.']);
+    } else if (v.minedSamples === 0) {
+      body = el('div', { class: 'fq-note' }, [
+        `${v.samples} answer${v.samples === 1 ? '' : 's'} stored, none with its text kept — answers sampled before 2026-09-10 were not stored, so there is nothing to mine. The next poll fills this in.`,
+      ]);
+    } else {
+      body = el('div', {}, [
+        el('div', { class: 'fq-note' }, [
+          `Over ${v.minedSamples} of ${v.samples} stored answers` +
+            (v.minedSamples < v.samples ? ` (the rest were sampled before answers were kept)` : '') +
+            '. A brand named once in three answers shows as 33% with a wide range, because that is all three samples can say.',
+        ]),
+        v.brands.length === 0
+          ? el('div', { class: 'fq-note' }, ['No company was named in any mined answer.'])
+          : el('div', { class: 'ai-engs' }, v.brands.slice(0, 12).map(brandRow)),
+      ]);
+    }
+    voicePanel.replaceChildren(header, body);
+  }
+
+  async function loadVoice(): Promise<void> {
+    try {
+      voice = await fetchShareOfVoice(selfSelect.value);
+    } catch {
+      voice = null;
+    }
+    renderVoice();
   }
 
   // ---------------------------------------------------------------- panel 2
@@ -549,7 +623,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
 
     // Opportunities second: its empty state reads the source coverage that
     // visibility just supplied to decide which one is the true one.
-    await Promise.all([loadBank(), loadOpps()]);
+    await Promise.all([loadBank(), loadOpps(), loadVoice()]);
     renderTry();
   }
 
@@ -579,7 +653,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
     lastRunLine,
     el('div', { class: 'ci-controls' }, [el('label', { class: 'ci-lbl' }, ['Brand', selfSelect]), runBtn]),
   );
-  root.append(head, sharePanel, promptPanel, tryPanel, leadWrap);
+  root.append(head, sharePanel, voicePanel, promptPanel, tryPanel, leadWrap);
 
   await loadAll();
   return root;

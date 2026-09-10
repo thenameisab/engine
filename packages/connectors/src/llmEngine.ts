@@ -52,8 +52,28 @@ export interface CitationEvent {
 
 export interface LlmAnswerSample {
   rawAnswerRef: string; // pointer into R2/Parquet raw lake, 24-mo retention
+  /**
+   * The answer, verbatim. Kept because `rawAnswerRef` never pointed anywhere:
+   * the raw lake was not built, every sink returns a synthetic ref, and until
+   * this field existed nothing recorded what the model said. Brand-name
+   * mining (issue 17) runs over this text.
+   */
+  answerText: string;
   citation: CitationEvent;
   sampledAt: string;
+}
+
+/**
+ * A single completion with no sampling and no citation logic — what the
+ * brand-name extraction pass needs. Optional on a connector because only the
+ * engine this deployment pays for needs to offer it.
+ */
+export interface LlmCompleter {
+  complete(prompt: string, opts?: { maxTokens?: number }): Promise<string>;
+}
+
+export function isLlmCompleter(value: unknown): value is LlmCompleter {
+  return typeof (value as LlmCompleter | null)?.complete === 'function';
 }
 
 export interface LlmAnswerResult {

@@ -31,6 +31,12 @@ describe.skipIf(!url)('AI poll (Postgres)', () => {
       insert into accounts (name) values ('ai-test ' || gen_random_uuid()::text) returning id
     `;
     accountId = account.id;
+    // A paid tier, so the weekly window the tests below assume applies. The
+    // free tier polls monthly (issue 10); its own case is at the end.
+    await db`
+      insert into subscriptions (account_id, plan_tier, status, stripe_customer_id)
+      values (${accountId}, 'starter', 'active', ${'cus_ai_' + accountId})
+    `;
     const [project] = await db<{ id: string }[]>`
       insert into projects (account_id, name, domain)
       values (${accountId}, 'ai test', 'ai-test.example') returning id
@@ -119,6 +125,27 @@ describe.skipIf(!url)('AI poll (Postgres)', () => {
       await setEntityPrompts(db, projectId, entityId, ['sampled one', 'never sampled']);
       await sample('sampled one', { cited: true, daysAgo: 1 });
       expect(await dueHere()).toEqual(['never sampled']);
+    });
+
+    it('waits a month on the free tier, and a week again when an administrator overrides it', async () => {
+      await setEntityPrompts(db, projectId, entityId, ['free prompt']);
+      await sample('free prompt', { cited: false, daysAgo: 10 });
+      // Paid: ten days is past the weekly window.
+      expect(await dueHere()).toEqual(['free prompt']);
+      // Drop to free: ten days is inside the monthly window.
+      await db`delete from subscriptions where account_id = ${accountId}`;
+      try {
+        expect(await dueHere()).toEqual([]);
+        // An override back to weekly makes it due again without a plan change.
+        await db`insert into account_cadence (account_id, ai_poll) values (${accountId}, 'weekly')`;
+        expect(await dueHere()).toEqual(['free prompt']);
+      } finally {
+        await db`delete from account_cadence where account_id = ${accountId}`;
+        await db`
+          insert into subscriptions (account_id, plan_tier, status, stripe_customer_id)
+          values (${accountId}, 'starter', 'active', ${'cus_ai_' + accountId})
+        `;
+      }
     });
 
     it('ignores an entity with an empty bank', async () => {

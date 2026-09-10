@@ -84,6 +84,7 @@ export class GeminiConnector implements LlmEngineConnector {
     const rawAnswerRef = await this.rawSink(query, raw);
     return {
       rawAnswerRef,
+      answerText: text,
       citation: buildCitationEvent(text, sources, query.citationTargets),
       sampledAt: this.now().toISOString(),
     };

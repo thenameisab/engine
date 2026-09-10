@@ -536,6 +536,26 @@ export function checkInvitationBody(body: unknown): Invalid | null {
   );
 }
 
+/** `PUT /platform/accounts/:accountId/cadence` — each field an allowed value or null (clear the override). */
+export function checkCadenceBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  const allowed: Record<string, string[]> = {
+    rankPoll: ['daily', 'weekly'],
+    aiPoll: ['weekly', 'monthly'],
+    crawl: ['weekly', 'monthly', 'on_demand'],
+  };
+  for (const [field, values] of Object.entries(allowed)) {
+    const v = b[field];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string' || !values.includes(v)) {
+      return { field, message: `expected one of ${values.join(', ')} or null` };
+    }
+  }
+  return null;
+}
+
 // ── M2.5 agency white-label (POST /accounts, POST /accounts/:id/projects,
 // PATCH /accounts/:id/branding) ─────────────────────────────────────────────
 

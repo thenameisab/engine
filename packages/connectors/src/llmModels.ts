@@ -78,12 +78,14 @@ export const LLM_MODEL_CHOICES: readonly LlmModelChoice[] = [
 /**
  * The model used when the caller names none.
  *
- * The reasoning model rather than the faster-to-start one, so that a live
- * "try a prompt" answer comes from the same model the weekly poll measures.
- * A picker that defaulted to a different model would show a customer an
- * answer that their stored citation band was never based on.
+ * The conversational model, because it is the one the scheduled poll measures
+ * with (`AI_POLL_MODEL` in apps/api, decided 2026-09-10: across three category
+ * prompts it named companies in all three where the reasoning model named one
+ * in one). A live "try a prompt" answer should come from the same instrument
+ * as the stored band, or the picker shows a customer an answer their band was
+ * never based on.
  */
-export const DEFAULT_LLM_MODEL_ID = 'sarvam-105b';
+export const DEFAULT_LLM_MODEL_ID = 'sarvam-105b-conversations';
 
 export function isKnownLlmModel(id: string): boolean {
   return LLM_MODEL_CHOICES.some((m) => m.id === id);

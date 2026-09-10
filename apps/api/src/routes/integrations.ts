@@ -47,6 +47,8 @@ import { GoogleApiError } from '@engine/connectors';
 import '../repositories/googleListers.js';
 import { signOAuthState, verifyOAuthState } from '@engine/auth';
 import { createDb, type Db } from '../db.js';
+import { listAccountCadences, setCadenceOverride, effectiveCadenceForAccount } from '../repositories/accountCadence.js';
+import { checkCadenceBody } from '../validate.js';
 import type { AuthEnv, AuthUser } from '../middleware/auth.js';
 import { getAccountRole, upsertUser, getProjectAccountId, isAccountMember, getAccount } from '../repositories/accounts.js';
 import { markGscConnected } from '../repositories/onboarding.js';
@@ -1366,6 +1368,47 @@ integrationsRoutes.delete('/platform/oauth-clients/:vendor', async (c) => {
   const removed = await clearPlatformClient(db, vendor, user.id);
   if (!removed) return c.json({ error: `${vendor} is not configured`, vendor }, 404);
   return c.json({ cleared: true, vendor });
+});
+
+/* ── Cadence policy (issue 10) ──────────────────────────────────────────── */
+
+/** Every account with its effective cadence and any override — the administrator's panel. */
+integrationsRoutes.get('/platform/accounts/cadence', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
+  if ('error' in guard) return guard.error;
+  return c.json({ accounts: await listAccountCadences(db) });
+});
+
+/**
+ * Override an account's cadence. Each field is a value or null; null clears
+ * that override back to the plan default, and clearing all three removes the
+ * row. The effective policy is returned so the panel repaints from the truth.
+ */
+integrationsRoutes.put('/platform/accounts/:accountId/cadence', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
+  if ('error' in guard) return guard.error;
+
+  const accountId = c.req.param('accountId');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(accountId)) {
+    return c.json({ error: 'accountId must be a uuid', field: 'accountId' }, 400);
+  }
+  const raw = await c.req.json<unknown>().catch(() => null);
+  const invalid = checkCadenceBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { rankPoll?: 'daily' | 'weekly' | null; aiPoll?: 'weekly' | 'monthly' | null; crawl?: 'weekly' | 'monthly' | 'on_demand' | null };
+
+  const exists = await db<{ id: string }[]>`select id from accounts where id = ${accountId}`;
+  if (exists.length === 0) return c.json({ error: 'account not found', accountId }, 404);
+
+  const override = await setCadenceOverride(
+    db,
+    accountId,
+    { rankPoll: body.rankPoll ?? null, aiPoll: body.aiPoll ?? null, crawl: body.crawl ?? null },
+    c.get('user').id,
+  );
+  return c.json({ accountId, override, ...(await effectiveCadenceForAccount(db, accountId)) });
 });
 
 /* ── Users and platform roles ───────────────────────────────────────────── */

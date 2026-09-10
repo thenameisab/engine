@@ -699,6 +699,50 @@ export interface EngineCitedShare {
   lastSampledAt: string;
 }
 
+/** One brand's share of voice over the mined samples, as a band. */
+export interface BrandShare {
+  brand: string;
+  isSelf: boolean;
+  matchedEntityId: string | null;
+  named: number;
+  samples: number;
+  band: { low: number; point: number; high: number };
+}
+
+export interface ShareOfVoice {
+  entityId: string;
+  lookbackDays: number;
+  /** Samples in the window that kept their answer text and so could be mined. */
+  minedSamples: number;
+  samples: number;
+  prompts: { prompt: string; samples: number; brands: BrandShare[] }[];
+  brands: BrandShare[];
+}
+
+export type RankPollCadence = 'daily' | 'weekly';
+export type AiPollCadence = 'weekly' | 'monthly';
+export type CrawlCadence = 'weekly' | 'monthly' | 'on_demand';
+export type CadenceSource = 'override' | 'plan-default';
+
+export interface EffectiveCadence {
+  tier: string;
+  policy: { rankPoll: RankPollCadence; aiPoll: AiPollCadence; crawl: CrawlCadence };
+  source: { rankPoll: CadenceSource; aiPoll: CadenceSource; crawl: CadenceSource };
+}
+
+export interface CadenceOverride {
+  rankPoll: RankPollCadence | null;
+  aiPoll: AiPollCadence | null;
+  crawl: CrawlCadence | null;
+}
+
+export interface AccountCadenceRow {
+  accountId: string;
+  name: string;
+  effective: EffectiveCadence;
+  override: CadenceOverride | null;
+}
+
 export interface AiVisibility {
   entityId: string;
   promptsTracked: number;
