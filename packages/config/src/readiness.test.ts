@@ -36,7 +36,6 @@ describe('evaluateIntegration', () => {
       'ENCRYPTION_KEY',
       'GOOGLE_CLIENT_SECRET',
       'GOOGLE_REDIRECT_URI',
-      'OAUTH_STATE_SECRET',
     ]);
   });
 
@@ -51,7 +50,31 @@ describe('evaluateIntegration', () => {
       GOOGLE_REDIRECT_URI: 'https://api.example/oauth/google/callback',
     });
     expect(r.status).toBe('partial');
-    expect(r.missing.map((m) => m.name).sort()).toEqual(['ENCRYPTION_KEY', 'OAUTH_STATE_SECRET']);
+    expect(r.missing.map((m) => m.name).sort()).toEqual(['ENCRYPTION_KEY']);
+  });
+
+  /**
+   * `OAUTH_STATE_SECRET` is an override, not a requirement. Since #82 the
+   * secret is generated and stored sealed in `platform_credentials` on first
+   * use (`ensureStateSecret`), so demanding the variable reported a gap that
+   * did not exist and held `mvpReady` false on a deployment that was ready.
+   */
+  it('does not require OAUTH_STATE_SECRET, and counts it as optional when set', () => {
+    const google = getIntegration('google-integrations')!;
+    const withoutIt = {
+      GOOGLE_CLIENT_ID: 'x.apps.googleusercontent.com',
+      GOOGLE_CLIENT_SECRET: 'GOCSPX-x',
+      GOOGLE_REDIRECT_URI: 'https://api.example/oauth/google/callback',
+      ENCRYPTION_KEY: 'a'.repeat(44),
+    };
+    const r = evaluateIntegration(google, withoutIt);
+    expect(r.status).toBe('configured');
+    expect(r.missing).toEqual([]);
+    expect(r.optionalPresent).not.toContain('OAUTH_STATE_SECRET');
+
+    const pinned = evaluateIntegration(google, { ...withoutIt, OAUTH_STATE_SECRET: 'pinned' });
+    expect(pinned.status).toBe('configured');
+    expect(pinned.optionalPresent).toContain('OAUTH_STATE_SECRET');
   });
 
   it('treats blank/whitespace values as absent', () => {

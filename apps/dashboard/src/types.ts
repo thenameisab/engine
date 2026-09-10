@@ -423,6 +423,13 @@ export interface ProviderCatalogEntry {
   requiredApis: string[];
   /** True when the vendor gates the API behind an access request, not just a toggle. */
   requiresAccessRequest: boolean;
+  /**
+   * True when connecting changes nothing yet — the credential verifies and a
+   * resource can be assigned, and nothing reads or writes it. Optional because
+   * a Pages build and a Worker deploy are never updated in the same instant,
+   * so an older API that does not send it must not render the badge.
+   */
+  syncsNothingYet?: boolean;
   writes: boolean;
   /** Brand domain for the logo. */
   logoDomain: string;

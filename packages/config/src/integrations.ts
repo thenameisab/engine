@@ -208,9 +208,9 @@ export const INTEGRATIONS: IntegrationDef[] = [
       {
         name: 'OAUTH_STATE_SECRET',
         description:
-          'Signs the OAuth `state` parameter. Without it the callback cannot tell which account a consent belongs to, and refuses to run.',
+          'Signs the OAuth `state` parameter. An override only: since #82 the secret is generated and stored sealed in `platform_credentials` on first use (`ensureStateSecret`), so a deployment that never sets this still signs state. Set it to pin the value explicitly, and it wins.',
         secret: true,
-        required: true,
+        required: false,
         example: 'a-long-random-string',
       },
       {

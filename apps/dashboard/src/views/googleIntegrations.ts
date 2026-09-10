@@ -279,6 +279,26 @@ function providerBadges(entry: ProviderCatalogEntry): HTMLElement[] {
       }),
     );
   }
+  if (entry.syncsNothingYet) {
+    // The #86 defect, in a second place: a screen that shows nothing reads as
+    // "you have no data" when it means "we never fetched any". Said here,
+    // before connecting, rather than left to be inferred from an empty panel.
+    //
+    // Driven by the registry flag and not by provider id, because two
+    // providers are in this position and they fail in opposite directions —
+    // Bing promises reads it never performs, Cloudflare promises edge writes
+    // that no deploy target performs. One sentence covers both.
+    badges.push(
+      badge('Not in use yet', 'warn', `What connecting ${entry.name} does today`, {
+        title: 'Connecting this changes nothing yet',
+        body: [
+          `Engine verifies the credential and lets you assign a ${entry.resourceNoun}, and stops there. Nothing reads from ${entry.name} and nothing writes to it.`,
+          'So no figure on Pulse and no fix in the queue will come from this connection. It is stored ready for the day that ships.',
+        ],
+        link: entry.docsUrl ? { href: entry.docsUrl, label: 'Provider documentation' } : undefined,
+      }),
+    );
+  }
   if (entry.writes) {
     badges.push(
       badge('Grants write access', '', `What ${entry.name} can change`, {

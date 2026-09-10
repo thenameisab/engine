@@ -158,6 +158,7 @@ export const PROVIDERS: IntegrationProvider[] = [
     resourceNoun: 'site',
     resourceScope: 'project',
     writes: false,
+    syncsNothingYet: true,
     docsUrl: 'https://learn.microsoft.com/en-us/bingwebmaster/getting-access',
   },
   {
@@ -389,6 +390,11 @@ export const PROVIDERS: IntegrationProvider[] = [
     resourceNoun: 'zone',
     resourceScope: 'project',
     writes: true,
+    // Same position as Bing, in the other direction. The zone lister exists
+    // (`registerLister('cloudflare')`), but no `DeployTarget` kind reads this
+    // connection: 'edge-worker' is Engine's own Worker reading the database,
+    // not the customer's zone via their token.
+    syncsNothingYet: true,
     docsUrl: 'https://developers.cloudflare.com/fundamentals/api/get-started/create-token/',
   },
   {

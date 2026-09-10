@@ -221,6 +221,20 @@ export interface IntegrationProvider {
    * human request is approved — weeks later.
    */
   requiresAccessRequest?: boolean;
+  /**
+   * True when connecting this provider changes nothing yet: the credential is
+   * verified and a resource can be assigned, and there the path stops — no
+   * sync reads from it and no deploy target writes to it.
+   *
+   * Set per provider rather than inferred, because "no sync" is not the same
+   * as "no consumer". Serper has no sync either, and its key is consumed by
+   * `resolveSerpKey` on every rank poll; the GitHub App has no sync and is
+   * consumed by the 'github-pr' deploy target. These two have neither.
+   *
+   * Cleared when the consumer ships (Bing sync is deferred to customer
+   * demand; see docs/reviews/2026-09-10-action-plan.md).
+   */
+  syncsNothingYet?: boolean;
   /** Vendor documentation, linked from the connect UI. */
   docsUrl?: string;
 }
