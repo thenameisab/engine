@@ -940,6 +940,32 @@ select.field { cursor: pointer; }
 
 /* M2.5 agency white-label: Clients grid, branding settings, branded report */
 .pagehead .btn { margin-top: 10px; }
+/* Findings overview strip: health, the severity split, pages, fixable. It
+   replaced a sentence carrying the same numbers — a reader had to parse prose
+   to answer "how bad is it, and where do I start". Baseline-aligned so the
+   four values read as one row of numbers rather than four small cards. */
+.fstrip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; margin-top: 12px; }
+.fstrip-score { display: flex; align-items: baseline; gap: 9px; }
+.fstrip-score-v { font-size: var(--t-2xl); font-weight: 600; line-height: 1; letter-spacing: -.02em; }
+.fstrip-score-v.good { color: var(--good); }
+.fstrip-score-v.watch { color: var(--watch); }
+.fstrip-score-v.risk { color: var(--risk); }
+.fstrip-stat { display: flex; align-items: baseline; gap: 7px; }
+.fstrip-v { font-size: var(--t-lg); font-weight: 600; line-height: 1; }
+.fstrip-k { font-size: var(--t-sm); font-weight: 550; color: var(--text-muted); }
+/* Not links, unlike Home's counts: this screen is already the destination
+   those point at, so a link here would go nowhere. */
+.fstrip-sevs { display: flex; align-items: center; gap: 8px; }
+.fstrip-sev { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.fstrip-sev .num { font-size: var(--t-sm); font-weight: 600; }
+/* Under 560 px the three chips take the row on their own and share it evenly,
+   the same behaviour Home's counts have at that width. */
+@media (max-width: 560px) {
+  .fstrip { gap: 12px 18px; }
+  .fstrip-sevs { width: 100%; }
+  .fstrip-sev { flex: 1; justify-content: center; }
+}
+
 .audit-status { font-size: var(--t-sm); margin-top: 6px; color: var(--text-muted); }
 .audit-status.watch { color: var(--watch); }
 .audit-status.risk { color: var(--risk); }
@@ -1040,6 +1066,14 @@ select.field { cursor: pointer; }
 /* Integrations: which client these connections belong to */
 .intg-scope { grid-column: 1 / -1; font-size: var(--t-sm); color: var(--text-muted); margin: -4px 0 2px; }
 .intg-scope b { color: var(--text); font-weight: 600; }
+/* The planned providers, behind one disclosure. Both span every column: the
+   gallery is an `auto-fill` grid, so without this the toggle would take one
+   cell and the nested grid would sit beside a tile rather than under the row.
+   A separator above it, because the disclosure ends the list of tiles that do
+   something today. */
+.intg-planned-toggle { grid-column: 1 / -1; justify-self: start; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--border); width: 100%; text-align: left; }
+.intg-planned-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+
 .intg-status-line.watch { color: var(--watch); }
 .intg-status-line.good { color: var(--good); }
 .intg-status-line.muted { color: var(--text-faint); }

@@ -4,7 +4,7 @@ import { askForDeployTarget } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import { runAuditButton } from '../runAuditButton.js';
 import type { AppContext } from '../context.js';
-import { auditRequestStatusLine, crawlCoverageLine, groupFindings, issueExplanation, manualFixReason, pagePath, screenName } from '../format.js';
+import { auditRequestStatusLine, crawlCoverageLine, groupFindings, healthBand, issueExplanation, manualFixReason, pagePath, screenName, severityCounts } from '../format.js';
 import type { ApiAuditRequest, AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
 
 /**
@@ -174,28 +174,58 @@ function issueCount(rows: FindingRow[]): string {
 }
 
 /**
- * The header line. Every part is conditional because every part can legitimately
- * be absent: a project that has never been crawled has no health score, and
- * saying "Health score 100" — or 72, as the sample data did — describes a site
- * nobody has looked at.
+ * The overview strip: health, the severity split, pages, and how many findings
+ * a fix can be generated for.
+ *
+ * It replaced a sentence. The sentence carried the same four numbers, but a
+ * reader had to parse prose to answer the one question this screen exists for
+ * — how bad is it, and where do I start — and it left out the severity split
+ * entirely, so the counts existed only on Home. `severityCounts` is the same
+ * function Home's health block calls, so the two screens cannot disagree.
+ *
+ * Every part is conditional because every part can legitimately be absent: a
+ * project that has never been crawled has no health score, and saying "Health
+ * score 100" — or 72, as the sample data did — describes a site nobody has
+ * looked at.
  */
-function summary(d: AuditData): HTMLElement {
+function overviewStrip(d: AuditData): HTMLElement {
   if (d.healthScore === null) {
     return el('p', {}, ['No audit has run for this project yet.']);
   }
-  const pages = d.pagesAudited === 1 ? '1 page' : `${d.pagesAudited} pages`;
-  const line = el('p', {
-    html:
-      `Health score <b>${d.healthScore}</b> across ${pages} · ` +
-      `<b>${d.autoFixableCount}</b> of <b>${d.findings.length}</b> findings map to a one-click fix.`,
-  });
+  const counts = severityCounts(d.findings);
+  const band = healthBand(d.healthScore);
+
+  // A count of zero stays on the strip. Dropping it would make the strip
+  // change shape between visits, and "0 high" is the answer a customer most
+  // wants to read.
+  const severity = (key: 'high' | 'medium' | 'low') =>
+    el('div', { class: 'fstrip-sev' }, [
+      el('span', { class: `sev ${key}` }, [key]),
+      el('span', { class: 'num' }, [String(counts[key])]),
+    ]);
+
+  const stat = (value: string, label: string) =>
+    el('div', { class: 'fstrip-stat' }, [
+      el('span', { class: 'fstrip-v num' }, [value]),
+      el('span', { class: 'fstrip-k' }, [label]),
+    ]);
+
+  const strip = el('div', { class: 'fstrip' }, [
+    el('div', { class: 'fstrip-score' }, [
+      el('span', { class: `fstrip-score-v num ${band ?? ''}` }, [String(d.healthScore)]),
+      el('span', { class: 'fstrip-k' }, ['Site health']),
+    ]),
+    el('div', { class: 'fstrip-sevs' }, [severity('high'), severity('medium'), severity('low')]),
+    stat(String(d.pagesAudited), d.pagesAudited === 1 ? 'page audited' : 'pages audited'),
+    stat(`${d.autoFixableCount}/${d.findings.length}`, 'one-click fixable'),
+  ]);
 
   // What the crawl could reach, beneath what it found. A thin finding list
   // reads as "nearly clean" unless the screen says how little was looked at.
   const cov = crawlCoverageLine(d.pagesAudited, d.coverage);
-  if (!cov) return line;
+  if (!cov) return strip;
   return el('div', {}, [
-    line,
+    strip,
     el('p', { class: 'coverage' }, [cov.text]),
     ...(cov.warning ? [el('p', { class: 'coverage warn' }, [cov.warning])] : []),
   ]);
@@ -225,7 +255,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
     } catch (err) {
       // Same rule as the Fix Queue: an unreachable API is not an empty audit, and
       // this view will not invent findings to paper over the difference.
-      loadError = (err as Error).message;
+      loadError = readableError(err);
     }
     render(data, loadError, target, latest);
   }
@@ -264,7 +294,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
     const parts: (HTMLElement | null)[] = [
       el('div', { class: 'pagehead' }, [
         el('h1', {}, [screenName('findings')]),
-        summary(d),
+        overviewStrip(d),
         statusLine,
         runButton(latest),
       ]),
