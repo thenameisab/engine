@@ -1,11 +1,17 @@
 /**
- * Get started: one form that creates the client (account), the site (project)
- * and the brand (entity) Engine audits, then records the domain as connected.
+ * Set up: one address, one choice, one click.
  *
- * It replaces the three `window.prompt()` dialogs the Clients grid used, and it
- * is where a signed-in user with no selected project lands instead of a Pulse
- * error banner. A user who already has sites sees them first, so a new device
- * or a cleared browser is a pick, not a re-creation.
+ * The first form used to ask for five things — client, web address, site
+ * name, brand name, and what kind of thing the brand is. Four of them can be
+ * read off the address once the customer says whose site it is, so the form
+ * asks that instead and shows what it derived, with the one name worth
+ * changing (the brand) a click away. It creates the client (account), the
+ * site (project) and the brand (entity), queues the first audit, and lands on
+ * Home while the crawl runs.
+ *
+ * A returning user with sites and nothing selected is not handled here any
+ * more: the workspace column's "Choose a site" is on this screen too, and one
+ * list is enough.
  */
 import { el } from '../dom.js';
 import {
@@ -19,16 +25,24 @@ import {
   setAccountId,
   setProjectId,
 } from '../api.js';
+import { getUser } from '../auth/session.js';
 import { readableError } from '../errors.js';
-import { onboardingDefaults, ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND, screenName } from '../format.js';
+import {
+  onboardingPlan,
+  personNameFrom,
+  screenName,
+  SITE_OWNER_KINDS,
+  type SiteOwnerKind,
+} from '../format.js';
 import type { AppContext } from '../context.js';
-import type { AccountCard, ApiProject } from '../types.js';
+import type { AccountCard } from '../types.js';
 
 const NEW_CLIENT = '__new__';
 
 /**
- * Set by the Clients grid's "+ New client" so the form opens on a new client
- * even when one is already selected; consumed on the first render.
+ * Set by the Clients grid's "+ New client" so the form opens on the agency
+ * choice with a new client, even when one is already selected; consumed on
+ * the first render.
  */
 export const ONBOARDING_INTENT_KEY = 'engine.onboardingIntent';
 
@@ -46,28 +60,6 @@ function clientLabel(a: AccountCard): string {
   return a.branding.companyName ?? a.name;
 }
 
-function selectProject(accountId: string, p: ApiProject, ctx: AppContext): void {
-  setAccountId(accountId);
-  setProjectId(p.id);
-  ctx.toast(`Switched to ${p.name}`);
-  ctx.navigate('pulse');
-}
-
-/** Existing sites, for a returning user on a device that has nothing selected. */
-function existingSites(accounts: AccountCard[], ctx: AppContext): HTMLElement | null {
-  const rows = accounts.flatMap((a) => a.projects.map((p) => ({ a, p })));
-  if (rows.length === 0) return null;
-  return el('section', { class: 'panel' }, [
-    el('header', {}, [el('h3', {}, ['Continue with a site you already added'])]),
-    el('div', { class: 'client-projects' }, rows.map(({ a, p }) =>
-      el('button', { class: 'client-project', onclick: () => selectProject(a.id, p, ctx) }, [
-        el('span', { class: 't' }, [`${clientLabel(a)} · ${p.name}`]),
-        el('span', { class: 'm' }, [p.domain]),
-      ]),
-    )),
-  ]);
-}
-
 export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
   let accounts: AccountCard[] = [];
   let loadError: string | null = null;
@@ -79,79 +71,181 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
 
   const intent = readIntent();
   const preselected = getAccountId();
-  const defaultClient =
+  const userName = personNameFrom(getUser());
+
+  /* ── The address ─────────────────────────────────────────────────────────── */
+
+  const domain = el('input', {
+    class: 'field',
+    type: 'text',
+    id: 'setup-domain',
+    placeholder: 'acme.example',
+    autocomplete: 'url',
+    inputmode: 'url',
+    spellcheck: 'false',
+  }) as HTMLInputElement;
+
+  /* ── Whose site it is ────────────────────────────────────────────────────── */
+
+  let kind: SiteOwnerKind = intent === 'new-client' ? 'agency' : 'company';
+  const radios = new Map<SiteOwnerKind, HTMLInputElement>();
+  const options = SITE_OWNER_KINDS.map((k) => {
+    const input = el('input', { type: 'radio', name: 'owner', value: k.value }) as HTMLInputElement;
+    input.checked = k.value === kind;
+    input.addEventListener('change', () => {
+      kind = k.value;
+      sync();
+    });
+    radios.set(k.value, input);
+    return el('label', { class: 'choice-opt' }, [
+      input,
+      el('span', { class: 'choice-in' }, [
+        el('span', { class: 'choice-t' }, [k.label]),
+        el('span', { class: 'choice-m' }, [k.hint]),
+      ]),
+    ]);
+  });
+  const owner = el('fieldset', { class: 'choice' }, [
+    el('legend', { class: 'flabel' }, ['This site belongs to']),
+    el('div', { class: 'choice-opts' }, options),
+  ]);
+
+  /* ── The client, agency only ─────────────────────────────────────────────── */
+
+  const clientSelect = el('select', { class: 'field', id: 'setup-client' }) as HTMLSelectElement;
+  const newClientOption = el('option', { value: NEW_CLIENT }, ['New client…']);
+  const addClientOption = (a: AccountCard): void => {
+    clientSelect.insertBefore(el('option', { value: a.id }, [clientLabel(a)]), newClientOption);
+  };
+  clientSelect.append(newClientOption);
+  accounts.forEach(addClientOption);
+  clientSelect.value =
     intent === 'new-client' ? NEW_CLIENT
     : accounts.some((a) => a.id === preselected) ? (preselected as string)
     : accounts[0]?.id ?? NEW_CLIENT;
 
-  const clientSelect = el('select', { class: 'field' }) as HTMLSelectElement;
-  const addClientOption = (a: AccountCard): HTMLOptionElement => {
-    const opt = el('option', { value: a.id }, [clientLabel(a)]);
-    clientSelect.insertBefore(opt, newClientOption);
-    return opt;
-  };
-  const newClientOption = el('option', { value: NEW_CLIENT }, ['New client…']);
-  clientSelect.append(newClientOption);
-  accounts.forEach(addClientOption);
-  clientSelect.value = defaultClient;
-
-  const clientName = el('input', { class: 'field', type: 'text', placeholder: 'e.g. Acme Dental', autocomplete: 'organization' }) as HTMLInputElement;
+  const clientName = el('input', {
+    class: 'field',
+    type: 'text',
+    id: 'setup-client-name',
+    placeholder: 'e.g. Acme Dental',
+    autocomplete: 'organization',
+  }) as HTMLInputElement;
   const clientNameWrap = el('div', { class: 'fstack' }, [
-    el('label', { class: 'flabel' }, ['Client name']),
+    el('label', { class: 'flabel', for: 'setup-client-name' }, ['Client name']),
     clientName,
-    el('div', { class: 'fhint' }, ['The business you are doing this work for. Use your own name if that is you.']),
   ]);
-  const syncClientName = () => { clientNameWrap.hidden = clientSelect.value !== NEW_CLIENT; };
-  clientSelect.addEventListener('change', syncClientName);
-  syncClientName();
+  const clientWrap = el('div', { class: 'fstack' }, [
+    ...(accounts.length > 0
+      ? [el('label', { class: 'flabel', for: 'setup-client' }, ['Client']), clientSelect]
+      : []),
+    clientNameWrap,
+  ]);
 
-  const domain = el('input', { class: 'field', type: 'text', placeholder: 'acme.example', autocomplete: 'url', inputmode: 'url' }) as HTMLInputElement;
-  const siteName = el('input', { class: 'field', type: 'text', placeholder: 'Filled from the web address if left blank' }) as HTMLInputElement;
-  const brandName = el('input', { class: 'field', type: 'text', placeholder: 'Filled from the client name if left blank' }) as HTMLInputElement;
+  /* ── The derived brand name, and the one way to change it ────────────────── */
 
-  // What the brand *is*. Engine writes this into the structured data it
-  // proposes; without it the best it could say was "a thing", which is valid
-  // and tells a search engine nothing.
-  const brandKind = el('select', { class: 'field' }, ENTITY_KIND_OPTIONS.map((k) =>
-    el('option', { value: k.value }, [k.label]),
-  )) as HTMLSelectElement;
-  brandKind.value = DEFAULT_ENTITY_KIND;
+  const brandName = el('input', {
+    class: 'field',
+    type: 'text',
+    id: 'setup-brand',
+    placeholder: 'How search engines and AI answers should say its name',
+  }) as HTMLInputElement;
+  let brandTouched = false;
+  brandName.addEventListener('input', () => { brandTouched = brandName.value.trim() !== ''; });
+  const brandWrap = el('div', { class: 'fstack' }, [
+    el('label', { class: 'flabel', for: 'setup-brand' }, ['Brand name']),
+    brandName,
+    el('div', { class: 'fhint' }, ['Engine checks that search engines and AI answers refer to the business by this name.']),
+  ]);
+  brandWrap.hidden = true;
+
+  const derivedText = el('span');
+  const changeBrand = el('button', { class: 'linkbtn', type: 'button' }, ['Change']);
+  changeBrand.addEventListener('click', () => {
+    brandWrap.hidden = false;
+    derived.hidden = true;
+    brandName.value = currentPlan().brandName;
+    brandTouched = brandName.value.trim() !== '';
+    brandName.focus();
+    brandName.select();
+  });
+  const derived = el('p', { class: 'fderived', 'aria-live': 'polite' }, [derivedText, ' ', changeBrand]);
+
+  /** The client an agency picked, or the one that is already selected. */
+  function chosenAccount(): AccountCard | undefined {
+    if (kind === 'agency') return accounts.find((a) => a.id === clientSelect.value);
+    return accounts.find((a) => a.id === preselected) ?? accounts[0];
+  }
+
+  function currentPlan() {
+    const chosen = kind === 'agency' ? accounts.find((a) => a.id === clientSelect.value) : undefined;
+    return onboardingPlan(kind, domain.value, {
+      clientName: chosen ? clientLabel(chosen) : clientName.value,
+      userName,
+      brandName: brandTouched ? brandName.value : '',
+    });
+  }
+
+  function sync(): void {
+    for (const [value, input] of radios) input.checked = value === kind;
+    for (const opt of options) opt.classList.toggle('on', (opt.firstChild as HTMLInputElement).checked);
+    clientWrap.hidden = kind !== 'agency';
+    clientNameWrap.hidden = kind !== 'agency' || (accounts.length > 0 && clientSelect.value !== NEW_CLIENT);
+    const plan = currentPlan();
+    if (!plan.domain) {
+      derivedText.textContent = 'Engine names the brand from the address.';
+      changeBrand.hidden = true;
+    } else if (!plan.brandName) {
+      derivedText.textContent = `Engine will audit ${plan.domain}.`;
+      changeBrand.hidden = true;
+    } else {
+      derivedText.replaceChildren(`Engine will audit ${plan.domain} as `, el('b', {}, [plan.brandName]), '.');
+      changeBrand.hidden = false;
+    }
+  }
+  domain.addEventListener('input', sync);
+  clientName.addEventListener('input', sync);
+  clientSelect.addEventListener('change', sync);
+
+  /* ── Submit ──────────────────────────────────────────────────────────────── */
 
   const errorBox = el('div', { class: 'form-error', role: 'alert' });
   errorBox.hidden = true;
-  const showError = (message: string) => {
+  const showError = (message: string, focus?: HTMLElement) => {
     errorBox.textContent = message;
     errorBox.hidden = false;
+    focus?.focus();
   };
 
-  const submit = el('button', { class: 'btn primary', type: 'submit' }, ['Set up this site']);
+  const SUBMIT_LABEL = 'Start the first audit';
+  const submit = el('button', { class: 'btn primary', type: 'submit' }, [SUBMIT_LABEL]);
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     errorBox.hidden = true;
-    const isNew = clientSelect.value === NEW_CLIENT;
-    const chosen = accounts.find((a) => a.id === clientSelect.value);
-    const cName = isNew ? clientName.value.trim() : chosen ? clientLabel(chosen) : '';
-    if (isNew && !cName) return showError('Enter the client’s name.');
-    const d = onboardingDefaults(cName, domain.value, siteName.value, brandName.value);
-    if (!d.domain) return showError('Enter the site’s web address, like acme.example.');
+    const plan = currentPlan();
+    if (!plan.domain) return showError('Enter the site’s web address, like acme.example.', domain);
+    const existing = chosenAccount();
+    if (kind === 'agency' && !existing && !plan.accountName) {
+      return showError('Enter the client’s name.', clientName);
+    }
+    if (!plan.brandName) return showError('Enter the brand’s name.', brandName);
 
     submit.setAttribute('disabled', 'true');
     submit.textContent = 'Setting up…';
     try {
-      let accountId = clientSelect.value;
-      if (isNew) {
-        const account = await createAccountApi(cName);
+      let accountId = existing?.id;
+      if (!accountId) {
+        const account = await createAccountApi(plan.accountName);
         // Keep the created client selectable, so a failure on the next step
         // and a retry does not create it twice.
         accounts = [account, ...accounts];
         addClientOption(account);
         clientSelect.value = account.id;
-        syncClientName();
         accountId = account.id;
       }
-      const project = await createProjectApi(accountId, d.siteName, d.domain);
-      await createEntityApi(project.id, d.brandName, brandKind.value);
+      const project = await createProjectApi(accountId, plan.siteName, plan.domain);
+      await createEntityApi(project.id, plan.brandName, plan.entityKind);
       setAccountId(accountId);
       setProjectId(project.id);
       try {
@@ -159,50 +253,47 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
       } catch {
         // Bookkeeping for the onboarding KPIs; the site is set up either way.
       }
-      // Queue the first audit so the customer lands on a screen that is doing
-      // something. If the queue refuses, the Audit screen has the button.
+      // Queue the first audit so Home has a crawl to show. If the queue
+      // refuses, Home offers the Run audit button.
       let queued = false;
       try {
         await requestAudit(project.id);
         queued = true;
       } catch {
-        /* handled by the toast below */
+        /* said in the toast */
       }
-      ctx.toast(queued ? `${d.siteName} is set up. First audit queued.` : `${d.siteName} is set up.`);
-      ctx.navigate('audit');
+      ctx.toast(queued ? `${plan.domain} is set up. The first audit is running.` : `${plan.domain} is set up.`);
+      ctx.navigate('home');
     } catch (err) {
       showError(readableError(err));
       submit.removeAttribute('disabled');
-      submit.textContent = 'Set up this site';
+      submit.textContent = SUBMIT_LABEL;
     }
   }
 
-  const form = el('form', { class: 'form', onsubmit: onSubmit }, [
-    el('label', { class: 'flabel' }, ['Client']),
-    clientSelect,
-    clientNameWrap,
-    el('label', { class: 'flabel' }, ['Web address']),
+  const form = el('form', { class: 'form', onsubmit: onSubmit, novalidate: true }, [
+    el('label', { class: 'flabel', for: 'setup-domain' }, ['Web address']),
     domain,
-    el('div', { class: 'fhint' }, ['The site Engine will audit. A full URL is fine; only the domain is kept.']),
-    el('label', { class: 'flabel' }, ['Site name']),
-    siteName,
-    el('label', { class: 'flabel' }, ['Brand or business name']),
-    brandName,
-    el('div', { class: 'fhint' }, ['How search engines and AI answers should refer to this business. Engine checks that they do.']),
-    el('label', { class: 'flabel' }, ['What kind of thing is it?']),
-    brandKind,
-    el('div', { class: 'fhint' }, ['Engine tells search engines and assistants what this is. You can change it later in Settings.']),
+    el('div', { class: 'fhint' }, ['A full URL is fine; only the domain is kept.']),
+    owner,
+    clientWrap,
+    derived,
+    brandWrap,
     errorBox,
     el('div', { class: 'form-actions' }, [submit]),
   ]);
+  sync();
+  // The shell attaches the view after this returns, and `autofocus` is only
+  // honoured for markup present at load. There is one field to fill; put the
+  // cursor in it.
+  setTimeout(() => { if (document.contains(domain)) domain.focus(); }, 0);
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, [screenName('get-started')]),
-      el('p', {}, ['Engine works on one website at a time. Say whose site it is and where it lives; you can add more later from Clients.']),
+      el('p', {}, ['Engine works on one website at a time. Type its address and say whose it is; everything else is read from the site.']),
     ]),
     loadError ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load your clients: ${loadError}`])]) : null,
-    existingSites(accounts, ctx),
     el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, [accounts.length > 0 ? 'Add a site' : 'Your first site'])]),
       form,

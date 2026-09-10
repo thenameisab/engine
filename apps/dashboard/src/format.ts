@@ -201,6 +201,72 @@ export function onboardingDefaults(clientName: string, domainInput: string, site
   };
 }
 
+/**
+ * Whose site it is. The one question the first form asks besides the address.
+ * `company` and `individual` derive every name; `agency` is the only kind
+ * that reveals a second field, because the client's name is nowhere in the
+ * address.
+ */
+export const SITE_OWNER_KINDS = [
+  { value: 'company', label: 'A company', hint: 'Your own business or organisation.' },
+  { value: 'agency', label: 'An agency’s client', hint: 'You do this work for someone else.' },
+  { value: 'individual', label: 'Me', hint: 'A personal or professional site under your own name.' },
+] as const;
+
+export type SiteOwnerKind = (typeof SITE_OWNER_KINDS)[number]['value'];
+
+/**
+ * A readable name from a domain: the first label, with dashes as spaces and
+ * each word capitalised. `acme-dental.co.uk` → `Acme Dental`. It is a
+ * starting point the form shows and lets the customer change, not a fact.
+ */
+export function brandNameFromDomain(domainInput: string): string {
+  const first = normalizeDomain(domainInput).split('.')[0] ?? '';
+  return first
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/** A person's name from a session that may only know their email. */
+export function personNameFrom(user: { name?: string; email?: string } | null): string {
+  const name = user?.name?.trim() ?? '';
+  if (name && !name.includes('@')) return name;
+  const local = (user?.email ?? name).split('@')[0] ?? '';
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+export interface OnboardingPlan extends OnboardingDefaults {
+  /** The account (client) the site is filed under, if one has to be created. */
+  accountName: string;
+  /** The `@type` Engine writes into the structured data it proposes. */
+  entityKind: 'Organization' | 'Person';
+}
+
+/**
+ * Everything the old five-field form asked for, derived from the address and
+ * the owner kind. `brandName` is the one override the form still offers, one
+ * click away; `clientName` is what an agency typed or picked; `userName` is
+ * the signed-in person, for a site that is theirs.
+ */
+export function onboardingPlan(
+  kind: SiteOwnerKind,
+  domainInput: string,
+  names: { clientName?: string; userName?: string; brandName?: string } = {},
+): OnboardingPlan {
+  const accountName =
+    kind === 'agency' ? (names.clientName ?? '').trim()
+    : kind === 'individual' ? (names.userName ?? '').trim() || brandNameFromDomain(domainInput)
+    : brandNameFromDomain(domainInput);
+  const d = onboardingDefaults(accountName, domainInput, '', names.brandName ?? '');
+  return { ...d, accountName, entityKind: kind === 'individual' ? 'Person' : 'Organization' };
+}
+
 /** The position of the first organic result whose host matches `domain`, or null if not found. */
 export function domainRank(organic: SerpOrganic[], domain: string): number | null {
   const target = normalizeDomain(domain);
