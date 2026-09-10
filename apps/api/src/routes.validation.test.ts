@@ -332,6 +332,65 @@ describe('GitHub App connect and callback', () => {
 });
 
 /**
+ * The two rename routes the Names panel on Home saves through. Both reject
+ * before `createDb`, which is what these assert: the dead `DATABASE_URL`
+ * above proves the 400 came first.
+ */
+function patch(path: string, body: unknown): Promise<Response> {
+  return app.request(
+    path,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    },
+    env,
+  );
+}
+
+describe('PATCH /projects/:projectId', () => {
+  it('rejects a blank name, naming the field', async () => {
+    const res = await patch('/projects/proj_1', { name: '  ' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('name');
+  });
+
+  it('refuses a change of address instead of silently ignoring it', async () => {
+    const res = await patch('/projects/proj_1', { name: 'Acme', domain: 'other.example' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('domain');
+  });
+
+  it('rejects an unparseable body', async () => {
+    const res = await patch('/projects/proj_1', 'not json');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('body is not valid JSON');
+  });
+});
+
+describe('PATCH /projects/:projectId/entities/:entityId', () => {
+  it('rejects a body that changes nothing', async () => {
+    // Not a no-op to accept: a caller sending neither field has a bug, and a
+    // 200 would report a rename that never happened.
+    const res = await patch('/projects/proj_1/entities/ent_1', {});
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('body');
+  });
+
+  it('rejects a blank canonicalName', async () => {
+    const res = await patch('/projects/proj_1/entities/ent_1', { canonicalName: '   ' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('canonicalName');
+  });
+
+  it('still rejects an unrecognised schemaType', async () => {
+    const res = await patch('/projects/proj_1/entities/ent_1', { schemaType: 'Sandwich' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('schemaType');
+  });
+});
+
+/**
  * The gate stays in front of validation: a malformed body from an unauthenticated
  * caller is still 401, not a 400 that would confirm the route's shape to someone
  * who has no business knowing it.

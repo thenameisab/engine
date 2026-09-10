@@ -64,6 +64,7 @@ import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_P
   checkUuidParam,
   checkCreateAccountBody,
   checkCreateProjectBody,
+  checkProjectPatchBody,
   checkBrandingBody,
   checkDeployTargetBody,
   checkLoginBody,
@@ -108,7 +109,7 @@ import {
   createEntity,
   listEntitiesByProject,
   getEntityInProject,
-  setEntitySchemaType,
+  updateEntity,
   setEntityPrompts,
   entityFactsFromPages,
   recordCrawledEntityFacts,
@@ -176,6 +177,7 @@ import { getProject,
   getProjectAccountId,
   listAccountsForUser,
   createProject,
+  renameProject,
   getAccount,
   updateAccountBranding,
   listProjectsByAccount,
@@ -999,6 +1001,32 @@ app.post('/projects/:projectId/ai/stream', async (c) => {
   });
 });
 
+/**
+ * Rename a site.
+ *
+ * Setup no longer asks for a site name — it derives one from the address, so
+ * a customer's first site is called whatever `onboardingPlan` made of their
+ * domain. That name is what the site switcher, the breadcrumb and every
+ * branded report show, so it needs a way to be corrected, and this is it.
+ *
+ * Name only; `checkProjectPatchBody` refuses `domain` and says why.
+ */
+app.patch('/projects/:projectId', async (c) => {
+  const projectId = c.req.param('projectId');
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkProjectPatchBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { name: string };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  const project = await renameProject(db, projectId, body.name.trim());
+  if (!project) return c.json({ error: 'project not found', projectId }, 404);
+  return c.json({ project });
+});
+
 app.get('/projects/:projectId/entities', async (c) => {
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
@@ -1032,22 +1060,36 @@ app.post('/projects/:projectId/entities', async (c) => {
 });
 
 /**
- * Change what kind of thing a brand is (`Entity.schemaType`). It decides the
- * `@type` of every JSON-LD fix Engine proposes for this brand, so it is
- * editable after setup, not only at it.
+ * Change a brand's name or what kind of thing it is.
+ *
+ * `schemaType` decides the `@type` of every JSON-LD fix Engine proposes for
+ * this brand; `canonicalName` is the name Engine checks search engines and AI
+ * answers use for the business, and setup derives it from the address. Both
+ * are editable after setup, not only at it, and both are optional here so the
+ * Names panel can send the one the customer changed — but a body with neither
+ * is a caller mistake, not a no-op to accept silently.
  */
 app.patch('/projects/:projectId/entities/:entityId', async (c) => {
   const raw = await readJson(c);
   if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
-  const body = raw as { schemaType?: unknown };
-  if (!isEntityKind(body.schemaType)) {
+  const body = raw as { schemaType?: unknown; canonicalName?: unknown };
+  if (body.schemaType === undefined && body.canonicalName === undefined) {
+    return c.json({ error: 'expected canonicalName, schemaType, or both', field: 'body' }, 400);
+  }
+  if (body.schemaType !== undefined && !isEntityKind(body.schemaType)) {
     return c.json({ error: 'invalid schemaType', field: 'schemaType' }, 400);
+  }
+  if (body.canonicalName !== undefined && (typeof body.canonicalName !== 'string' || body.canonicalName.trim() === '')) {
+    return c.json({ error: 'invalid canonicalName: expected a name', field: 'canonicalName' }, 400);
   }
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
-  const entity = await setEntitySchemaType(db, projectId, c.req.param('entityId'), body.schemaType);
+  const entity = await updateEntity(db, projectId, c.req.param('entityId'), {
+    canonicalName: typeof body.canonicalName === 'string' ? body.canonicalName.trim() : undefined,
+    schemaType: isEntityKind(body.schemaType) ? body.schemaType : undefined,
+  });
   if (!entity) return c.json({ error: 'entity not found' }, 404);
   return c.json({ entity });
 });

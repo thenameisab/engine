@@ -670,6 +670,35 @@ select.field { cursor: pointer; }
   .hm-sev { flex: 1; justify-content: center; }
 }
 
+/* Names: what Engine calls this client, this site and this brand. Rows, one
+   editable at a time — the read state is three facts, and only the row being
+   changed becomes a field. */
+.hm-names-note { padding: 12px 16px 0; font-size: var(--t-xs); color: var(--text-muted); line-height: 1.5; max-width: 68ch; }
+.hm-names { display: flex; flex-direction: column; }
+.hm-names-note + .hm-names .hm-name:first-child { border-top: none; margin-top: 4px; }
+.hm-name { display: grid; grid-template-columns: 68px minmax(0, 1fr) auto; align-items: baseline; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--border); }
+.hm-name:first-child { border-top: none; }
+.hm-name-k { font-size: var(--t-xs); color: var(--text-muted); }
+/* `anywhere`, not an ellipsis: a name the customer is about to correct is the
+   one thing on this row that must be readable in full. */
+.hm-name-v { font-size: var(--t-sm); font-weight: 600; overflow-wrap: anywhere; }
+/* The field is capped at the length of a name rather than stretched to the
+   panel: a 1100px-wide box for "Acme Dental" asks for something else. The
+   buttons then sit beside it instead of across the panel from it. */
+.hm-name-edit { grid-column: 2 / -1; display: grid; grid-template-columns: minmax(0, 34ch) auto; justify-content: start; gap: 8px; align-items: start; }
+.hm-name-acts { display: flex; gap: 8px; }
+.hm-name-edit .fhint, .hm-name-edit .form-error { grid-column: 1 / -1; }
+.hm-name-edit .fhint { line-height: 1.5; max-width: 68ch; }
+.hm-name-edit .form-error { margin-top: 0; }
+@media (max-width: 620px) {
+  /* The key moves above its own value: at this width a fixed left column left
+     the field about 150px wide, which is not enough to read a name in. */
+  .hm-name { grid-template-columns: minmax(0, 1fr) auto; }
+  .hm-name-k { grid-column: 1 / -1; }
+  .hm-name-edit { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); }
+  .hm-name-acts .btn { flex: 1; }
+}
+
 /* ── Tabs (Visibility) ────────────────────────────────────────────────────
    Five destinations that used to be five rail items. The strip is the only
    thing this container adds; each tab's own page head is its heading. */

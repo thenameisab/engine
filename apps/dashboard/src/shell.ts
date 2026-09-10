@@ -180,6 +180,9 @@ export function mountShell(root: HTMLElement): void {
     navigate(route: string) {
       location.hash = `#/${route}`;
     },
+    // Assigned below: the workspace is created with this same `ctx`, so it
+    // cannot exist yet at this point.
+    refreshWorkspace: () => Promise.resolve(),
   };
 
   const navItems = ROUTES.map((r) =>
@@ -210,6 +213,28 @@ export function mountShell(root: HTMLElement): void {
   // open the same drawer. `renderRoute` is re-run on a switch so the screen the
   // user is already looking at changes — a toast used to be the only sign.
   const workspace = createWorkspace(ctx, () => void renderRoute());
+  /**
+   * The topbar's "site · screen · tab", from whatever is selected now.
+   *
+   * Null-checked because this now runs after a network call as well as from
+   * `renderRoute`: signing out between the two replaces the root, and the
+   * element this used to assert into is gone.
+   */
+  function paintCrumb(): void {
+    const crumb = document.getElementById('crumb');
+    if (!crumb) return;
+    const id = currentRouteId();
+    const tab = id === 'visibility' ? screenName(visibilityTabId(location.hash)) : undefined;
+    crumb.textContent = breadcrumb(workspace.siteName(), screenName(id), tab);
+  }
+  // The column, the topbar chip and the breadcrumb all name the open client
+  // and site, so a rename has to redraw all three. The route is not
+  // re-rendered: the screen that did the renaming already shows the new names,
+  // and replacing it would throw away whatever else was open on it.
+  ctx.refreshWorkspace = async () => {
+    await workspace.refresh();
+    paintCrumb();
+  };
 
   const rail = el('aside', { class: 'rail' }, [
     el('div', { class: 'brand' }, [
@@ -269,7 +294,12 @@ export function mountShell(root: HTMLElement): void {
   // After the first paint: the column renders from what is already selected, so
   // the shell is never blank waiting on the network, and fills in when the
   // client list arrives.
-  void workspace.refresh();
+  //
+  // Through `ctx`, so the breadcrumb fills in with it. `renderRoute` paints the
+  // crumb before this resolves, and the site's name is only known once it has,
+  // so on every first load the crumb read "Home" with no site in front of it
+  // until the next navigation.
+  void ctx.refreshWorkspace();
 
   async function renderRoute(): Promise<void> {
     const alias = aliasFor(location.hash);
@@ -291,12 +321,7 @@ export function mountShell(root: HTMLElement): void {
       if (on) n.setAttribute('aria-current', 'page');
       else n.removeAttribute('aria-current');
     });
-    const tab = id === 'visibility' ? screenName(visibilityTabId(location.hash)) : undefined;
-    (document.getElementById('crumb') as HTMLElement).textContent = breadcrumb(
-      workspace.siteName(),
-      screenName(id),
-      tab,
-    );
+    paintCrumb();
     content.replaceChildren(el('div', { class: 'loading num' }, ['loading…']));
     try {
       const view = await route.view(ctx);

@@ -183,6 +183,22 @@ export async function createProject(
   return toProject(row);
 }
 
+/**
+ * Rename a site.
+ *
+ * The name only. `domain` is what every crawled page, audit run and finding in
+ * this project was gathered from, so changing it would leave all of that
+ * history describing a site this project is no longer pointed at. Pointing
+ * Engine at a different address is adding a site, not renaming one.
+ */
+export async function renameProject(db: Db, projectId: string, name: string): Promise<Project | null> {
+  const rows = await db<ProjectRow[]>`
+    update projects set name = ${name} where id::text = ${projectId}
+    returning id, account_id, name, domain, created_at
+  `;
+  return rows[0] ? toProject(rows[0]) : null;
+}
+
 export async function getProject(db: Db, projectId: string): Promise<Project | null> {
   const rows = await db<ProjectRow[]>`
     select id, account_id, name, domain, created_at from projects where id = ${projectId}

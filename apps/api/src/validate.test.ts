@@ -12,6 +12,7 @@ import {
   checkCreateAccountBody,
   checkCreateProjectBody,
   checkBrandingBody,
+  checkProjectPatchBody,
   checkDeployTargetBody,
 } from './validate.js';
 
@@ -442,6 +443,28 @@ describe('checkCreateProjectBody', () => {
   it('rejects a missing domain', () => {
     const { domain: _domain, ...withoutDomain } = valid;
     expect(checkCreateProjectBody(withoutDomain)?.field).toBe('domain');
+  });
+});
+
+describe('checkProjectPatchBody', () => {
+  it('accepts a name', () => {
+    expect(checkProjectPatchBody({ name: 'The marketing site' })).toBeNull();
+  });
+
+  it('rejects a missing name', () => {
+    expect(checkProjectPatchBody({})?.field).toBe('name');
+  });
+
+  it('rejects a name of only whitespace, which would blank the site switcher', () => {
+    expect(checkProjectPatchBody({ name: '   ' })?.field).toBe('name');
+  });
+
+  it('rejects a domain rather than ignoring it', () => {
+    // A caller that sent one meant to re-point the project. Accepting the
+    // body and changing only the name would report success for half of it.
+    const invalid = checkProjectPatchBody({ name: 'Acme', domain: 'other.example' });
+    expect(invalid?.field).toBe('domain');
+    expect(invalid?.message).toContain('add a site instead');
   });
 });
 

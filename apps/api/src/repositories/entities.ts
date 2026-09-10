@@ -91,20 +91,28 @@ export async function createEntity(
 }
 
 /**
- * Change what kind of thing a brand is. The schema generator reads this to
- * pick the `@type` of the JSON-LD it proposes, so a customer who set the kind
- * wrong (or left the default) can fix every future proposal in one place
- * rather than per fix.
+ * Change a brand's name, its kind, or both.
+ *
+ * The kind is read by the schema generator to pick the `@type` of the JSON-LD
+ * it proposes, so a customer who set it wrong (or left the default) can fix
+ * every future proposal in one place rather than per fix. The name is what
+ * Engine checks search engines and AI answers call the business, and setup
+ * derives it from the domain — a derived name has to be correctable.
+ *
+ * `coalesce` rather than a built clause: an omitted field keeps the stored
+ * value, so a caller sending one field cannot blank the other.
  */
-export async function setEntitySchemaType(
+export async function updateEntity(
   db: Db,
   projectId: string,
   entityId: string,
-  schemaType: EntityKind,
+  patch: { canonicalName?: string; schemaType?: EntityKind },
 ): Promise<Entity | null> {
   const rows = await db<EntityRow[]>`
     update entities
-    set schema_type = ${schemaType}, updated_at = now()
+    set canonical_name = coalesce(${patch.canonicalName ?? null}, canonical_name),
+        schema_type = coalesce(${patch.schemaType ?? null}, schema_type),
+        updated_at = now()
     where id::text = ${entityId} and project_id::text = ${projectId}
     returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
   `;
