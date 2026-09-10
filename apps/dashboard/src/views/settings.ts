@@ -1,4 +1,5 @@
 import { el } from '../dom.js';
+import { deployTargetFields } from '../deployTargetForm.js';
 import {
   getApiBaseUrl,
   setApiBaseUrl,
@@ -31,95 +32,17 @@ async function deployTargetSection(ctx: AppContext): Promise<HTMLElement> {
     // No API / not reachable — render the empty form rather than blocking Settings.
   }
 
-  const kind = el('select', { class: 'field' }, [
-    el('option', { value: 'github-pr' }, ['GitHub PR']),
-    el('option', { value: 'edge-worker' }, ['Cloudflare edge worker']),
-    el('option', { value: 'cms-plugin' }, ['CMS plugin (WordPress/Shopify)']),
-  ]) as HTMLSelectElement;
-  if (current) kind.value = current.kind;
-
-  const repo = el('input', { class: 'field', type: 'text', placeholder: 'owner/repo', value: current?.repo ?? '' }) as HTMLInputElement;
-  const branch = el('input', { class: 'field', type: 'text', placeholder: 'main', value: current?.branch ?? '' }) as HTMLInputElement;
-  const path = el('input', { class: 'field', type: 'text', placeholder: 'public/index.html', value: current?.path ?? '' }) as HTMLInputElement;
-  const workerName = el('input', { class: 'field', type: 'text', placeholder: 'acme-edge', value: current?.workerName ?? '' }) as HTMLInputElement;
-  const plugin = el('select', { class: 'field' }, [
-    el('option', { value: 'wordpress' }, ['WordPress']),
-    el('option', { value: 'shopify' }, ['Shopify']),
-  ]) as HTMLSelectElement;
-  if (current?.plugin) plugin.value = current.plugin;
-  const siteId = el('input', { class: 'field', type: 'text', placeholder: 'site id', value: current?.siteId ?? '' }) as HTMLInputElement;
-
-  const ghFields = el('div', { class: 'form' }, [
-    el('label', { class: 'flabel' }, ['Repository']),
-    repo,
-    el('label', { class: 'flabel' }, ['Branch']),
-    branch,
-    el('label', { class: 'flabel' }, ['File path']),
-    path,
-  ]);
-  const edgeFields = el('div', { class: 'form' }, [el('label', { class: 'flabel' }, ['Worker name']), workerName]);
-  const cmsFields = el('div', { class: 'form' }, [
-    el('label', { class: 'flabel' }, ['Plugin']),
-    plugin,
-    el('label', { class: 'flabel' }, ['Site ID']),
-    siteId,
-  ]);
-
-  const showFields = () => {
-    ghFields.style.display = kind.value === 'github-pr' ? '' : 'none';
-    edgeFields.style.display = kind.value === 'edge-worker' ? '' : 'none';
-    cmsFields.style.display = kind.value === 'cms-plugin' ? '' : 'none';
-  };
-  kind.addEventListener('change', showFields);
-  showFields();
-
-  const build = (): DeployTarget | { error: string } => {
-    switch (kind.value) {
-      case 'github-pr':
-        if (!repo.value.trim() || !branch.value.trim() || !path.value.trim()) return { error: 'repo, branch, and path are all required' };
-        return { kind: 'github-pr', repo: repo.value.trim(), branch: branch.value.trim(), path: path.value.trim() };
-      case 'edge-worker':
-        if (!workerName.value.trim()) return { error: 'worker name is required' };
-        return { kind: 'edge-worker', workerName: workerName.value.trim() };
-      case 'cms-plugin':
-        if (!siteId.value.trim()) return { error: 'site id is required' };
-        return { kind: 'cms-plugin', plugin: plugin.value as 'wordpress' | 'shopify', siteId: siteId.value.trim() };
-      default:
-        return { error: 'pick a target kind' };
-    }
-  };
-
-  const save = el('button', {
-    class: 'btn primary',
-    onclick: async () => {
-      const built = build();
-      if ('error' in built) {
-        ctx.toast(built.error);
-        return;
-      }
-      try {
-        await saveDeployTarget(built);
-        ctx.toast('Deploy target saved. Auto-fixable findings can now be proposed.');
-      } catch (err) {
-        ctx.toast(`Could not save target: ${(err as Error).message}`);
-      }
-    },
-  }, ['Save deploy target']);
+  const fields = deployTargetFields(ctx, {
+    current,
+    onSaved: () => ctx.toast('Deploy target saved. Auto-fixable findings can now be proposed.'),
+  });
 
   return el('section', { class: 'panel' }, [
     el('header', {}, [
       el('h3', {}, ['Deploy target']),
       el('span', { class: 'more' }, [current ? `current: ${current.kind}` : 'none set']),
     ]),
-    el('div', { class: 'form' }, [
-      el('label', { class: 'flabel' }, ['Where approved fixes deploy']),
-      kind,
-      el('div', { class: 'fhint num' }, ['Every generated fix lands here. GitHub PR opens a pull request; edge worker / CMS plugin apply live.']),
-      ghFields,
-      edgeFields,
-      cmsFields,
-      el('div', { class: 'form-actions' }, [save]),
-    ]),
+    fields,
   ]);
 }
 

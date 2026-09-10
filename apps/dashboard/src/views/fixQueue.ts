@@ -1,6 +1,6 @@
 import { el } from '../dom.js';
-import { LANE_ORDER, statusLabel, nextAction, diffLines, NOTHING_THERE } from '../format.js';
-import { fetchActions, transitionAction, reviewAction } from '../api.js';
+import { LANE_ORDER, statusLabel, nextAction, diffLines, NOTHING_THERE, verifyLine, type VerifyStatus } from '../format.js';
+import { fetchActions, transitionAction, reviewAction, fetchVerifyStatus, requestVerify } from '../api.js';
 import { readableError } from '../errors.js';
 import { openDialog } from '../dialog.js';
 import type { AppContext } from '../context.js';
@@ -139,6 +139,13 @@ function card(
     return node;
   }
 
+  // The Deployed lane reports the machine check instead of offering a button a
+  // browser could never satisfy.
+  if (a.status === 'deployed' || a.status === 'verified') {
+    node.append(verifyBlock(a, ctx));
+    return node;
+  }
+
   if (next) {
     const btn = el('button', {
       class: 'card-act',
@@ -164,6 +171,46 @@ function card(
     node.append(btn);
   }
   return node;
+}
+
+/**
+ * What the last check found, and a way to ask for another.
+ *
+ * Loads its own status per card rather than being threaded through the board:
+ * a card that cannot reach the API shows "Not checked yet" and an enabled
+ * button, which is the truth and is still actionable.
+ */
+function verifyBlock(a: ActionCard, ctx: AppContext): HTMLElement {
+  const line = el('div', { class: 'verify-line' }, ['Checking…']);
+  const btn = el('button', { class: 'card-act' }, ['Check now']);
+  const wrap = el('div', { class: 'verify' }, [line, btn]);
+
+  function paint(v: VerifyStatus | null): void {
+    const out = verifyLine(v);
+    line.className = `verify-line${out.tone ? ` ${out.tone}` : ''}`;
+    line.textContent = out.text;
+    btn.hidden = !out.canCheck;
+  }
+
+  btn.addEventListener('click', async (e: Event) => {
+    e.stopPropagation();
+    btn.setAttribute('disabled', 'true');
+    try {
+      await requestVerify(a.id);
+      paint({ status: 'queued', verified: null, error: null, finishedAt: null });
+      ctx.toast('Queued. The runner checks the live page on its next pass.');
+    } catch (err) {
+      ctx.toast(readableError(err));
+    } finally {
+      btn.removeAttribute('disabled');
+    }
+  });
+
+  void fetchVerifyStatus(a.id)
+    .then((v) => paint(v))
+    .catch(() => paint(null));
+
+  return wrap;
 }
 
 export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {

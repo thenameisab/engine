@@ -145,6 +145,23 @@ a { color: inherit; text-decoration: none; }
    changes how the findings above should be read, so it gets the colour. */
 .coverage { color: var(--text-muted); font-size: 12.5px; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .coverage.warn { color: var(--watch, #d97706); }
+
+/* An issue group: what it is, why it matters, what to do about it. */
+.fgroup-why { color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 6px 0 0; max-width: 68ch; }
+/* Why Engine will not do this one for you. Toned like a warning rather than a
+   note, because a "Manual" pill with no follow-up is a dead end. */
+.fgroup-manual { color: var(--watch, #d97706); font-size: 12.5px; line-height: 1.5; margin: 6px 0 0; max-width: 68ch; }
+.fgroup-acts { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.fgroup-toggle { font-size: 12.5px; font-weight: 550; color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 6px 2px; }
+.fgroup-toggle:hover { color: var(--text); }
+.fgroup-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.dt-form { margin-top: 10px; min-width: min(420px, 80vw); }
+
+/* What the machine found on the live page, on a Deployed card. */
+.verify { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.verify-line { font-size: 12px; color: var(--text-muted); }
+.verify-line.good { color: var(--good, #16a34a); }
+.verify-line.watch { color: var(--watch, #d97706); }
 /* A component with no input. Deliberately not a 0%-wide bar, which would say
    the opposite of what is true. */
 .eg-comp-unmeasured { color: var(--text-muted); font-size: 12px; grid-column: 2 / -1; }

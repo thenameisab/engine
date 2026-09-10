@@ -52,7 +52,7 @@ import {
   type SerpQuery,
   type PromptQuery,
 } from '@engine/connectors';
-import { durationMs, isEntityKind, isEntityRole, type Entity, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
+import { durationMs, isEntityKind, isEntityRole, type Action, type Entity, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
 import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
@@ -121,6 +121,9 @@ import {
 } from './repositories/actions.js';
 import { findingBelongsToProject, getFindingInProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun, type AuditRunCoverage } from './repositories/auditRuns.js';
+import { entityJsonLdProperties, entitySchemaType } from './repositories/entityJsonLd.js';
+import { proposeForFinding, PROPOSE_BATCH_CAP, type ProposeSkip } from './repositories/propose.js';
+import { createVerifyRequest, latestVerifyRequest, finishVerifyRequest, getAuditRequest } from './repositories/auditRequests.js';
 import {
   recordDeterministicAuditRun,
   latestDeterministicAuditRun,
@@ -1812,43 +1815,6 @@ app.post('/projects/:projectId/actions/generate-content', async (c) => {
 });
 
 /**
- * The schema.org @type for a schema fix's JSON-LD.
- *
- * A type already published on the site wins: it is the most specific true
- * statement about the entity (a dental practice's page may say `Dentist`,
- * which no picker of ours offers). Otherwise the kind the customer chose for
- * the brand is used. It used to fall back to 'Thing', which let a customer
- * approve `{"@type":"Thing","name":"Acme Dental"}` — valid, deployable, and
- * worth nothing. There is no fallback now; the generator refuses instead and
- * says why.
- */
-/**
- * The extra JSON-LD properties Engine can state as fact about an entity: the
- * page the block will live on, and the Wikidata record when the brand is
- * matched to one. Nothing here is inferred — a generated block that guessed
- * an address or a price would be the same trust problem as `@type: Thing`,
- * one layer down.
- */
-function entityJsonLdProperties(
-  entity: { urls: string[]; wikidataId: string | null },
-  pageUrl: string,
-): Record<string, unknown> | undefined {
-  const properties: Record<string, unknown> = {};
-  const url = pageUrl || entity.urls[0];
-  if (url) properties.url = url;
-  if (entity.wikidataId) properties.sameAs = `https://www.wikidata.org/wiki/${entity.wikidataId}`;
-  return Object.keys(properties).length > 0 ? properties : undefined;
-}
-
-function entitySchemaType(entity: { schema: object[]; schemaType: string }): string {
-  for (const block of entity.schema) {
-    const t = (block as { '@type'?: unknown })['@type'];
-    if (typeof t === 'string' && t.trim() !== '' && t.trim() !== 'Thing') return t.trim();
-  }
-  return entity.schemaType;
-}
-
-/**
  * The project's configured deploy target (M2.3 #3) — where every generated
  * Action lands. The dashboard reads this to know whether a project can propose
  * fixes yet, and writes it from Settings. `null` until configured.
@@ -1910,68 +1876,101 @@ app.post('/projects/:projectId/findings/:findingId/propose', async (c) => {
     return c.json({ error: 'no deploy target: configure one for the project or pass `target`', field: 'target' }, 400);
   }
 
-  const url = (finding.evidence as { url?: string }).url ?? '';
-  const page = url ? await getCrawledPage(db, projectId, url) : null;
-  const entity = await getEntityInProject(db, projectId, finding.entityId);
-
-  // Suggestions come from the caller if given, else the project's other pages —
-  // the "which related pages to link" decision the generator won't make itself.
-  const internalLinkSuggestions =
-    body.internalLinkSuggestions ?? (url ? await listInternalLinkTargets(db, projectId, url) : []);
-
-  const ctx: ActionContext = {
-    url,
-    target,
-    currentTitle: page?.title ?? undefined,
-    currentMetaDescription: page?.metaDescription ?? undefined,
-    currentBodyText: page?.bodyText ?? undefined,
-    currentBodyHtml: page?.bodyHtml ?? undefined,
-    // What the page itself says it is about. A proposed title written without
-    // these is the brand name on every page of the site.
-    headings: page?.headings ?? undefined,
-    internalLinkSuggestions,
-    entity: entity
-      ? {
-          schemaType: entitySchemaType(entity),
-          name: entity.canonicalName,
-          properties: entityJsonLdProperties(entity, url),
-        }
-      : undefined,
-  };
-
-  // Free, deterministic generators (schema/meta/robots/redirect/internal-link).
-  const generated = generateActions(finding, ctx);
-  const skipped = [...generated.skipped];
-
-  // The costed content rewrite, only if the finding wants one and it's configured.
-  const wantsContent = finding.actionTemplates.some((t) => t.type === 'content');
-  if (wantsContent) {
-    if (!c.env.OPENAI_API_KEY) {
-      skipped.push({ type: 'content', reason: 'Rewriting page copy is not switched on for this deployment.' });
-    } else {
-      try {
-        const contentAction = await generateContentAction(
-          finding,
-          ctx,
-          { apiKey: c.env.OPENAI_API_KEY, model: c.env.OPENAI_MODEL },
-          defaultEnv(),
-        );
-        if (contentAction) generated.actions.push(contentAction);
-        else skipped.push({ type: 'content', reason: 'The last crawl captured no text on this page to rewrite.' });
-      } catch (err) {
-        return c.json({ error: `content rewrite failed: ${(err as Error).message}` }, 502);
-      }
-    }
+  let result;
+  try {
+    result = await proposeForFinding(db, c.env, projectId, finding, {
+      target,
+      internalLinkSuggestions: body.internalLinkSuggestions,
+      // One finding, one page, one explicit click: a paid rewrite is what the
+      // customer asked for here. The batch route below says no for the same
+      // reason — there, one click would mean forty of them.
+      allowContent: true,
+    });
+  } catch (err) {
+    return c.json({ error: `content rewrite failed: ${(err as Error).message}` }, 502);
   }
-
-  const actions = await Promise.all(generated.actions.map((action) => createAction(db, action)));
-  if (actions.length > 0) await markFirstFixProposed(db, projectId);
+  if (result.actions.length > 0) await markFirstFixProposed(db, projectId);
 
   // Producing nothing is a real answer, not an error — a thin page, a brand
   // with no kind set, a rewrite that is switched off. `skipped` says which,
   // in words the customer can act on, instead of the one sentence this used to
   // return for every cause.
-  return c.json({ projectId, findingId, actions, skipped });
+  return c.json({ projectId, findingId, actions: result.actions, skipped: result.skipped });
+});
+
+/**
+ * Propose the fix for every page in one issue group.
+ *
+ * A crawl reports one finding per page per issue, so a 7-page site with 6
+ * issues is 42 findings that differ only in URL — and the Audit screen offered
+ * a button per row. The way to fix a missing <title> across a site was 42
+ * clicks and 42 toasts, which is not a way anyone would use.
+ *
+ * Runs the same `proposeForFinding` as the single route, so the batch cannot
+ * drift from it. Costed content rewrites are refused here and reported as
+ * skipped: one click must not become one paid call per page without the
+ * customer choosing that page by page.
+ */
+app.post('/projects/:projectId/findings/propose-batch', async (c) => {
+  const projectId = c.req.param('projectId');
+
+  // Body first, then access — the order `/audit` already uses. It saves a
+  // database round trip on a malformed request, and the check that matters is
+  // that a blank `issueType` never reaches the query: an empty string matching
+  // every finding would queue a fix for every page on the site from one click.
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { issueType?: unknown; target?: DeployTarget };
+  if (typeof body.issueType !== 'string' || body.issueType.trim() === '') {
+    return c.json({ error: 'issueType is required', field: 'issueType' }, 400);
+  }
+  const issueType = body.issueType.trim();
+
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const target = body.target ?? (await getProjectDeployTarget(db, projectId));
+  if (!target) {
+    return c.json({ error: 'no deploy target: configure one for the project or pass `target`', field: 'target' }, 400);
+  }
+
+  const all = await listFindingsByProject(db, projectId);
+  const group = all.filter((f) => f.issueType === issueType);
+  if (group.length === 0) {
+    return c.json({ error: 'no findings of that type in this project', field: 'issueType', issueType }, 404);
+  }
+
+  const attempted = group.slice(0, PROPOSE_BATCH_CAP);
+  const actions: Action[] = [];
+  const skipped: ProposeSkip[] = [];
+  for (const finding of attempted) {
+    try {
+      const result = await proposeForFinding(db, c.env, projectId, finding, { target, allowContent: false });
+      actions.push(...result.actions);
+      skipped.push(...result.skipped);
+    } catch (err) {
+      // One page's failure must not lose the fixes already queued for the
+      // others, which is what letting this throw would do.
+      skipped.push({
+        type: issueType,
+        findingId: finding.id,
+        url: (finding.evidence as { url?: string }).url,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  if (actions.length > 0) await markFirstFixProposed(db, projectId);
+
+  return c.json({
+    projectId,
+    issueType,
+    /** How many findings of this type exist, so "50 of 214" is sayable. */
+    findingsInGroup: group.length,
+    findingsAttempted: attempted.length,
+    actions,
+    skipped,
+  });
 });
 
 /**
@@ -2133,13 +2132,89 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
     try {
       const next = transition(action, to, defaultEnv(), auditActor(c.get('user'), body.actor), detail);
       const saved = await saveActionTransition(db, next);
-      if (to === 'deployed') await markFirstFixDeployed(db, projectId);
+      if (to === 'deployed') {
+        await markFirstFixDeployed(db, projectId);
+        // Queue the check that the fix is actually on the live page. Never
+        // throws: a deploy that succeeded must be recorded as deployed even if
+        // the check behind it cannot be queued.
+        await enqueueVerify(db, projectId, saved, 'service:internal').catch((err: unknown) => {
+          console.warn(`verify not queued for action ${saved.id}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
       return c.json({ action: saved });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 409);
     }
   };
 }
+
+/**
+ * Queue a verification of one deployed action.
+ *
+ * The action's own url is what gets fetched; a robots fix is checked against
+ * the site's robots.txt instead, which the runner derives from the same url.
+ * The entity comes from the action's finding, because the queue row needs one
+ * and inventing a different one would attribute the work to the wrong brand.
+ */
+async function enqueueVerify(
+  db: Db,
+  projectId: string,
+  action: Action,
+  requestedBy: string,
+): Promise<void> {
+  const finding = await getFindingInProject(db, action.findingId, projectId);
+  if (!finding) return;
+  // The page to fetch is the finding's, not the action's: an Action carries the
+  // diff and where it deploys, never the URL it deploys to.
+  const url = (finding.evidence as { url?: string }).url;
+  if (!url) return;
+  await createVerifyRequest(db, {
+    projectId,
+    entityId: finding.entityId,
+    actionId: action.id,
+    url,
+    requestedBy,
+  });
+}
+
+/**
+ * "Check now" — the same check the deploy queues, on demand.
+ *
+ * The Verify button this replaces asked the *browser* for the deployed page's
+ * HTML, which a browser does not have and cannot fetch cross-origin. It posted
+ * an empty string every time, so the matcher failed every time: a control that
+ * could not succeed, teaching the customer that deploys do not stick.
+ */
+app.post('/projects/:projectId/actions/:actionId/verify-request', async (c) => {
+  const projectId = c.req.param('projectId');
+  const actionId = c.req.param('actionId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const action = await getAction(db, actionId);
+  if (!action) return c.json({ error: 'action not found' }, 404);
+  if (action.status !== 'deployed' && action.status !== 'verified') {
+    return c.json({ error: 'this fix has not been deployed yet, so there is nothing to check for.' }, 409);
+  }
+  const finding = await getFindingInProject(db, action.findingId, projectId);
+  const url = finding ? (finding.evidence as { url?: string }).url : undefined;
+  if (!url) return c.json({ error: 'this fix is not tied to a page that can be fetched.' }, 409);
+
+  await enqueueVerify(db, projectId, action, auditActor(c.get('user')));
+  // Null means one is already queued or running, which is the same answer to
+  // the customer: it is being checked.
+  return c.json({ queued: true, request: await latestVerifyRequest(db, actionId) }, 202);
+});
+
+/** What the last check of this fix found, for the Deployed lane card. */
+app.get('/projects/:projectId/actions/:actionId/verify-status', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  return c.json({ request: await latestVerifyRequest(db, c.req.param('actionId')) });
+});
 
 /**
  * Record that a person read a fix's wording before it can be approved.
@@ -2334,6 +2409,61 @@ app.post('/internal/audit-requests/:id/finish', async (c) => {
   if ('auditRunId' in outcome) await runEntityAuditAfterCrawl(db, request.projectId);
 
   return c.json({ request });
+});
+
+/**
+ * The runner reports what it found on the live page.
+ *
+ * The matcher runs here, not in the runner: the Action and its diff live in
+ * this database, and shipping them to a public GitHub Action so it could
+ * compare them itself would be sending a customer's proposed content somewhere
+ * it does not need to go. The runner fetches bytes and posts them; the API
+ * decides what they mean.
+ */
+app.post('/internal/audit-requests/:id/verify-result', async (c) => {
+  if (!requireService(c)) return c.json({ error: 'not found' }, 404);
+  const id = c.req.param('id');
+  const invalidId = checkUuidParam(id, 'id');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { renderedHtml?: string; robotsTxt?: string; error?: string };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const request = await getAuditRequest(db, id);
+  if (!request || request.kind !== 'verify' || !request.actionId) {
+    return c.json({ error: 'verify request not found', id }, 404);
+  }
+
+  // The fetch itself failed. Recorded as "checked, not confirmed" with the
+  // reason, rather than as a verification failure — an unreachable page and a
+  // page missing the change are different things.
+  if (typeof body.error === 'string' && body.error !== '') {
+    const done = await finishVerifyRequest(db, id, false, body.error.slice(0, 500));
+    return c.json({ request: done });
+  }
+
+  const action = await getAction(db, request.actionId);
+  if (!action) return c.json({ error: 'action not found', id }, 404);
+
+  const matched =
+    action.type === 'robots'
+      ? verifyRobotsDeploy(body.robotsTxt ?? '', action)
+      : verifyHtmlDeploy(body.renderedHtml ?? '', action);
+
+  const done = await finishVerifyRequest(db, id, matched, matched ? undefined : 'The change is not on the live page yet.');
+  if (matched && action.status === 'deployed') {
+    try {
+      const next = transition(action, 'verified', defaultEnv(), 'service:crawl-runner');
+      await saveActionTransition(db, next);
+    } catch (err) {
+      // A concurrent rollback can make 'verified' an illegal move. The check
+      // result still stands and is already recorded.
+      console.warn(`verified transition refused for ${action.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return c.json({ request: done, verified: matched });
 });
 
 /**

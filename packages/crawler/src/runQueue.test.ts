@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { createQueueApi, runQueue, type Outcome, type QueueApi, type QueuedRequest } from './runQueue.js';
+import { createQueueApi, fetchForVerify, runQueue, type Outcome, type QueueApi, type QueuedRequest, type VerifyReport } from './runQueue.js';
 
 const req = (id: string): QueuedRequest => ({ id, projectId: 'p', entityId: 'e', rootUrl: `https://${id}.example`, maxPages: 50 });
 
 function fakeApi(queued: QueuedRequest[], claimable = new Set(queued.map((q) => q.id))) {
   const finished: Record<string, Outcome> = {};
+  const verified: Record<string, VerifyReport> = {};
   const api: QueueApi = {
     listQueued: async () => queued,
     claim: async (id) => (claimable.has(id) ? queued.find((q) => q.id === id)! : null),
     finish: async (id, outcome) => {
       finished[id] = outcome;
     },
+    reportVerify: async (id, result) => {
+      verified[id] = result;
+    },
   };
-  return { api, finished };
+  return { api, finished, verified };
 }
 
 describe('runQueue', () => {
@@ -81,5 +85,92 @@ describe('createQueueApi', () => {
     const { impl } = fetchStub({ '/finish': { status: 500, body: { error: 'db down' } } });
     const api = createQueueApi({ apiBaseUrl: 'https://api.test', token: 'tok', fetchImpl: impl });
     await expect(api.finish('a', { error: 'x' })).rejects.toThrow('finishing a failed: 500 db down');
+  });
+});
+
+describe('verify requests on the same queue', () => {
+  const verifyReq = (id: string, rootUrl = `https://${id}.example/page`): QueuedRequest => ({
+    id,
+    projectId: 'p',
+    entityId: 'e',
+    rootUrl,
+    maxPages: 1,
+    kind: 'verify',
+    actionId: `act-${id}`,
+  });
+
+  it('checks a deployed fix without launching a crawl', async () => {
+    const { api, finished, verified } = fakeApi([verifyReq('v1')]);
+    let crawled = 0;
+    const result = await runQueue(
+      api,
+      async () => {
+        crawled += 1;
+        return { pagesCrawled: 1, auditRunId: 'r' };
+      },
+      () => {},
+      async () => ({ renderedHtml: '<title>New</title>' }),
+    );
+    expect(crawled).toBe(0);
+    expect(result).toEqual({ seen: 1, claimed: 1, done: 1, failed: 0 });
+    expect(verified).toEqual({ v1: { renderedHtml: '<title>New</title>' } });
+    // A verify is not finished through the crawl door: the API closes it when
+    // it records what the bytes meant.
+    expect(finished).toEqual({});
+  });
+
+  it('drains crawls and verifies from one queue, which is why they share it', async () => {
+    const { api, finished, verified } = fakeApi([req('a'), verifyReq('v1')]);
+    const result = await runQueue(
+      api,
+      async (r) => ({ pagesCrawled: 1, auditRunId: `run-${r.id}` }),
+      () => {},
+      async () => ({ renderedHtml: 'x' }),
+    );
+    expect(result.done).toBe(2);
+    expect(Object.keys(finished)).toEqual(['a']);
+    expect(Object.keys(verified)).toEqual(['v1']);
+  });
+
+  it('treats a request with no kind as a crawl, so an older API keeps working', async () => {
+    const { api, finished } = fakeApi([req('a')]);
+    await runQueue(api, async () => ({ pagesCrawled: 1, auditRunId: 'r' }));
+    expect(finished).toEqual({ a: { auditRunId: 'r' } });
+  });
+});
+
+describe('fetchForVerify', () => {
+  it('reads robots.txt as robots, and any other path as page HTML', async () => {
+    const robots = await fetchForVerify(
+      { id: 'v', projectId: 'p', entityId: 'e', rootUrl: 'https://x.example/robots.txt', maxPages: 1, kind: 'verify' },
+      (async () => new Response('User-agent: *', { status: 200 })) as unknown as typeof fetch,
+    );
+    expect(robots).toEqual({ robotsTxt: 'User-agent: *' });
+
+    const page = await fetchForVerify(
+      { id: 'v', projectId: 'p', entityId: 'e', rootUrl: 'https://x.example/a', maxPages: 1, kind: 'verify' },
+      (async () => new Response('<html></html>', { status: 200 })) as unknown as typeof fetch,
+    );
+    expect(page).toEqual({ renderedHtml: '<html></html>' });
+  });
+
+  it('reports an unreachable page rather than throwing, and names the status', async () => {
+    // "We could not reach the page" and "the change is not there" are different
+    // things to tell a customer, and only one of them is their problem to fix.
+    const out = await fetchForVerify(
+      { id: 'v', projectId: 'p', entityId: 'e', rootUrl: 'https://x.example/a', maxPages: 1, kind: 'verify' },
+      (async () => new Response('nope', { status: 503 })) as unknown as typeof fetch,
+    );
+    expect(out).toEqual({ error: 'the page answered 503' });
+  });
+
+  it('reports a network failure as a reason, not a crash', async () => {
+    const out = await fetchForVerify(
+      { id: 'v', projectId: 'p', entityId: 'e', rootUrl: 'https://x.example/a', maxPages: 1, kind: 'verify' },
+      (async () => {
+        throw new Error('getaddrinfo ENOTFOUND');
+      }) as unknown as typeof fetch,
+    );
+    expect(out).toEqual({ error: 'getaddrinfo ENOTFOUND' });
   });
 });

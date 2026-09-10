@@ -31,7 +31,7 @@ const ROUTES: Route[] = [
   { id: 'pulse', label: 'Pulse', iconMarkup: ICONS.pulse, view: pulseView },
   { id: 'serp', label: 'Rankings', iconMarkup: ICONS.serp, view: serpView },
   { id: 'fix-queue', label: 'Fix Queue', iconMarkup: ICONS.kanban, view: fixQueueView },
-  { id: 'audit', label: 'Audit', iconMarkup: ICONS.doc, view: auditView },
+  { id: 'audit', label: 'Findings', iconMarkup: ICONS.doc, view: auditView },
   { id: 'entity-graph', label: 'Entity Graph', iconMarkup: ICONS.entity, view: entityGraphView },
   { id: 'competitors', label: 'Competitors', iconMarkup: ICONS.versus, view: competitorsView },
   { id: 'offsite', label: 'AI answers', iconMarkup: ICONS.link, view: offsiteView },

@@ -487,6 +487,26 @@ export function saveDeployTarget(target: DeployTarget): Promise<DeployTarget> {
  * the client sends only the finding id. Returns the created actions (empty,
  * with a note, when the fix needs context this crawl didn't capture).
  */
+export interface ProposeBatchResult {
+  issueType: string;
+  findingsInGroup: number;
+  findingsAttempted: number;
+  actions: ApiAction[];
+  skipped: { type: string; reason: string; findingId?: string; url?: string }[];
+}
+
+/**
+ * Propose the fix for every page in one issue group. A crawl reports one
+ * finding per page per issue, so fixing a missing <title> across a site used to
+ * be one click per page.
+ */
+export function proposeBatch(issueType: string): Promise<ProposeBatchResult> {
+  return request<ProposeBatchResult>(`/projects/${requireProjectId()}/findings/propose-batch`, {
+    method: 'POST',
+    body: JSON.stringify({ issueType }),
+  });
+}
+
 export function proposeFix(findingId: string): Promise<{ actions: ApiAction[]; skipped: { type: string; reason: string }[] }> {
   return request<{ actions: ApiAction[]; skipped: { type: string; reason: string }[] }>(
     `/projects/${requireProjectId()}/findings/${findingId}/propose`,
@@ -505,6 +525,28 @@ export async function reviewAction(actionId: string, after?: string): Promise<Ap
     { method: 'POST', body: JSON.stringify(after === undefined ? {} : { after }) },
   );
   return resp.action;
+}
+
+export interface ApiVerifyRequest {
+  status: 'queued' | 'running' | 'done' | 'failed';
+  verified: boolean | null;
+  error: string | null;
+  finishedAt: string | null;
+}
+
+/** What the last check of this deployed fix found, if anything has checked it. */
+export function fetchVerifyStatus(actionId: string): Promise<ApiVerifyRequest | null> {
+  return request<{ request: ApiVerifyRequest | null }>(
+    `/projects/${requireProjectId()}/actions/${actionId}/verify-status`,
+  ).then((r) => r.request);
+}
+
+/** Ask for the live page to be checked now, rather than waiting for the pass. */
+export function requestVerify(actionId: string): Promise<unknown> {
+  return request(`/projects/${requireProjectId()}/actions/${actionId}/verify-request`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /** Attempt a live Fix Queue transition (DB-backed; may fail in pre-alpha). */
