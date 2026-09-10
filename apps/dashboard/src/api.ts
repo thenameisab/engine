@@ -14,6 +14,7 @@ import type {
   ActionCard,
   ApiAccount,
   ApiAccountBranding,
+  AccountKind,
   ApiAction,
   ApiEntity,
   ApiFinding,
@@ -587,10 +588,10 @@ export async function fetchAccounts(): Promise<AccountCard[]> {
   return resp.accounts.map(toAccountCard);
 }
 
-export async function createAccountApi(name: string): Promise<AccountCard> {
+export async function createAccountApi(name: string, kind: AccountKind): Promise<AccountCard> {
   const resp = await request<{ account: ApiAccount }>('/accounts', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, kind }),
   });
   return toAccountCard({ ...resp.account, projects: [] });
 }

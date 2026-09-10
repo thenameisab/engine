@@ -809,7 +809,17 @@ export function statusLabel(status: ActionStatus): string {
 
 /** Map an `ApiAccount` onto the multi-client grid's card (drops `createdAt` — the grid has no use for it). */
 export function toAccountCard(a: ApiAccount): AccountCard {
-  return { id: a.id, name: a.name, branding: a.branding, projects: a.projects, connectedProviders: a.connectedProviders ?? [] };
+  return {
+    id: a.id,
+    name: a.name,
+    // An API older than 0035 does not send it, and every account it holds was
+    // created as a company. Defaulting here rather than at each reader keeps
+    // `AccountCard.kind` total, so a view can branch on it without a guard.
+    kind: a.kind ?? 'company',
+    branding: a.branding,
+    projects: a.projects,
+    connectedProviders: a.connectedProviders ?? [],
+  };
 }
 
 /** The Fix Queue lanes, in lifecycle order (rolled_back shown as its own lane). */

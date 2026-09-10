@@ -236,7 +236,11 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
     try {
       let accountId = existing?.id;
       if (!accountId) {
-        const account = await createAccountApi(plan.accountName);
+        // The answer to "This site belongs to" is sent, not just used to derive
+        // the names above. It was read locally and dropped, so nothing
+        // downstream could tell an agency from a company — which is why the
+        // agency-only branding panel had no data to gate on.
+        const account = await createAccountApi(plan.accountName, kind);
         // Keep the created client selectable, so a failure on the next step
         // and a retry does not create it twice.
         accounts = [account, ...accounts];

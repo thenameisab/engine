@@ -53,7 +53,7 @@ import {
   type SerpQuery,
   type PromptQuery,
 } from '@engine/connectors';
-import { durationMs, isEntityKind, isEntityRole, type Action, type Entity, type Finding, type FindingSource, type PlanTier, type DeployTarget } from '@engine/core';
+import { durationMs, isEntityKind, isEntityRole, type AccountKind, type Action, type Entity, type Finding, type FindingSource, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
 import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
@@ -2939,11 +2939,11 @@ app.post('/accounts', async (c) => {
   if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
   const invalid = checkCreateAccountBody(raw);
   if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
-  const body = raw as { name: string };
+  const body = raw as { name: string; kind?: AccountKind };
   const db = createDb(c.env.DATABASE_URL);
   const user = c.get('user');
   await upsertUser(db, user);
-  const account = await createAccount(db, body.name, user.id);
+  const account = await createAccount(db, body.name, user.id, body.kind);
   return c.json({ account }, 201);
 });
 

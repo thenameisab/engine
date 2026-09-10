@@ -356,10 +356,19 @@ export interface ApiProject {
   createdAt: string;
 }
 
+/**
+ * What kind of thing an account is, as onboarding asks it and 0035 stores it.
+ * The same three values as `SITE_OWNER_KINDS` in `format.ts`, which is the
+ * form's own list with the labels the radio group shows.
+ */
+export type AccountKind = 'company' | 'agency' | 'individual';
+
 /** An account with its projects, as `GET /accounts` returns it (apps/api). */
 export interface ApiAccount {
   id: string;
   name: string;
+  /** Absent from an API deploy older than 0035, where every account is a company. */
+  kind?: AccountKind;
   branding: ApiAccountBranding;
   createdAt: string;
   projects: ApiProject[];
@@ -371,6 +380,7 @@ export interface ApiAccount {
 export interface AccountCard {
   id: string;
   name: string;
+  kind: AccountKind;
   branding: ApiAccountBranding;
   projects: ApiProject[];
   connectedProviders: ProviderId[];

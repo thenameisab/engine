@@ -4,18 +4,25 @@
  * existed only as rows seeded straight into Postgres — no route created
  * either, and no table linked a signed-in identity to an account at all.
  */
-import type { Account, AccountBranding, Project } from '@engine/core';
+import type { Account, AccountBranding, AccountKind, Project } from '@engine/core';
 import { toJsonb, type Db } from '../db.js';
 
 interface AccountRow {
   id: string;
   name: string;
+  kind: AccountKind;
   branding: AccountBranding;
   created_at: Date;
 }
 
 function toAccount(row: AccountRow): Account {
-  return { id: row.id, name: row.name, branding: row.branding ?? {}, createdAt: row.created_at.toISOString() };
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    branding: row.branding ?? {},
+    createdAt: row.created_at.toISOString(),
+  };
 }
 
 interface ProjectRow {
@@ -87,12 +94,17 @@ export async function ensureLocalUser(db: Db, user: { id: string; email: string 
  * just created it, who sees an error and tries again. Nothing lists it, nothing
  * cleans it up, and no later query notices: the row is simply orphaned.
  */
-export async function createAccount(db: Db, name: string, ownerUserId: string): Promise<Account> {
+export async function createAccount(
+  db: Db,
+  name: string,
+  ownerUserId: string,
+  kind: AccountKind = 'company',
+): Promise<Account> {
   return db.begin(async (tx) => {
     const [row] = await tx<AccountRow[]>`
-      insert into accounts (name)
-      values (${name})
-      returning id, name, branding, created_at
+      insert into accounts (name, kind)
+      values (${name}, ${kind})
+      returning id, name, kind, branding, created_at
     `;
     await tx`
       insert into account_members (account_id, user_id, role)
@@ -144,7 +156,7 @@ export async function listAccountsForUser(
   userId: string,
 ): Promise<Array<Account & { projects: Project[] }>> {
   const accountRows = await db<AccountRow[]>`
-    select a.id, a.name, a.branding, a.created_at
+    select a.id, a.name, a.kind, a.branding, a.created_at
     from accounts a
     join account_members m on m.account_id = a.id
     where m.user_id = ${userId}
@@ -218,7 +230,7 @@ export async function listProjectsByAccount(db: Db, accountId: string): Promise<
 
 export async function getAccount(db: Db, accountId: string): Promise<Account | null> {
   const rows = await db<AccountRow[]>`
-    select id, name, branding, created_at from accounts where id::text = ${accountId}
+    select id, name, kind, branding, created_at from accounts where id::text = ${accountId}
   `;
   return rows[0] ? toAccount(rows[0]) : null;
 }
@@ -249,7 +261,7 @@ export async function updateAccountBranding(
     update accounts
     set branding = (branding || ${toJsonb(db, patch.set)}) - ${patch.clear}::text[]
     where id::text = ${accountId}
-    returning id, name, branding, created_at
+    returning id, name, kind, branding, created_at
   `;
   return toAccount(row);
 }
