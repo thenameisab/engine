@@ -107,6 +107,43 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
     expect(links).toEqual([`${server.origin}/target`]);
   }, 30_000);
 
+  it('stores the prose a reader sees, not the script and noscript source', async () => {
+    // Production, 2026-09-10: all 50 of a customer's pages held the same
+    // 20,000 bytes of GTM iframe markup and inline JS as `body_text`, and B2
+    // scored E-E-A-T and answer-first over it. The page has no <main>, so the
+    // capture falls back to <body>, and `textContent` of a body includes
+    // every <script> and <noscript> in it.
+    const rules = parseRobotsTxt('');
+    const { page } = await crawlPage(browser, server.origin + '/script-heavy', {
+      entityId: 'ent_1',
+      robotsRules: rules,
+      sitemapUrls: new Set(),
+    });
+
+    expect(page.bodyText).toMatch(/^Real heading/);
+    expect(page.bodyText).toContain('Published by Test Author');
+    expect(page.bodyText).not.toContain('googletagmanager');
+    expect(page.bodyText).not.toContain('__bundle');
+    expect(page.bodyText!.length).toBeLessThan(500);
+  }, 30_000);
+
+  it('does not mistake a script-laden shell for a rendered page', async () => {
+    // The same defect inside the render wait: its "how much text is showing"
+    // signal counted script source, so a pre-hydration shell with a big
+    // bundle looked settled and non-empty a second after `load`, and the
+    // page was read before it painted anything.
+    const rules = parseRobotsTxt('');
+    const { page, links } = await crawlPage(browser, server.origin + '/slow-hydration', {
+      entityId: 'ent_1',
+      robotsRules: rules,
+      sitemapUrls: new Set(),
+    });
+
+    expect(page.headings).toEqual([{ level: 1, text: 'Late heading' }]);
+    expect(page.bodyText).toContain('Content that arrives two seconds in.');
+    expect(links).toEqual([`${server.origin}/target`]);
+  }, 30_000);
+
   it('reports every link on the page, navigation and footer included', async () => {
     // `internalLinkCount` deliberately counts only the main content, so
     // discovery cannot be built on it — a site's nav is where the rest of it
