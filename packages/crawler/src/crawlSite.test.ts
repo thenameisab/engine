@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { chromium, type Browser } from 'playwright';
-import { crawlSite } from './crawlSite.js';
+import { crawlSite, withWwwToggled } from './crawlSite.js';
 import { startTestServer, type TestServer } from './testServer.js';
 
 describe('crawlSite (real Chromium + a local HTTP server, real robots.txt/sitemap.xml)', () => {
@@ -143,6 +143,64 @@ describe('crawlSite (real Chromium + a local HTTP server, real robots.txt/sitema
     expect(pages[0].statusCode).toBe(200);
   }, 60_000);
 
+  /**
+   * The apex/`www` recovery, measured on tartanhq.com on 2026-09-10: the apex
+   * is an S3 bucket behind a CloudFront WAF that answers 403 to a datacenter
+   * IP, while `www` is a different provider and answers 200 to everyone. One
+   * host refusing must not mean the site cannot be audited.
+   *
+   * The fixture is that shape inverted — the `www.` host refuses and the bare
+   * host serves — and the inversion is what keeps this test off DNS. Seeded at
+   * `www.localhost`, either outcome proves the same thing:
+   *
+   * - the name resolves (macOS, and systemd-resolved synthesizes `*.localhost`
+   *   per RFC 6761), the server sees `Host: www.localhost` and answers 403;
+   * - the name does not resolve and the navigation fails outright.
+   *
+   * Both are a root that did not serve a site, and both must be recovered from
+   * by stripping `www.`. Nothing here waits on a lookup to *fail*, which is
+   * the dependency #97 had to remove from seven other suites.
+   *
+   * `www.127.0.0.1` would have been the tidier fixture and is not a URL at
+   * all: WHATWG parses a host whose last label is numeric as IPv4, and five
+   * parts is a parse failure, so `new URL` throws.
+   */
+  it('falls back to the sibling host when the seeded host refuses the root', async () => {
+    const port = new URL(server.origin).port;
+    const { pages } = await crawlSite(browser, `http://www.localhost:${port}/host-split`, {
+      entityId: 'ent_1',
+      maxPages: 5,
+      delayMs: 0,
+    });
+
+    expect(pages.length).toBeGreaterThan(0);
+    expect(pages[0].statusCode).toBe(200);
+    expect(pages[0].title).toBe('Served by the bare host');
+    // Everything is anchored on the host that answered, not the one asked for.
+    expect(new URL(pages[0].url).hostname).toBe('localhost');
+  }, 60_000);
+
+  it('names every host it tried when none of them serve the site', async () => {
+    // "tartanhq.com answered 403" on its own invites "but the site is up". The
+    // pair of attempts is what shows the sibling host was tried too.
+    await expect(
+      crawlSite(browser, server.origin + '/blocked', { entityId: 'ent_1', maxPages: 5, delayMs: 0 }),
+    ).rejects.toThrow(/no host served this site/);
+  }, 60_000);
+
+  it('does not substitute a host when the caller named the URLs', async () => {
+    // An explicit seed list is a decision, not a guess to be recovered from.
+    // Only the given host appears in the failure.
+    await expect(
+      crawlSite(browser, server.origin + '/', {
+        entityId: 'ent_1',
+        seedUrls: [server.origin + '/blocked'],
+        maxPages: 5,
+        delayMs: 0,
+      }),
+    ).rejects.toThrow(/answered 403/);
+  }, 60_000);
+
   it('separates a spent budget from a site with nothing left to follow', async () => {
     // "Stopped at the limit" and "crawled everything there was" are different
     // stories, and only one of them means there is more site to check.
@@ -152,4 +210,28 @@ describe('crawlSite (real Chromium + a local HTTP server, real robots.txt/sitema
     const complete = await crawlSite(browser, server.origin + '/', { entityId: 'ent_1', maxPages: 10, delayMs: 0 });
     expect(complete.coverage.stoppedAtLimit).toBe(false);
   }, 60_000);
+});
+
+describe('withWwwToggled', () => {
+  it('adds www. to an apex and strips it from a www host', () => {
+    expect(withWwwToggled('https://tartanhq.com/')).toBe('https://www.tartanhq.com/');
+    expect(withWwwToggled('https://www.tartanhq.com/')).toBe('https://tartanhq.com/');
+  });
+
+  it('keeps the scheme, port and path, because the seed carries all three', () => {
+    expect(withWwwToggled('http://acme.com:8080/a/b?q=1')).toBe('http://www.acme.com:8080/a/b?q=1');
+  });
+
+  it('strips only the leading label, not every occurrence', () => {
+    expect(withWwwToggled('https://www.www-host.com/')).toBe('https://www-host.com/');
+  });
+
+  it('declines when there is nothing sensible to try', () => {
+    expect(withWwwToggled('https://127.0.0.1:3000/')).toBeNull();
+    expect(withWwwToggled('http://localhost:3000/')).toBeNull();
+    expect(withWwwToggled('not a url')).toBeNull();
+    // Not a URL at all: WHATWG reads a numeric last label as IPv4, and five
+    // parts is a parse failure. Worth pinning, because it looks like a host.
+    expect(withWwwToggled('http://www.127.0.0.1:3000/')).toBeNull();
+  });
 });
