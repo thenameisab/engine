@@ -12,20 +12,24 @@ import type { Db } from '../db.js';
  * database.
  */
 
-function toFacts(e: {
-  id: string;
-  canonicalName: string;
-  wikidataId: string | null;
-  urls: string[];
-  mentions: string[];
-  citations: string[];
-  schema: object[];
-}): EntityGraphFacts {
+function toFacts(
+  e: {
+    id: string;
+    canonicalName: string;
+    wikidataId: string | null;
+    urls: string[];
+    mentions: string[];
+    citations: string[];
+    schema: object[];
+  },
+  siteDomain: string | null,
+): EntityGraphFacts {
   return {
     id: e.id,
     canonicalName: e.canonicalName,
     wikidataId: e.wikidataId,
     urls: e.urls,
+    siteDomain,
     mentions: e.mentions,
     citations: e.citations,
     schema: e.schema,
@@ -41,7 +45,11 @@ export async function runProjectEntityAudit(db: Db, projectId: string): Promise<
   // Self only: this audit emits findings the customer is expected to act on,
   // and a competitor's weak schema is not theirs to fix.
   const entities = await listEntitiesByProject(db, projectId, 'self');
-  const result = runEntityAudit(entities.map(toFacts));
+  // The site the entity's own pages are served from. The crawl now records it
+  // on `entities.urls`, and `sameAs` is about the entity's *other* homes, so
+  // the audit has to know which of those URLs is the site itself.
+  const [project] = await db<{ domain: string }[]>`select domain from projects where id::text = ${projectId}`;
+  const result = runEntityAudit(entities.map((e) => toFacts(e, project?.domain ?? null)));
 
   if (result.findings.length > 0) await upsertFindings(db, result.findings);
   for (const s of result.strengths) await upsertEntityStrength(db, projectId, s);

@@ -194,6 +194,14 @@ export function checkCrawledPage(value: unknown, field: string): Invalid | null 
         each(p.headings as unknown[], `${field}.headings`, checkHeadingEntry),
     ),
     optional(p.bodyText, () => checkString(p.bodyText, `${field}.bodyText`)),
+    // Written verbatim onto `entities.schema`, so it is checked to the same
+    // depth as anything else this route persists: an array, of objects.
+    optional(
+      p.jsonLd,
+      () =>
+        checkArray(p.jsonLd, `${field}.jsonLd`) ??
+        each(p.jsonLd as unknown[], `${field}.jsonLd`, checkObject),
+    ),
   );
 }
 

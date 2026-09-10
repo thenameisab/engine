@@ -6,7 +6,7 @@
 import type { Browser, Page, Response } from 'playwright';
 import type { CrawledPage } from '@engine/diagnosis';
 import { installVitalsInstrumentation, collectCoreWebVitals } from './vitals.js';
-import { extractStructuredData } from './structuredData.js';
+import { extractStructuredData, parseJsonLdNodes } from './structuredData.js';
 import { computeAiCrawlerAccessFromRobots, isAllowed, type RobotsRules } from './robots.js';
 import { normalizeUrl } from './sitemap.js';
 
@@ -112,14 +112,25 @@ function extractDomSignals(): DomSignals {
 /** Default budget for `waitForRenderedContent`, ms. */
 const DEFAULT_RENDER_TIMEOUT_MS = 10_000;
 
-/** How often `waitForContentToSettle` samples the page, ms. */
+/** How often `waitForRenderedContent` samples the page, ms. */
 const SETTLE_POLL_MS = 250;
-/** Consecutive identical samples that count as settled. */
-const SETTLE_SAMPLES = 3;
+/**
+ * Consecutive identical samples that count as settled — a one-second quiet
+ * window. Shorter windows were measured settling on a plateau *mid*-render:
+ * tartanhq.com's contact page shows 27,156 characters and **zero** links a
+ * second after `load`, and only reaches its 30 links half a second later.
+ */
+const SETTLE_SAMPLES = 5;
 /** What `contentSignature` returns for a page that has rendered nothing yet. */
 const EMPTY_SIGNATURE = '0:0';
 
-/** A cheap fingerprint of how much the page is currently showing. */
+/**
+ * A cheap fingerprint of how much the page is currently showing.
+ *
+ * Text length *and* link count, because the two arrive separately: the same
+ * page can have all its text and none of its anchors, and a crawler read at
+ * that moment records a site that links nowhere.
+ */
 function contentSignature(): string {
   const contentEl = document.querySelector('main, article') ?? document.body;
   return `${(contentEl?.textContent ?? '').length}:${document.querySelectorAll('a[href]').length}`;
@@ -130,13 +141,27 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Resolve once the page has stopped changing what it shows.
+ * Wait for a client-rendered page to finish painting before reading its DOM.
  *
- * The signal that actually matters is "the framework has finished putting
- * content on the page", and this measures it directly rather than inferring it
- * from network activity.
+ * `load` fires once the HTML document and its subresources are in, which on a
+ * client-rendered site is *before* the framework has put anything on the page.
+ * Production's crawl of a Framer-built site stored 515 characters of body text
+ * and zero links for exactly this reason: that site's raw HTML carries no text
+ * and no links at all, so `load` captured a pre-hydration shell and every
+ * content finding was computed over it. Client-side rendering is the common
+ * case, so this is the default and not an option.
+ *
+ * This measures the thing that matters — has the page stopped changing what it
+ * shows — rather than inferring it from network activity. `networkidle` was
+ * tried as a faster proxy and is wrong in both directions on the same site:
+ * it never fires at all on tartanhq.com's home page, spending the whole
+ * ten-second budget, and on its sub-pages it fires *early*, while the text is
+ * up but the anchors are not, which is the original defect in a new disguise.
+ *
+ * Not settling is not an error. A page given the full budget has had far
+ * longer than it needed to render, and reading it then is still right.
  */
-async function waitForContentToSettle(page: Page, timeoutMs: number): Promise<void> {
+async function waitForRenderedContent(page: Page, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let last = '';
   let repeats = 0;
@@ -155,38 +180,12 @@ async function waitForContentToSettle(page: Page, timeoutMs: number): Promise<vo
     }
     // A page showing nothing is not a settled page. A framework that has not
     // started rendering looks identical to one that never will, and only the
-    // network signal or the deadline can tell those apart.
+    // deadline can tell those apart — so a genuinely blank page costs the full
+    // budget, which is the right trade against recording a rendered site as
+    // empty.
     if (last === EMPTY_SIGNATURE) continue;
     if (++repeats >= SETTLE_SAMPLES - 1) return;
   }
-}
-
-/**
- * Wait for a client-rendered page to paint before reading its DOM.
- *
- * `load` fires once the HTML document and its subresources are in, which on a
- * client-rendered site is *before* the framework has put anything on the page.
- * Production's crawl of a Framer-built site stored 515 characters of body text
- * and zero links for exactly this reason: that site's raw HTML carries no text
- * and no links at all, so `load` captured a pre-hydration shell and every
- * content finding was computed over it. Client-side rendering is the common
- * case, so this is the default and not an option.
- *
- * Two signals, whichever comes first, because each is fast where the other is
- * slow. `networkidle` (no request for 500 ms) settles a conventional page in
- * well under a second but never fires at all on one that polls or holds a
- * socket open — measured against tartanhq.com it spent the whole 10-second
- * budget. Content-settling gets that page in 2–4 seconds but needs three
- * samples, so it can never beat a page that was ready immediately.
- *
- * Neither firing is not an error: a page given the full budget has had far
- * longer than it needed to render, and reading it then is still right.
- */
-async function waitForRenderedContent(page: Page, timeoutMs: number): Promise<void> {
-  await Promise.race([
-    page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {}),
-    waitForContentToSettle(page, timeoutMs),
-  ]);
 }
 
 /** Walk Playwright's `redirectedFrom()` chain back to the origin, oldest-first. */
@@ -254,6 +253,7 @@ export async function crawlPage(
       metaDescription: dom.metaDescription,
       vitals,
       structuredData: extractStructuredData(dom.jsonLdScripts),
+      jsonLd: parseJsonLdNodes(dom.jsonLdScripts),
       aiCrawlerAccess: computeAiCrawlerAccessFromRobots(options.robotsRules, path),
       hreflang: dom.hreflang,
       expectsHreflang: options.expectsHreflang ?? dom.hreflang.length > 0,

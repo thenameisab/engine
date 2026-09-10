@@ -89,6 +89,8 @@ import {
   getEntityInProject,
   setEntitySchemaType,
   setEntityPrompts,
+  entityFactsFromPages,
+  recordCrawledEntityFacts,
 } from './repositories/entities.js';
 import { buildEntityCopilotSummary } from './repositories/entityCopilot.js';
 import { answerQuestion, logCopilotQuery } from './repositories/copilotQuery.js';
@@ -1625,6 +1627,14 @@ app.post('/projects/:projectId/audit', async (c) => {
       return c.json({ error: 'pages cite entities that do not belong to this project', unknownEntityIds: unknown }, 400);
     }
   }
+
+  // Write back what the crawl saw of each entity's own site: the origins that
+  // served its pages, and the JSON-LD those pages publish. Nothing has ever
+  // written `entities.schema`, so the B3 entity audit has been reading an
+  // empty column and reporting "no on-site schema" for every entity whatever
+  // its site actually says. Done after the ownership check above, so a page
+  // citing another project's entity cannot reach this.
+  if (pages.length > 0) await recordCrawledEntityFacts(db, projectId, entityFactsFromPages(pages));
 
   // B2 content/extractability (M2.1) — a separate scored dimension from B1's
   // technical health, not folded into it (§8 defines the health score as

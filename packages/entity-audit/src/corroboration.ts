@@ -7,9 +7,9 @@
 
 /**
  * Reduce a URL (or bare domain) to a coarse registrable domain for dedupe.
- * Deliberately simple: strips scheme, path, `www.`, and takes the last two
- * labels. Good enough to stop counting `blog.x.com` and `x.com` twice without
- * pulling in a public-suffix list; B3's threshold is coarse anyway.
+ * Deliberately simple: strips scheme, path, port, `www.`, and takes the last
+ * two labels. Good enough to stop counting `blog.x.com` and `x.com` twice
+ * without pulling in a public-suffix list; B3's threshold is coarse anyway.
  */
 export function registrableDomain(input: string): string | null {
   const trimmed = input.trim().toLowerCase();
@@ -18,6 +18,10 @@ export function registrableDomain(input: string): string | null {
   const scheme = host.indexOf('://');
   if (scheme >= 0) host = host.slice(scheme + 3);
   host = host.split('/')[0].split('?')[0].split('#')[0];
+  // A port is not part of the domain. Left in, `acme.com:8443` and `acme.com`
+  // count as two distinct sources, and a site served on a non-default port is
+  // never recognised as its own.
+  host = host.replace(/:\d+$/, '');
   if (host.startsWith('www.')) host = host.slice(4);
   if (!host || !host.includes('.')) return host || null;
   const labels = host.split('.').filter(Boolean);
