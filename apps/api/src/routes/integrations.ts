@@ -269,6 +269,7 @@ integrationsRoutes.get('/integrations/providers', (c) => {
       // until the dashboard has rolled forward.
       requiredApis: p.setupSteps ?? [],
       requiresAccessRequest: Boolean(p.requiresAccessRequest),
+      syncsNothingYet: Boolean(p.syncsNothingYet),
       writes: p.writes,
       logoDomain: p.logoDomain,
       docsUrl: p.docsUrl,

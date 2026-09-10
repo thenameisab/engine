@@ -62,6 +62,25 @@ describe('GET /integrations/providers', () => {
     ]);
   });
 
+  /**
+   * The honesty flag behind the "Not in use yet" badge. Asserted per provider
+   * rather than as a count, because the interesting claim is *which* ones:
+   * Serper has no sync either and its key is read by `resolveSerpKey` on every
+   * rank poll, and the GitHub App is read by the 'github-pr' deploy target.
+   * Only Bing and Cloudflare verify a credential that nothing consumes.
+   */
+  it('flags the providers where connecting still changes nothing', async () => {
+    const body = (await (await request('/integrations/providers')).json()) as {
+      providers: { id: string; syncsNothingYet: boolean }[];
+    };
+    const flagged = body.providers.filter((p) => p.syncsNothingYet).map((p) => p.id).sort();
+    expect(flagged).toEqual(['bing-webmaster', 'cloudflare']);
+
+    for (const id of ['gsc', 'ga4', 'gbp', 'serper', 'github']) {
+      expect(body.providers.find((p) => p.id === id)!.syncsNothingYet).toBe(false);
+    }
+  });
+
   it('flags that GBP needs an approved access request, so the UI can say so up front', async () => {
     const body = (await (await request('/integrations/providers')).json()) as {
       providers: { id: string; requiresAccessRequest: boolean; requiredApis: string[]; writes: boolean }[];

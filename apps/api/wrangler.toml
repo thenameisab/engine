@@ -81,3 +81,20 @@ crons = ["15 3 * * *", "30 4 * * *", "0 5 * * *"]
 # Full catalogue + provisioning steps: docs/40-Integrations.md
 # Local dev: copy `.dev.vars.example` → `.dev.vars` and fill in.
 # Readiness at runtime: GET /health/integrations
+
+# ── Observability ──────────────────────────────────────────────────────────
+# Workers Logs. Without this block a production exception is written nowhere:
+# `wrangler tail` only shows what happens while someone is watching, and the
+# three crons run at 03:15, 04:30 and 05:00 UTC when nobody is.
+#
+# `head_sampling_rate = 1` keeps every invocation. Sampling is a cost control
+# and this Worker's traffic is a handful of dashboard sessions plus three cron
+# passes a day, so there is nothing to control — and sampling discards whole
+# invocations, which on a low-traffic Worker means the one request that threw
+# is the one most likely to be dropped.
+#
+# Error reporting only. Alerting a human is deferred to the notifications
+# feature (docs/reviews/2026-09-10-action-plan.md, issue 14b).
+[observability]
+enabled = true
+head_sampling_rate = 1
