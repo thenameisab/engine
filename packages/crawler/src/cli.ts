@@ -47,9 +47,13 @@ async function main(): Promise<void> {
   try {
     const maxPages = args['max-pages'] ? Number(args['max-pages']) : undefined;
     console.log(`Crawling ${url} (entity ${entity})...`);
-    const pages = await crawlSite(browser, url, { entityId: entity, maxPages });
-    console.log(`Crawled ${pages.length} page(s). Reporting to ${api}...`);
-    const result = await reportCrawlToApi(pages, { apiBaseUrl: api, projectId: project, token });
+    const { pages, coverage } = await crawlSite(browser, url, { entityId: entity, maxPages });
+    console.log(
+      `Crawled ${pages.length} page(s) — sitemap listed ${coverage.sitemapUrls}, links found ${coverage.linksDiscovered}` +
+        (coverage.stoppedAtLimit ? `, stopped at the ${coverage.maxPages}-page limit` : '') +
+        `. Reporting to ${api}...`,
+    );
+    const result = await reportCrawlToApi(pages, { apiBaseUrl: api, projectId: project, token, coverage });
     console.log(JSON.stringify(result, null, 2));
   } finally {
     await browser.close();

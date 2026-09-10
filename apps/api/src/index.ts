@@ -120,7 +120,7 @@ import {
   findingIdsWithActions,
 } from './repositories/actions.js';
 import { findingBelongsToProject, getFindingInProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
-import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
+import { recordAuditRun, latestAuditRun, type AuditRunCoverage } from './repositories/auditRuns.js';
 import {
   recordDeterministicAuditRun,
   latestDeterministicAuditRun,
@@ -1574,7 +1574,7 @@ app.post('/projects/:projectId/audit', async (c) => {
   if (invalid) {
     return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
   }
-  const body = raw as { pages?: CrawledPage[]; target?: DeployTarget };
+  const body = raw as { pages?: CrawledPage[]; target?: DeployTarget; coverage?: AuditRunCoverage };
   const pages = body.pages ?? [];
   const projectId = c.req.param('projectId');
   const db = createDb(c.env.DATABASE_URL);
@@ -1625,6 +1625,10 @@ app.post('/projects/:projectId/audit', async (c) => {
     pagesAudited: result.pagesAudited,
     findingsCount: findings.length,
     healthScore: result.healthScore,
+    // What the crawl could reach, from the crawler that just ran. Absent from
+    // a caller that posts pages directly, and a null run says so rather than
+    // claiming a site has no sitemap.
+    coverage: body.coverage ?? null,
   });
   await markFirstCrawl(db, projectId);
   if (findings.length > 0) await markFirstInsight(db, projectId);
@@ -1714,6 +1718,7 @@ app.get('/projects/:projectId/audit', async (c) => {
     healthScore: run?.healthScore ?? null,
     lastRunAt: run?.createdAt ?? null,
     pagesAudited: run?.pagesAudited ?? null,
+    coverage: run?.coverage ?? null,
   });
 });
 

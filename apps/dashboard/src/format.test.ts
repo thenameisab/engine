@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -633,3 +633,58 @@ describe('auditLastRunLine', () => {
     expect(auditLastRunLine({ trigger: 'crawl', findingsCount: 4, ranAt: at }, now)).toContain('4 findings');
   });
 });
+
+describe('crawlCoverageLine', () => {
+  const full = {
+    robotsFound: true,
+    sitemapUrls: 40,
+    linksDiscovered: 120,
+    blockedByRobots: 0,
+    stoppedAtLimit: false,
+    maxPages: 50,
+  };
+
+  it('says nothing about a project that has never been audited', () => {
+    expect(crawlCoverageLine(null, null)).toBeNull();
+  });
+
+  it('reports only the page count for a run recorded before coverage existed', () => {
+    // "We did not record whether a sitemap was found" is not "no sitemap was
+    // found", and an old row must not be made to say the second.
+    const line = crawlCoverageLine(12, null);
+    expect(line).toEqual({ text: 'Crawled 12 pages.', warning: null });
+  });
+
+  it('does not call a zero-page crawl a home page', () => {
+    // The health score beside this line is computed over nothing at all, which
+    // is a different and worse story than "we saw only your home page".
+    const line = crawlCoverageLine(0, { ...full, sitemapUrls: 0, linksDiscovered: 0 });
+    expect(line!.warning).toContain('No page could be reached');
+    expect(line!.warning).not.toContain('home page could be reached');
+  });
+
+  it('names the one-page crawl as the finding it is', () => {
+    // Production's actual state: one page audited, and a thin finding list
+    // that reads as "nearly clean".
+    const line = crawlCoverageLine(1, { ...full, sitemapUrls: 0, linksDiscovered: 0 });
+    expect(line!.text).toBe('Crawled 1 page · no sitemap found · 0 links followed.');
+    expect(line!.warning).toContain('Only the home page could be reached');
+    expect(line!.warning).toContain('not the whole site');
+  });
+
+  it('puts a spent budget ahead of a missing sitemap, because it is a different problem', () => {
+    const line = crawlCoverageLine(50, { ...full, sitemapUrls: 0, stoppedAtLimit: true });
+    expect(line!.warning).toContain('50-page limit');
+  });
+
+  it('stays quiet when the crawl covered the site properly', () => {
+    // A warning shown every time trains the reader to skip the one that matters.
+    expect(crawlCoverageLine(40, full)!.warning).toBeNull();
+  });
+
+  it('counts pages blocked by robots.txt, and only when there are some', () => {
+    expect(crawlCoverageLine(40, { ...full, blockedByRobots: 3 })!.text).toContain('3 blocked by robots.txt');
+    expect(crawlCoverageLine(40, full)!.text).not.toContain('robots.txt');
+  });
+});
+

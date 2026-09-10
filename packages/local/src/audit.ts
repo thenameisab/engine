@@ -48,7 +48,9 @@ export function runLocalAudit(facts: LocalProfileFacts, options: LocalAuditOptio
   const gbp = gbpCompleteness(facts);
   const nap = napConsistency(facts);
   const review = reviewHealth(facts.reviews, opts.clock);
-  const score = blendedScore(gbp, nap.consistency, review.health);
+  // Unmeasured, not zero: see `blendedScore`.
+  const measuredReviewHealth = facts.reviewsSourced ? review.health : null;
+  const score = blendedScore(gbp, nap.consistency, measuredReviewHealth);
 
   const findings: Finding[] = [];
   const push = (type: LocalIssueType, item: string, impact: number, evidence: object) => {
@@ -80,11 +82,14 @@ export function runLocalAudit(facts: LocalProfileFacts, options: LocalAuditOptio
   }
 
   // B5.3 reviews — unanswered cluster + low velocity.
-  if (review.unanswered > 0) {
+  // No review findings when reviews were never sourced: "you have unanswered
+  // reviews" is not something to tell an owner on the strength of an empty
+  // list nobody filled.
+  if (facts.reviewsSourced && review.unanswered > 0) {
     const impact = Math.min(0.7, 0.3 + 0.1 * review.unanswered);
     push('unanswered-reviews', facts.entityId, impact, { unanswered: review.unanswered, total: facts.reviews.length });
   }
-  if (review.recentCount < REVIEW_VELOCITY_TARGET) {
+  if (facts.reviewsSourced && review.recentCount < REVIEW_VELOCITY_TARGET) {
     push('low-review-velocity', facts.entityId, 0.4, { recentCount: review.recentCount, target: REVIEW_VELOCITY_TARGET });
   }
 
@@ -94,7 +99,7 @@ export function runLocalAudit(facts: LocalProfileFacts, options: LocalAuditOptio
     entityId: facts.entityId,
     canonicalName: facts.canonicalName,
     score,
-    components: { gbpCompleteness: gbp, napConsistency: nap.consistency, reviewHealth: review.health },
+    components: { gbpCompleteness: gbp, napConsistency: nap.consistency, reviewHealth: measuredReviewHealth },
     reviewsConsidered: facts.reviews.length,
   };
 

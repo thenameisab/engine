@@ -158,6 +158,20 @@ export interface AuditData {
   findings: FindingRow[];
   lastRunAt: string | null;
   pagesAudited: number | null;
+  /**
+   * What the crawl could reach. Null for a project whose newest run predates
+   * coverage recording — a different statement from "nothing was reachable".
+   */
+  coverage: CrawlCoverage | null;
+}
+
+export interface CrawlCoverage {
+  robotsFound: boolean | null;
+  sitemapUrls: number | null;
+  linksDiscovered: number | null;
+  blockedByRobots: number | null;
+  stoppedAtLimit: boolean | null;
+  maxPages: number | null;
 }
 
 /** Mirrors @engine/config's ReadinessReport shape (structural, not imported). */
@@ -310,7 +324,12 @@ export interface LocalVisibility {
   entityId: string;
   canonicalName: string;
   score: number;
-  components: { gbpCompleteness: number; napConsistency: number; reviewHealth: number };
+  components: {
+    gbpCompleteness: number;
+    napConsistency: number;
+    /** Null when reviews were never sourced — not the same as having none. */
+    reviewHealth: number | null;
+  };
   reviewsConsidered: number;
   updatedAt?: string;
 }

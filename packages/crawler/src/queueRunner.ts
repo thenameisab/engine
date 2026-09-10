@@ -33,8 +33,16 @@ async function main(): Promise<void> {
     const result = await runQueue(
       { ...api, listQueued: async () => queued },
       async (request: QueuedRequest) => {
-        const pages = await crawlSite(browser, request.rootUrl, { entityId: request.entityId, maxPages: request.maxPages });
-        const report = (await reportCrawlToApi(pages, { apiBaseUrl, projectId: request.projectId, token })) as { run?: { id?: string } };
+        const { pages, coverage } = await crawlSite(browser, request.rootUrl, {
+          entityId: request.entityId,
+          maxPages: request.maxPages,
+        });
+        const report = (await reportCrawlToApi(pages, {
+          apiBaseUrl,
+          projectId: request.projectId,
+          token,
+          coverage,
+        })) as { run?: { id?: string } };
         const auditRunId = report.run?.id;
         if (!auditRunId) throw new Error('the audit report did not return a run id');
         return { pagesCrawled: pages.length, auditRunId };

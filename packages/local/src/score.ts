@@ -106,8 +106,17 @@ export function reviewHealth(reviews: readonly Review[], now: () => number): Rev
 }
 
 /** Weighted blend of the three components into the 0–1 local visibility score. */
-export function blendedScore(gbp: number, nap: number, review: number): number {
+export function blendedScore(gbp: number, nap: number, review: number | null): number {
   // GBP completeness and NAP consistency are the deterministic ranking signals
   // Google leans on hardest; reviews support them.
+  //
+  // `review === null` means review health was never *measured*, which is not
+  // the same as measuring it and finding nothing. A profile typed in by hand
+  // carries no reviews because nobody could type them, and folding a 0 in
+  // would tell that owner their local presence is weak when the truth is that
+  // a quarter of the score has no input. The remaining weights are
+  // renormalized instead — the same thing `unifiedVisibilityScore` already
+  // does when local's weight is 0.
+  if (review === null) return (0.4 * gbp + 0.35 * nap) / 0.75;
   return 0.4 * gbp + 0.35 * nap + 0.25 * review;
 }
