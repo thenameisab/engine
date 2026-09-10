@@ -104,7 +104,12 @@ export async function upsertFindings(db: Db, findings: readonly Finding[]): Prom
         severity = excluded.severity,
         predicted_impact = excluded.predicted_impact,
         evidence = excluded.evidence,
-        action_templates = excluded.action_templates
+        action_templates = excluded.action_templates,
+        -- A problem that came back is open again. Reopening the original row
+        -- rather than inserting a second one keeps created_at meaning "first
+        -- seen" and keeps the actions already attached to it, so the history
+        -- reads as one recurring problem instead of two unrelated ones.
+        resolved_at = null
       returning id, entity_id, source, issue_type, severity, predicted_impact, evidence, action_templates, created_at
     `;
     persisted.push(toFinding(row));
@@ -131,10 +136,63 @@ export async function listFindingsByProject(db: Db, projectId: string): Promise<
            f.predicted_impact, f.evidence, f.action_templates, f.created_at
     from findings f
     join entities e on e.id = f.entity_id
-    where e.project_id::text = ${projectId}
+    where e.project_id::text = ${projectId} and f.resolved_at is null
     order by f.predicted_impact desc, f.created_at desc
   `;
   return rows.map(toFinding);
+}
+
+/**
+ * Retract the findings a fresh audit no longer reports.
+ *
+ * Scoped to what the run actually re-examined, which is narrower than "this
+ * project" in two ways that both matter:
+ *
+ * - **By page.** Only findings whose evidence URL is among the URLs this run
+ *   looked at. A crawl that stops at `maxPages` has said nothing about the
+ *   pages it never reached, and tartanhq.com hits that limit today — resolving
+ *   by project would silently retract every finding on the 150 pages a 50-page
+ *   crawl skipped.
+ * - **By source.** Only the sources this run evaluated. `/audit` runs B1
+ *   technical and B2 content; it does not run the B3 entity audit or the local
+ *   audit, so it has no standing to declare their findings fixed.
+ *
+ * `seenFingerprints` is what the run *did* report, and is excluded. Passing an
+ * empty list is meaningful rather than a no-op: a run that examined pages and
+ * found nothing wrong resolves everything previously recorded against them,
+ * which is exactly what a clean audit of a fixed site should do.
+ *
+ * Resolving rather than deleting: the retraction is the evidence a fix worked,
+ * and `actions.finding_id` is an FK to this table, so a delete would cascade
+ * away the action history that did the fixing.
+ */
+export async function resolveFindingsAbsentFrom(
+  db: Db,
+  projectId: string,
+  reexamined: {
+    /** URLs this run looked at, including redirect hops that led to them. */
+    urls: readonly string[];
+    /** Finding sources this run evaluated. */
+    sources: readonly FindingSource[];
+    /** Fingerprints this run reported, which stay open. */
+    seenFingerprints: readonly string[];
+  },
+): Promise<number> {
+  if (reexamined.urls.length === 0 || reexamined.sources.length === 0) return 0;
+
+  const rows = await db<{ id: string }[]>`
+    update findings f
+    set resolved_at = now()
+    from entities e
+    where e.id = f.entity_id
+      and e.project_id::text = ${projectId}
+      and f.resolved_at is null
+      and f.source = any(${reexamined.sources as string[]})
+      and f.evidence->>'url' = any(${reexamined.urls as string[]})
+      and not (f.fingerprint = any(${reexamined.seenFingerprints as string[]}))
+    returning f.id
+  `;
+  return rows.length;
 }
 
 /**
@@ -146,7 +204,7 @@ export async function listFindingsByEntity(db: Db, entityId: string, limit = 5):
   const rows = await db<FindingRow[]>`
     select id, entity_id, source, issue_type, severity, predicted_impact, evidence, action_templates, created_at
     from findings
-    where entity_id = ${entityId}
+    where entity_id = ${entityId} and resolved_at is null
     order by predicted_impact desc, created_at desc
     limit ${limit}
   `;
