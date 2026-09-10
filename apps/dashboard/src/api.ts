@@ -334,12 +334,28 @@ export function askCopilot(question: string): Promise<{ answer: CopilotAnswer; l
 }
 
 /**
+ * When one of the four deterministic audits last ran, and what set it off.
+ *
+ * Carried by every one of their GET routes because the result alone cannot
+ * say it: an audit that runs and finds nothing persists no row, so an empty
+ * screen has always been ambiguous between "never run" and "run, all clear".
+ */
+export interface AuditLastRun {
+  kind: 'entity' | 'offsite' | 'competitor' | 'local';
+  trigger: 'crawl' | 'schedule' | 'manual';
+  findingsCount: number;
+  ranAt: string;
+}
+
+/**
  * B3 entity-graph audit. GET reads the persisted strengths (weakest first);
  * POST re-runs the deterministic audit over the project's entities, persisting
  * findings (into the shared inventory) and strengths, and returns both.
  */
-export function fetchEntityStrengths(): Promise<EntityStrength[]> {
-  return request<{ strengths: EntityStrength[] }>(`/projects/${requireProjectId()}/entity-audit`).then((r) => r.strengths);
+export function fetchEntityStrengths(): Promise<{ strengths: EntityStrength[]; lastRun: AuditLastRun | null }> {
+  return request<{ strengths: EntityStrength[]; lastRun: AuditLastRun | null }>(
+    `/projects/${requireProjectId()}/entity-audit`,
+  );
 }
 export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCount: number; strengths: EntityStrength[] }> {
   return request<{ entitiesAudited: number; findingsCount: number; strengths: EntityStrength[] }>(
@@ -353,8 +369,10 @@ export function runEntityAudit(): Promise<{ entitiesAudited: number; findingsCou
  * (weakest first); GET/PUT a location's settable profile facts; POST re-runs
  * the deterministic audit for a location, persisting local findings + score.
  */
-export function fetchLocalVisibility(): Promise<LocalVisibility[]> {
-  return request<{ visibility: LocalVisibility[] }>(`/projects/${requireProjectId()}/local-audit`).then((r) => r.visibility);
+export function fetchLocalVisibility(): Promise<{ visibility: LocalVisibility[]; lastRun: AuditLastRun | null }> {
+  return request<{ visibility: LocalVisibility[]; lastRun: AuditLastRun | null }>(
+    `/projects/${requireProjectId()}/local-audit`,
+  );
 }
 export function fetchLocalProfile(entityId: string): Promise<Record<string, unknown> | null> {
   return request<{ profile: Record<string, unknown> | null }>(
@@ -394,10 +412,10 @@ export function removeCompetitor(selfEntityId: string, competitorSetId: string):
     method: 'DELETE',
   });
 }
-export function fetchCompetitorGaps(selfEntityId: string): Promise<CompetitorGap[]> {
-  return request<{ gaps: CompetitorGap[] }>(
+export function fetchCompetitorGaps(selfEntityId: string): Promise<{ gaps: CompetitorGap[]; lastRun: AuditLastRun | null }> {
+  return request<{ gaps: CompetitorGap[]; lastRun: AuditLastRun | null }>(
     `/projects/${requireProjectId()}/entities/${selfEntityId}/competitor-audit`,
-  ).then((r) => r.gaps);
+  );
 }
 export function runCompetitorAudit(
   selfEntityId: string,
@@ -414,10 +432,12 @@ export function runCompetitorAudit(
  * category, persisting off-site findings + opportunities, and returns both plus
  * the full per-domain intelligence.
  */
-export function fetchCitationOpportunities(selfEntityId: string): Promise<CitationOpportunity[]> {
-  return request<{ opportunities: CitationOpportunity[] }>(
+export function fetchCitationOpportunities(
+  selfEntityId: string,
+): Promise<{ opportunities: CitationOpportunity[]; lastRun: AuditLastRun | null }> {
+  return request<{ opportunities: CitationOpportunity[]; lastRun: AuditLastRun | null }>(
     `/projects/${requireProjectId()}/entities/${selfEntityId}/offsite-audit`,
-  ).then((r) => r.opportunities);
+  );
 }
 export function runOffsiteAudit(
   selfEntityId: string,

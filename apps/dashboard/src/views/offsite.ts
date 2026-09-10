@@ -11,6 +11,7 @@ import {
 } from '../api.js';
 import { modelPicker } from '../modelPicker.js';
 import { readableError } from '../errors.js';
+import { auditLastRunLine } from '../format.js';
 import type { AppContext } from '../context.js';
 import type {
   ApiEntity,
@@ -113,6 +114,10 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   }
 
   const root = el('div', {});
+  // Appended to `head` further down, not here: the early returns below render
+  // `head` on its own, and a "last checked" line above an error would be a
+  // claim about data that failed to load.
+  const lastRunLine = el('p', { class: 'lastrun' }, [auditLastRunLine(null)]);
   const head = el('div', { class: 'pagehead' }, [
     el('h1', {}, ['AI answers']),
     el('p', {}, [
@@ -486,7 +491,9 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
 
   async function loadOpps(): Promise<void> {
     try {
-      renderOpps(await fetchCitationOpportunities(selfSelect.value));
+      const { opportunities, lastRun } = await fetchCitationOpportunities(selfSelect.value);
+      renderOpps(opportunities);
+      lastRunLine.textContent = auditLastRunLine(lastRun);
     } catch {
       renderOpps([]);
     }
@@ -514,6 +521,11 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
     try {
       const res = await runOffsiteAudit(selfSelect.value);
       renderOpps(res.opportunities);
+      lastRunLine.textContent = auditLastRunLine({
+        trigger: 'manual',
+        findingsCount: res.findingsCount,
+        ranAt: new Date().toISOString(),
+      });
       ctx.toast(`Analyzed ${res.observationsAnalyzed} citation(s) across ${res.categorySize} entit${res.categorySize === 1 ? 'y' : 'ies'} · ${res.findingsCount} finding(s) → Audit`);
     } catch (err) {
       ctx.toast(`Off-site audit failed: ${readableError(err)}`);
@@ -524,6 +536,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   });
 
   head.append(
+    lastRunLine,
     el('div', { class: 'ci-controls' }, [el('label', { class: 'ci-lbl' }, ['Brand', selfSelect]), runBtn]),
   );
   root.append(head, sharePanel, promptPanel, tryPanel, leadWrap);

@@ -82,6 +82,10 @@ a { color: inherit; text-decoration: none; }
 .pagehead h1 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
 .pagehead p { color: var(--text-muted); font-size: 13.5px; margin-top: 3px; }
 .pagehead b { color: var(--text); font-weight: 600; }
+/* When a deterministic audit last ran. Quieter than the description above it:
+   it is provenance, not a heading, and it must not compete with the numbers it
+   explains. Tabular figures keep "3h ago" from shifting as it counts up. */
+.pagehead p.lastrun { font-size: 12.5px; margin-top: 8px; font-variant-numeric: tabular-nums; }
 
 .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; align-items: start; }
 @media (max-width: 1080px) { .grid { grid-template-columns: 1fr; } }
