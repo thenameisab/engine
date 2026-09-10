@@ -42,6 +42,33 @@ describe('styles.css base rules', () => {
     expect(block).not.toMatch(/font-size:\s*[0-9.]+px/);
   });
 
+  it('spends the type scale rather than literal pixel sizes', () => {
+    // #105 declared `--t-*` and converted the shell; 149 declarations went on
+    // spending literals, in seventeen distinct sizes, several of them
+    // half-pixel neighbours of each other. That is not hierarchy a reader can
+    // use, and nothing failed while it was true. This is what makes the scale
+    // the only way to set a size.
+    const literals = [...css.matchAll(/font-size:\s*[0-9.]+px/g)].map((m) => m[0]);
+    expect(literals).toEqual([]);
+  });
+
+  it('keeps the scale at nine steps', () => {
+    // A tenth step should be a decision someone makes on purpose, not a size
+    // that appears because one screen wanted something in between.
+    const steps = [...css.matchAll(/--t-([a-z0-9]+)\s*:\s*([0-9.]+)px/g)].map((m) => `--t-${m[1]}:${m[2]}px`);
+    expect(steps).toEqual([
+      '--t-3xs:10px',
+      '--t-2xs:11px',
+      '--t-xs:12px',
+      '--t-sm:13px',
+      '--t-md:14px',
+      '--t-lg:16px',
+      '--t-xl:20px',
+      '--t-2xl:26px',
+      '--t-3xl:34px',
+    ]);
+  });
+
   it('defines every token the stylesheet spends', () => {
     // Tokens are declared several to a line, so this cannot anchor to the
     // line start. A use is `var(--x)` and carries no colon, so matching on
