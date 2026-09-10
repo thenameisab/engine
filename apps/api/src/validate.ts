@@ -46,6 +46,13 @@ function checkString(value: unknown, field: string): Invalid | null {
   return typeof value === 'string' ? null : { field, message: `expected a string, got ${describe(value)}` };
 }
 
+/** A string that carries a value: whitespace is not a name. */
+function checkNonBlank(value: unknown, field: string): Invalid | null {
+  const bad = checkString(value, field);
+  if (bad) return bad;
+  return (value as string).trim() === '' ? { field, message: 'expected a name, got an empty string' } : null;
+}
+
 /** Rejects NaN/Infinity too: they survive JSON only as nulls, but not via a hand-rolled caller. */
 function checkNumber(value: unknown, field: string): Invalid | null {
   return typeof value === 'number' && Number.isFinite(value)
@@ -571,6 +578,26 @@ export function checkCreateProjectBody(body: unknown): Invalid | null {
   if (invalid) return invalid;
   const b = body as Record<string, unknown>;
   return first(checkString(b.name, 'name'), checkString(b.domain, 'domain'));
+}
+
+/**
+ * `PATCH /projects/:projectId`. The name only, and it has to say something:
+ * setup derives the site name from the address, and a customer correcting a
+ * derived name is the whole point of the route — an empty one would leave the
+ * site switcher with a blank row and no way back.
+ *
+ * `domain` is rejected rather than ignored, so a caller that meant to
+ * re-point a project learns it cannot here instead of getting a 200 and no
+ * change. See `renameProject` for why.
+ */
+export function checkProjectPatchBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  if (b.domain !== undefined) {
+    return { field: 'domain', message: 'a site’s address cannot be changed; add a site instead' };
+  }
+  return checkNonBlank(b.name, 'name');
 }
 
 /**

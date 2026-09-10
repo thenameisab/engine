@@ -21,7 +21,19 @@ import {
   statusLabel,
   LANE_ORDER,
 } from '../format.js';
-import { fetchPulse, fetchSearchTraffic, fetchAudit, fetchActions, fetchLatestAuditRequest } from '../api.js';
+import {
+  fetchPulse,
+  fetchSearchTraffic,
+  fetchAudit,
+  fetchActions,
+  fetchLatestAuditRequest,
+  fetchAccounts,
+  fetchEntities,
+  getProjectId,
+  renameProjectApi,
+  renameEntityApi,
+  updateBrandingApi,
+} from '../api.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
 import { readableError } from '../errors.js';
 import { runAuditButton } from '../runAuditButton.js';
@@ -37,6 +49,8 @@ import type {
   AuditData,
   ActionCard,
   ApiAuditRequest,
+  AccountCard,
+  ApiEntity,
 } from '../types.js';
 
 /**
@@ -508,6 +522,222 @@ function trafficPanel(ctx: AppContext, t: TrafficSummary | null, status: Provide
   ]);
 }
 
+/* ── Names ────────────────────────────────────────────────────────────────── */
+
+/**
+ * One name, read until it is changed.
+ *
+ * `save` receives the trimmed value and is responsible for everything the
+ * change touches — the API call, and repainting the workspace column when the
+ * name is one the column shows.
+ */
+interface NameRow {
+  /** What kind of name this is: the left column. */
+  key: string;
+  value: string;
+  /** What this name is used for. Shown only while editing, where it is a decision. */
+  hint: string;
+  save(next: string): Promise<void>;
+}
+
+/** Unique per row, so a hint can be `aria-describedby` a field. Keys repeat: a
+ *  project may carry more than one brand, and both rows are called "Brand". */
+let nameRowSeq = 0;
+
+function nameRow(ctx: AppContext, row: NameRow): HTMLElement {
+  const wrap = el('div', { class: 'hm-name' });
+  const hintId = `hm-name-hint-${++nameRowSeq}`;
+  let value = row.value;
+
+  function read(): void {
+    const change = el('button', { class: 'linkbtn', type: 'button' }, ['Change']);
+    change.addEventListener('click', edit);
+    wrap.replaceChildren(
+      el('span', { class: 'hm-name-k' }, [row.key]),
+      el('b', { class: 'hm-name-v' }, [value]),
+      change,
+    );
+  }
+
+  function edit(): void {
+    const input = el('input', {
+      class: 'field',
+      type: 'text',
+      'aria-label': row.key,
+      'aria-describedby': hintId,
+      spellcheck: 'false',
+      autocomplete: 'off',
+    }) as HTMLInputElement;
+    input.value = value;
+
+    const error = el('div', { class: 'form-error', role: 'alert' });
+    error.hidden = true;
+    const save = el('button', { class: 'btn primary', type: 'button' }, ['Save']);
+    const cancel = el('button', { class: 'btn', type: 'button' }, ['Cancel']);
+
+    async function commit(): Promise<void> {
+      const next = input.value.trim();
+      if (next === '') {
+        error.textContent = `${row.key} needs a name.`;
+        error.hidden = false;
+        input.focus();
+        return;
+      }
+      // Nothing typed but the field opened: closing is the whole answer. A
+      // request here would ask the API to set a value to what it already is.
+      if (next === value) return read();
+
+      input.setAttribute('disabled', 'true');
+      save.setAttribute('disabled', 'true');
+      save.textContent = 'Saving…';
+      try {
+        await row.save(next);
+        value = next;
+        ctx.toast(`${row.key} is now ${next}.`);
+        read();
+      } catch (err) {
+        error.textContent = readableError(err);
+        error.hidden = false;
+        input.removeAttribute('disabled');
+        save.removeAttribute('disabled');
+        save.textContent = 'Save';
+        input.focus();
+      }
+    }
+
+    save.addEventListener('click', () => void commit());
+    cancel.addEventListener('click', read);
+    input.addEventListener('keydown', (e) => {
+      // Enter and Escape, because the field is one line in a panel of three
+      // and reaching for a button to leave a row you opened by accident is
+      // the wrong amount of work.
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        read();
+      }
+    });
+
+    wrap.replaceChildren(
+      el('span', { class: 'hm-name-k' }, [row.key]),
+      el('div', { class: 'hm-name-edit' }, [
+        input,
+        el('div', { class: 'hm-name-acts' }, [save, cancel]),
+        el('div', { class: 'fhint', id: hintId }, [row.hint]),
+        error,
+      ]),
+    );
+    input.focus();
+    input.select();
+  }
+
+  read();
+  return wrap;
+}
+
+/**
+ * What Engine calls this site.
+ *
+ * Set up asks for one address and reads the rest off it: the client's name,
+ * the site's name and the brand's name all come out of `onboardingPlan`,
+ * which makes "Getacme" of getacme.io. None of the three is cosmetic — the
+ * client name heads every branded report, the site name is what the switcher
+ * and the breadcrumb say, and the brand name is what Engine checks that
+ * search engines and AI answers call the business. A name Engine guessed has
+ * to be correctable, and this is the place.
+ *
+ * One row at a time, not a form of three live fields: two of the three are
+ * guesses the customer has probably never read, and a panel of open inputs at
+ * the foot of the screen they open every day invites a stray keystroke into
+ * the name on their next report.
+ */
+function namesBlock(
+  ctx: AppContext,
+  d: { accounts: AccountCard[] | null; accountsError: string | null; entities: ApiEntity[]; entitiesError: string | null },
+): HTMLElement {
+  const head = el('header', {}, [el('h3', {}, ['Names'])]);
+  const projectId = getProjectId();
+  const account = d.accounts?.find((a) => a.projects.some((p) => p.id === projectId));
+  const project = account?.projects.find((p) => p.id === projectId);
+
+  if (d.accounts === null) {
+    return el('section', { class: 'panel' }, [
+      head,
+      el('div', { class: 'fq-note' }, [`Could not load the client and site names: ${d.accountsError}`]),
+    ]);
+  }
+  if (!account || !project) {
+    // Reachable: the shell only checks that a project id is stored, not that
+    // it is still one of this user's. A site removed under another session
+    // lands here rather than on three empty fields.
+    return el('section', { class: 'panel' }, [
+      head,
+      el('div', { class: 'fq-note' }, ['This site is not in your client list any more. Choose one from the switcher at the top of the rail.']),
+    ]);
+  }
+
+  const rows: HTMLElement[] = [
+    nameRow(ctx, {
+      key: 'Client',
+      value: account.branding.companyName ?? account.name,
+      hint: 'The name at the top of every report for this client.',
+      save: async (next) => {
+        // The whole branding object, not just the changed field: the API
+        // replaces the stored one, so sending `companyName` alone would drop
+        // this client's logo and colour with it.
+        await updateBrandingApi(account.id, { ...account.branding, companyName: next });
+        account.branding = { ...account.branding, companyName: next };
+        await ctx.refreshWorkspace();
+      },
+    }),
+    nameRow(ctx, {
+      key: 'Site',
+      value: project.name,
+      hint: `What the switcher and the breadcrumb call ${project.domain}. The address itself cannot be changed here — a different address is a different site.`,
+      save: async (next) => {
+        await renameProjectApi(next);
+        project.name = next;
+        await ctx.refreshWorkspace();
+      },
+    }),
+  ];
+
+  if (d.entitiesError !== null) {
+    rows.push(el('div', { class: 'fq-note' }, [`Could not load the brand name: ${d.entitiesError}`]));
+  } else if (d.entities.length === 0) {
+    // Set up always creates one, so this is a site added before it did, or
+    // through the API. Saying so beats leaving the row out and letting the
+    // panel look as though a brand has no name.
+    rows.push(el('div', { class: 'fq-note' }, ['This site has no brand yet. Add one from Set up.']));
+  }
+  for (const entity of d.entities) {
+    rows.push(
+      nameRow(ctx, {
+        key: 'Brand',
+        value: entity.canonicalName,
+        hint: 'The name Engine checks that search engines and AI answers use for the business, and the name it writes into the structured data it proposes.',
+        save: async (next) => {
+          await renameEntityApi(entity.id, next);
+          entity.canonicalName = next;
+        },
+      }),
+    );
+  }
+
+  return el('section', { class: 'panel' }, [
+    head,
+    // Client, Site and Brand are three names for what a customer thinks of as
+    // one thing, so the panel says which is which before it offers to change
+    // them.
+    el('p', { class: 'hm-names-note' }, [
+      'What Engine calls this client, this site and this brand. Engine derived all three when the site was added.',
+    ]),
+    el('div', { class: 'hm-names' }, rows),
+  ]);
+}
+
 /* ── The view ─────────────────────────────────────────────────────────────── */
 
 interface HomeData {
@@ -518,6 +748,11 @@ interface HomeData {
   searchTraffic: SearchTraffic | null;
   searchTrafficError: string | null;
   crawl: ApiAuditRequest | null;
+  /** For the Names panel: the client and site names, and the brand names. */
+  accounts: AccountCard[] | null;
+  accountsError: string | null;
+  entities: ApiEntity[];
+  entitiesError: string | null;
 }
 
 export async function homeView(ctx: AppContext): Promise<HTMLElement> {
@@ -528,12 +763,14 @@ export async function homeView(ctx: AppContext): Promise<HTMLElement> {
     // Every source is settled independently. One unreachable route must not
     // blank the whole screen: a site with no Analytics connection still has
     // a health score worth showing, and the reverse is just as true.
-    const [audit, actions, pulse, st, crawl] = await Promise.allSettled([
+    const [audit, actions, pulse, st, crawl, accounts, entities] = await Promise.allSettled([
       fetchAudit(),
       fetchActions(),
       fetchPulse(),
       fetchSearchTraffic(),
       fetchLatestAuditRequest(),
+      fetchAccounts(),
+      fetchEntities(),
     ]);
     render({
       audit: audit.status === 'fulfilled' ? audit.value : null,
@@ -543,6 +780,10 @@ export async function homeView(ctx: AppContext): Promise<HTMLElement> {
       searchTraffic: st.status === 'fulfilled' ? st.value : null,
       searchTrafficError: st.status === 'rejected' ? readableError(st.reason) : null,
       crawl: crawl.status === 'fulfilled' ? crawl.value : null,
+      accounts: accounts.status === 'fulfilled' ? accounts.value : null,
+      accountsError: accounts.status === 'rejected' ? readableError(accounts.reason) : null,
+      entities: entities.status === 'fulfilled' ? entities.value : [],
+      entitiesError: entities.status === 'rejected' ? readableError(entities.reason) : null,
     });
   }
 
@@ -590,6 +831,11 @@ export async function homeView(ctx: AppContext): Promise<HTMLElement> {
         fixesBlock(ctx, d.actions),
         d.pulse ? visibilityBlock(ctx, d.pulse) : null,
         google,
+        // Last, and for the same reason the crawl is first: the panels above
+        // are what Engine measured, in order of how certain it is. What
+        // Engine calls things is not a measurement, and it is read once and
+        // then left alone.
+        namesBlock(ctx, d),
       ]),
     );
     schedulePoll(d.crawl);

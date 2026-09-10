@@ -604,6 +604,19 @@ export async function createProjectApi(accountId: string, name: string, domain: 
 }
 
 /**
+ * Rename the selected site. Setup derives the name from the address, so the
+ * first name a site has is a guess; this is how it is corrected. The API
+ * refuses a change of address, which is a new site rather than a rename.
+ */
+export async function renameProjectApi(name: string): Promise<ApiProject> {
+  const resp = await request<{ project: ApiProject }>(`/projects/${requireProjectId()}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+  return resp.project;
+}
+
+/**
  * The brand (entity) a site is audited as. Takes the project id explicitly
  * rather than reading the selected one: onboarding creates the project and the
  * entity in one go, before anything has been selected.
@@ -625,6 +638,19 @@ export async function setEntityKindApi(entityId: string, schemaType: string): Pr
   const resp = await request<{ entity: ApiEntity }>(`/projects/${requireProjectId()}/entities/${entityId}`, {
     method: 'PATCH',
     body: JSON.stringify({ schemaType }),
+  });
+  return resp.entity;
+}
+
+/**
+ * Rename a brand. The same route as `setEntityKindApi`, which takes either
+ * field: sending only the one the customer changed means two open tabs cannot
+ * overwrite each other's other field.
+ */
+export async function renameEntityApi(entityId: string, canonicalName: string): Promise<ApiEntity> {
+  const resp = await request<{ entity: ApiEntity }>(`/projects/${requireProjectId()}/entities/${entityId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ canonicalName }),
   });
   return resp.entity;
 }
