@@ -4,7 +4,7 @@ import { getUser, signOut, initials } from './auth/session.js';
 import { signOutRemote } from './auth/neonAuth.js';
 import { mountCopilot } from './copilot.js';
 import type { AppContext, View } from './context.js';
-import { pulseView } from './views/pulse.js';
+import { homeView } from './views/home.js';
 import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
 import { visibilityView, visibilityTabId } from './views/visibility.js';
@@ -41,7 +41,7 @@ interface Route {
  * h1 cannot drift apart.
  */
 const ROUTES: Route[] = [
-  { id: 'home', iconMarkup: ICONS.pulse, view: pulseView },
+  { id: 'home', iconMarkup: ICONS.pulse, view: homeView },
   { id: 'findings', iconMarkup: ICONS.doc, view: auditView },
   { id: 'fixes', iconMarkup: ICONS.kanban, view: fixQueueView },
   { id: 'visibility', iconMarkup: ICONS.serp, view: visibilityView },

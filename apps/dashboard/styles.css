@@ -224,7 +224,6 @@ a { color: inherit; text-decoration: none; }
 
 /* hero score */
 .hero { padding: 20px; }
-.hero .label { margin-bottom: 10px; }
 .scorewrap { display: flex; align-items: flex-end; gap: 18px; }
 .score { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 46px; font-weight: 600; line-height: 1; letter-spacing: -.02em; }
 .band { display: inline-flex; flex-direction: column; gap: 5px; padding-bottom: 4px; }
@@ -235,8 +234,6 @@ a { color: inherit; text-decoration: none; }
 .delta { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--good); }
 .delta.down { color: var(--risk); }
 .delta svg { width: 13px; height: 13px; }
-.hero-meta { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.hero-meta .num { font-size: 12px; color: var(--text-faint); }
 .spark { margin-top: 18px; width: 100%; height: 72px; display: block; }
 .contrib { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
 @media (max-width: 560px) { .contrib { grid-template-columns: 1fr; } }
@@ -578,6 +575,71 @@ select.field { cursor: pointer; }
 .toast-host { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 60; align-items: center; }
 .toast { padding: 9px 15px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow-pop); font-size: var(--t-xs); font-weight: 500; opacity: 0; transform: translateY(8px); transition: opacity .18s var(--ease-out), transform .18s var(--ease-out); }
 .toast.in { opacity: 1; transform: translateY(0); }
+
+/* ── Home ─────────────────────────────────────────────────────────────────
+   Four blocks of deliberately different shape. Same-sized cards in a grid is
+   what the last review called an admin template; here the health readout is a
+   row, the issues are a list, the fixes are a count strip over two previews,
+   and visibility keeps the band it already had. */
+
+/* Site health: the score and what makes it up, on one line. Not a hero card —
+   "20" on its own tells a customer nothing they can act on, so the severity
+   counts sit beside it and are the thing that is clickable. */
+.hm-health { padding: 16px 18px; }
+.hm-health-row { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.hm-score { display: flex; align-items: baseline; gap: 9px; }
+.hm-score-v { font-size: var(--t-3xl); font-weight: 600; line-height: 1; letter-spacing: -.02em; }
+.hm-score-v.good { color: var(--good); }
+.hm-score-v.watch { color: var(--watch); }
+.hm-score-v.risk { color: var(--risk); }
+.hm-score-k { font-size: var(--t-sm); font-weight: 550; color: var(--text-muted); }
+.hm-sevs { display: flex; align-items: center; gap: 8px; }
+.hm-sev { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.hm-sev .num { font-size: var(--t-sm); font-weight: 600; }
+.hm-health-row .btn { margin-left: auto; }
+.hm-stale { margin-top: 10px; font-size: var(--t-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* What to fix first. Rows, not cards: three issues one under another read as
+   a ranked list, which is what they are. */
+.hm-issues { display: flex; flex-direction: column; }
+.hm-issue { display: block; padding: 12px 16px; border-top: 1px solid var(--border); }
+.hm-issue:first-child { border-top: none; }
+/* `flex-start`, not `center`: a title that wraps to two lines left the
+   severity chip floating against the middle of it. */
+.hm-issue-top { display: flex; align-items: flex-start; gap: 9px; }
+.hm-issue-top b { font-size: var(--t-sm); font-weight: 600; }
+.hm-issue-n { margin-left: auto; font-size: var(--t-xs); color: var(--text-faint); flex: none; }
+.hm-issue-why { margin-top: 4px; font-size: var(--t-xs); color: var(--text-muted); line-height: 1.5; max-width: 68ch; }
+
+/* Fixes: where everything stands, then the two waiting to be read. */
+.hm-lanes { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); }
+.hm-lane { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 11px 16px; border-left: 1px solid var(--border); font-size: var(--t-xs); color: var(--text-muted); }
+.hm-lane:first-child { border-left: none; }
+.hm-lane .num { font-size: var(--t-lg); font-weight: 600; color: var(--text); line-height: 1.1; }
+.hm-fixes { display: flex; flex-direction: column; }
+.hm-fix { padding: 13px 16px; border-top: 1px solid var(--border); }
+.hm-fix:first-child { border-top: none; }
+.hm-fix-top { display: flex; align-items: baseline; gap: 9px; }
+.hm-fix-top b { font-size: var(--t-sm); font-weight: 600; }
+.hm-fix-k { font-size: var(--t-xs); color: var(--text-faint); }
+/* Now above After, not side by side: the two strings are prose of unpredictable
+   length, and two narrow columns wrapped them into unreadable stacks. */
+.hm-fix-diff { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+.hm-fix-side { display: flex; align-items: baseline; gap: 9px; }
+.hm-fix-side .label { flex: none; width: 40px; }
+.hm-fix-side code { font-family: var(--mono); font-size: var(--t-xs); line-height: 1.5; color: var(--text-muted); word-break: break-word; }
+.hm-fix-side code.after { color: var(--text); }
+@media (max-width: 620px) {
+  .hm-lanes { grid-template-columns: repeat(2, 1fr); }
+  .hm-lane:nth-child(3) { border-left: none; }
+  .hm-lane:nth-child(n+3) { border-top: 1px solid var(--border); }
+  /* The row wraps here, and `margin-left: auto` then parked the button alone
+     on the right of its own line with the gap of a missing column beside it.
+     Full width under the counts is the honest shape of a wrapped row. */
+  .hm-health-row .btn { margin-left: 0; width: 100%; }
+  .hm-sevs { width: 100%; }
+  .hm-sev { flex: 1; justify-content: center; }
+}
 
 /* ── Tabs (Visibility) ────────────────────────────────────────────────────
    Five destinations that used to be five rail items. The strip is the only
@@ -1010,14 +1072,20 @@ select.field { cursor: pointer; }
    thing pressed stayed lit as though it were still active. The per-screen
    hovers (table rows, cards) are gated in their own steps. */
 .btn, .card-act, .frow-act, .iconbtn, .navitem, .ws-sq, .ws-header, .ws-chip,
-.ws-site, .tab, .fgroup-toggle, .intg-tile, .signout {
+.ws-site, .tab, .fgroup-toggle, .intg-tile, .signout, .hm-issue, .hm-lane, .hm-sev {
   transition: transform var(--press-ms) var(--ease-out), background .12s var(--ease),
     border-color .12s var(--ease), color .12s var(--ease), border-radius .16s var(--ease);
 }
 .btn:active, .card-act:active, .frow-act:active, .iconbtn:active, .navitem:active,
 .ws-sq:active, .ws-header:active, .ws-chip:active, .ws-site:active, .tab:active,
-.fgroup-toggle:active, .intg-tile:active, .signout:active {
+.fgroup-toggle:active, .intg-tile:active, .signout:active, .hm-sev:active {
   transform: scale(var(--press));
+}
+/* A full-width row scaled by 3% reads as the page shifting rather than as a
+   press, so these answer with their surface instead. */
+.hm-issue:active, .hm-lane:active { background: var(--surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .hm-issue:hover, .hm-lane:hover, .hm-sev:hover { background: var(--surface-2); }
 }
 /* A disabled control must not answer a press it is going to ignore. */
 .btn[disabled]:active, .btn:disabled:active, .card-act[disabled]:active, .frow-act[disabled]:active {
@@ -1035,7 +1103,7 @@ select.field { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .btn:active, .card-act:active, .frow-act:active, .iconbtn:active, .navitem:active,
   .ws-sq:active, .ws-header:active, .ws-chip:active, .ws-site:active, .tab:active,
-  .fgroup-toggle:active, .intg-tile:active, .signout:active { transform: none; }
+  .fgroup-toggle:active, .intg-tile:active, .signout:active, .hm-sev:active { transform: none; }
   .toast { transition: opacity .01s linear; transform: none; }
   .toast.in { transform: none; }
 }

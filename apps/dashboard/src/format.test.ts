@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts } from './format.js';
 import { VISIBILITY_TABS, visibilityTabId } from './views/visibility.js';
-import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
+import { firstSentence } from './views/home.js';
+import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -913,5 +914,101 @@ describe('visibilityTabId', () => {
 describe('issueLabel', () => {
   it('has copy for poor-self-containment, which used to render as its raw type', () => {
     expect(issueLabel('poor-self-containment')).toBe('Sections do not stand on their own');
+  });
+});
+
+describe('homeSummary', () => {
+  const audited = {
+    healthScore: 20,
+    findingCount: 46,
+    pagesAudited: 7,
+    fixesReady: 2,
+    lastRunAt: '2026-09-10T10:00:00.000Z',
+    crawl: null,
+  };
+  const now = Date.parse('2026-09-10T10:03:00.000Z');
+
+  it('leads with the crawl, so a site just added says something is happening', () => {
+    expect(
+      homeSummary({ ...audited, crawl: { status: 'running', rootUrl: 'https://brightsmile.example/x' } }, now),
+    ).toBe('Crawling brightsmile.example now. Findings appear here as they are recorded.');
+  });
+
+  it('says queued differently from running — one has not started', () => {
+    const line = homeSummary({ ...audited, crawl: { status: 'queued', rootUrl: 'https://a.example' } }, now);
+    expect(line).toContain('Queued to crawl a.example');
+    expect(line).not.toContain('now');
+  });
+
+  it('reads the whole state once a run has finished', () => {
+    expect(homeSummary(audited, now)).toBe('Site health 20 · 46 findings on 7 pages · 2 fixes ready · audited 3m ago');
+  });
+
+  it('omits fixes at zero rather than reporting "0 fixes ready"', () => {
+    expect(homeSummary({ ...audited, fixesReady: 0 }, now)).not.toContain('fixes ready');
+  });
+
+  it('separates an unreadable audit from a site that has never been audited', () => {
+    const line = homeSummary({ ...audited, auditUnavailable: true, healthScore: null }, now);
+    expect(line).toContain('Could not read');
+    expect(line).not.toContain('has not been audited yet');
+  });
+
+  it('says what to do when the site has never been audited, not "health 0"', () => {
+    const line = homeSummary({ ...audited, healthScore: null, findingCount: 0, pagesAudited: null, lastRunAt: null }, now);
+    expect(line).toContain('has not been audited yet');
+    expect(line).not.toContain('0');
+  });
+
+  it('a finished crawl does not hold the line — done falls through to the score', () => {
+    const line = homeSummary({ ...audited, crawl: { status: 'done', rootUrl: 'https://a.example' } }, now);
+    expect(line).toContain('Site health 20');
+  });
+
+  it('agrees with itself on singulars', () => {
+    const line = homeSummary({ ...audited, findingCount: 1, pagesAudited: 1, fixesReady: 1 }, now);
+    expect(line).toContain('1 finding on 1 page');
+    expect(line).toContain('1 fix ready');
+  });
+});
+
+describe('healthBand', () => {
+  it('bands the score, and reports nothing for a site never audited', () => {
+    expect(healthBand(92)).toBe('good');
+    expect(healthBand(80)).toBe('good');
+    expect(healthBand(79)).toBe('watch');
+    expect(healthBand(50)).toBe('watch');
+    expect(healthBand(49)).toBe('risk');
+    expect(healthBand(null)).toBeNull();
+  });
+});
+
+describe('severityCounts and laneCounts', () => {
+  const row = (severity: FindingRow['severity']): FindingRow => ({
+    id: severity, type: 't', title: 'T', severity, predictedImpact: 1, autoFixable: false, url: '',
+  });
+
+  it('counts each severity, including the ones with none', () => {
+    expect(severityCounts([row('high'), row('high'), row('low')])).toEqual({ high: 2, medium: 0, low: 1 });
+  });
+
+  it('counts every lane, so an empty lane shows 0 rather than being absent', () => {
+    const action = (status: ActionCard['status']): ActionCard => ({
+      id: status, type: 't', kind: 'Meta', title: 'T',
+      diff: { before: '', after: '', format: 'text' }, changes: 'x', status, needsReview: false,
+    });
+    expect(laneCounts([action('proposed'), action('verified'), action('verified')])).toEqual({
+      proposed: 1, approved: 0, deployed: 0, verified: 2,
+    });
+  });
+});
+
+describe('firstSentence', () => {
+  it('takes the first sentence when there is more than one', () => {
+    expect(firstSentence('A page needs a title. Search engines show it.')).toBe('A page needs a title.');
+  });
+
+  it('returns a single sentence whole, with no trailing cut', () => {
+    expect(firstSentence('Only one sentence here.')).toBe('Only one sentence here.');
   });
 });

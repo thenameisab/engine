@@ -1136,3 +1136,95 @@ export function rankLabel(position: number | null, polledAt: string | null): str
   if (position !== null) return `#${position}`;
   return polledAt === null ? 'not polled yet' : 'not in top 10';
 }
+
+/* ── Home ─────────────────────────────────────────────────────────────────── */
+
+export interface HomeSummaryInput {
+  /**
+   * True when the audit could not be read at all. Distinct from a site that
+   * has never been audited: `healthScore` is null in both cases, and saying
+   * "this site has not been audited yet" about an unreachable API states a
+   * fact about the customer's site that we do not know.
+   */
+  auditUnavailable?: boolean;
+  /** Null when this site has never been audited. */
+  healthScore: number | null;
+  findingCount: number;
+  pagesAudited: number | null;
+  /** Actions sitting in `proposed`: fixes a person can read and approve now. */
+  fixesReady: number;
+  lastRunAt: string | null;
+  /** The queued or running crawl, when there is one. */
+  crawl: { status: string; rootUrl: string } | null;
+}
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * The one line under "Home" that says where this site stands.
+ *
+ * The screen after sign-in used to open with "Unified visibility is …" or,
+ * far more often, "Search rankings and AI answers have not been sampled for
+ * this site yet" — a sentence about the two data sources a new customer has
+ * least of. What Engine actually knows on day one is the crawl: a health
+ * score, findings, pages, and fixes waiting. That is what this says.
+ *
+ * A crawl in flight outranks the rest: a customer who has just added a site
+ * wants to know something is happening, not read the score of a run that has
+ * not finished.
+ */
+export function homeSummary(input: HomeSummaryInput, now = Date.now()): string {
+  const { crawl } = input;
+  if (crawl && (crawl.status === 'queued' || crawl.status === 'running')) {
+    const host = hostname(crawl.rootUrl) || crawl.rootUrl;
+    return crawl.status === 'queued'
+      ? `Queued to crawl ${host}. This usually starts within a few minutes.`
+      : `Crawling ${host} now. Findings appear here as they are recorded.`;
+  }
+
+  if (input.auditUnavailable) {
+    return 'Could not read this site’s audit just now. The figures below are whatever else loaded.';
+  }
+
+  if (input.healthScore === null) {
+    return 'This site has not been audited yet. Run an audit to see what search engines and AI assistants find.';
+  }
+
+  const parts = [`Site health ${input.healthScore}`];
+  parts.push(
+    input.pagesAudited === null
+      ? plural(input.findingCount, 'finding')
+      : `${plural(input.findingCount, 'finding')} on ${plural(input.pagesAudited, 'page')}`,
+  );
+  // Omitted at zero rather than shown as "0 fixes ready", which reads as a
+  // failure when it usually means every proposed fix has been dealt with.
+  if (input.fixesReady > 0) parts.push(`${plural(input.fixesReady, 'fix', 'fixes')} ready`);
+  if (input.lastRunAt) parts.push(`audited ${relativeTime(input.lastRunAt, now)}`);
+  return parts.join(' · ');
+}
+
+/**
+ * How the health score should read. Three bands, matching the severity
+ * vocabulary already on the findings list so one number and one chip do not
+ * disagree about whether a site is in trouble.
+ */
+export function healthBand(score: number | null): 'good' | 'watch' | 'risk' | null {
+  if (score === null) return null;
+  return score >= 80 ? 'good' : score >= 50 ? 'watch' : 'risk';
+}
+
+/** How many findings sit at each severity, for the readout beside the score. */
+export function severityCounts(rows: FindingRow[]): { high: number; medium: number; low: number } {
+  const counts = { high: 0, medium: 0, low: 0 };
+  for (const row of rows) counts[row.severity] += 1;
+  return counts;
+}
+
+/** How many actions sit in each lane, for the Fixes strip. */
+export function laneCounts(actions: ActionCard[]): Record<ActionStatus, number> {
+  const counts = { proposed: 0, approved: 0, deployed: 0, verified: 0 } as Record<ActionStatus, number>;
+  for (const a of actions) counts[a.status] += 1;
+  return counts;
+}
