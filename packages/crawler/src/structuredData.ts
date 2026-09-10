@@ -64,6 +64,31 @@ function flattenNodes(parsed: unknown): JsonLdNode[] {
 }
 
 /**
+ * The JSON-LD nodes a page actually declares, parsed and flattened.
+ *
+ * `extractStructuredData` reduces each node to a verdict — its type, and
+ * whether it validated — which answers B1.4 and throws the content away. The
+ * B3 entity audit needs the content: whether a block *names this entity*, and
+ * which profiles its `sameAs` lists, are questions a verdict cannot answer.
+ *
+ * A block that will not parse is skipped rather than reported here; it is
+ * already a B1.4 finding, and there is nothing to read.
+ */
+export function parseJsonLdNodes(scriptContents: string[]): object[] {
+  const nodes: object[] = [];
+  for (const raw of scriptContents) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    nodes.push(...flattenNodes(parsed));
+  }
+  return nodes;
+}
+
+/**
  * Parse+validate every JSON-LD `<script>` block found on a page. A block that
  * fails to parse as JSON is reported as one invalid `Unknown` block rather
  * than dropped, since malformed JSON-LD is itself a B1.4 finding.

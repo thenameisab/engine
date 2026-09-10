@@ -22,9 +22,20 @@ export const WEAK_CORROBORATION_BELOW = 0.5;
  * Fraction of the entity's known official profiles that appear in its on-site
  * sameAs. 1 when there are no known profiles to check (nothing to be
  * inconsistent with) or all are present; lower as profiles are omitted.
+ *
+ * The entity's own site is excluded from the comparison. `sameAs` lists the
+ * *other* places an entity is — schema.org states the entity's own site with
+ * `url` — so counting it as a missing profile would flag every correctly
+ * marked-up site the moment the crawler started recording which domain served
+ * the pages.
  */
-function sameAsConsistency(knownProfiles: string[], onSiteSameAs: string[]): number {
-  const known = new Set(knownProfiles.map((u) => registrableDomain(u)).filter((d): d is string => !!d));
+function sameAsConsistency(knownProfiles: string[], onSiteSameAs: string[], siteDomain: string | null): number {
+  const own = siteDomain ? registrableDomain(siteDomain) : null;
+  const known = new Set(
+    knownProfiles
+      .map((u) => registrableDomain(u))
+      .filter((d): d is string => !!d && d !== own),
+  );
   if (known.size === 0) return 1;
   const present = new Set(onSiteSameAs.map((u) => registrableDomain(u)).filter((d): d is string => !!d));
   let hit = 0;
@@ -60,12 +71,13 @@ export function inspectEntity(facts: EntityGraphFacts): EntityInspection {
 
   // B3.1 sameAs consistency (only meaningful when there is a block carrying sameAs).
   const onSiteSameAs = entityBlock ? sameAsOf(entityBlock) : [];
-  const consistency = sameAsConsistency(facts.urls, onSiteSameAs);
+  const consistency = sameAsConsistency(facts.urls, onSiteSameAs, facts.siteDomain);
   // Flag only when the entity actually has known profiles and a schema block to
   // carry them — a missing block is already reported as missing-entity-schema,
   // not double-counted here.
-  if (hasSchema && facts.urls.length > 0 && consistency < 1) {
-    const knownDomains = [...new Set(facts.urls.map((u) => registrableDomain(u)).filter(Boolean))];
+  if (hasSchema && consistency < 1) {
+    const own = facts.siteDomain ? registrableDomain(facts.siteDomain) : null;
+    const knownDomains = [...new Set(facts.urls.map((u) => registrableDomain(u)).filter((d) => d && d !== own))];
     const presentDomains = [...new Set(onSiteSameAs.map((u) => registrableDomain(u)).filter(Boolean))];
     issues.push({
       type: 'inconsistent-sameas',

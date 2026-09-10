@@ -36,6 +36,11 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
     expect(page.inSitemap).toBe(true);
     expect(page.redirectChain).toEqual([]);
     expect(page.structuredData).toEqual([{ type: 'Organization', valid: true, errors: [] }]);
+    // The block's content as well as the verdict on it: `entities.schema` is
+    // written from this, and the B3 entity audit reads it off the row.
+    expect(page.jsonLd).toEqual([
+      { '@context': 'https://schema.org', '@type': 'Organization', name: 'Test Co', url: `${server.origin}/` },
+    ]);
     expect(page.noindex).toBeUndefined();
 
     // B2 content capture (M2.1): real headings + body text off the real DOM,

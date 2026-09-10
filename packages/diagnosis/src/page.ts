@@ -94,4 +94,11 @@ export interface CrawledPage {
   bodyHtml?: string;
   /** Count of internal (same-site) links in the main content, for B2's sparse-internal-linking rule (C3). */
   internalLinkCount?: number;
+  /**
+   * The page's JSON-LD nodes as declared, parsed and flattened. `structuredData`
+   * above records B1.4's verdict on each; this is the content behind it, which
+   * the B3 entity audit reads to ask whether a block names the entity and which
+   * profiles its `sameAs` lists. Optional for the same reason the B2 fields are.
+   */
+  jsonLd?: object[];
 }

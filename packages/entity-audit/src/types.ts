@@ -26,6 +26,14 @@ export interface EntityGraphFacts {
   wikidataId: string | null;
   /** Official/owned profile URLs (site, socials, directories) the entity claims. */
   urls: string[];
+  /**
+   * The entity's own site, as a bare domain. Held separately from `urls`
+   * because `sameAs` means "other places this entity is": schema.org states
+   * the entity's own site with `url`, and demanding a site list itself in its
+   * own `sameAs` would flag every correctly-marked-up page. Null when the
+   * project has no domain recorded.
+   */
+  siteDomain: string | null;
   /** Cross-web mentions of the entity (the A6 feed) — corroboration sources. */
   mentions: string[];
   /** AI-answer citations of the entity (the A2 feed) — corroboration sources. */
