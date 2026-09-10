@@ -29,6 +29,19 @@ describe('styles.css base rules', () => {
     expect(css).toMatch(/^\.label \{/m);
   });
 
+  it('draws the sign-in screen on the tokens, not on literal colours', () => {
+    // The block used to be ninety lines of hex and rgba that ignored
+    // `data-theme`, so the first screen of the product had its own palette.
+    const start = css.indexOf('/* ===== auth screen');
+    expect(start).toBeGreaterThan(-1);
+    const end = css.indexOf('/* ===== end auth screen', start);
+    expect(end).toBeGreaterThan(start);
+    const block = css.slice(start, end);
+    expect(block).toMatch(/^\.auth-screen \{/m);
+    expect(block.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? []).toEqual([]);
+    expect(block).not.toMatch(/font-size:\s*[0-9.]+px/);
+  });
+
   it('defines every token the stylesheet spends', () => {
     // Tokens are declared several to a line, so this cannot anchor to the
     // line start. A use is `var(--x)` and carries no colon, so matching on

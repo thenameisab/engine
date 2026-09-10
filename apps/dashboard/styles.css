@@ -662,126 +662,106 @@ select.field { cursor: pointer; }
 .tabbody > div > .pagehead:first-child { margin-top: 0; }
 
 /* ===== auth screen =====================================================
-   Its own world: the shell is a light/dark product surface, this is one
-   screen you see for four seconds, so it commits to a single dark neon look
-   and ignores `data-theme` entirely.
+   The same product as the shell. This screen used to commit to its own dark
+   neon palette in literal hex and ignore `data-theme`, so the first thing a
+   user saw was a third identity next to the app and the marketing page. It
+   now spends only the tokens above: the card is a `.panel`, the field a
+   `.field`, the button a `.btn.primary`, at the sizes a single form on an
+   empty screen can afford.
 
-   NOTHING IN THIS BLOCK MOVES. No animation, no transition, no transform —
-   not on entry, not on focus, not on hover, not on a failed sign-in. The
-   previous version faded the card in, shook the field on error, and ran a
-   requestAnimationFrame canvas behind it for as long as the screen was up.
-   The glow here is all static paint: layered radial gradients and box-shadows
-   that cost one composite and then nothing. Adding a transition to this block
-   is a decision to revisit, not a tidy-up.
-   ====================================================================== */
+   Nothing here moves except the press on the button, which is the same
+   press every pressable in the product answers with. No entry animation, no
+   shake on error, no glow. */
 .auth-screen {
   position: fixed; inset: 0; overflow: auto;
   background:
-    radial-gradient(70% 55% at 12% 0%, rgba(0, 231, 255, 0.15), transparent 60%),
-    radial-gradient(65% 55% at 92% 104%, rgba(255, 61, 168, 0.14), transparent 62%),
-    radial-gradient(120% 120% at 50% 50%, rgba(8, 12, 24, 0) 30%, rgba(2, 3, 8, 0.85) 100%),
-    #04050a;
+    radial-gradient(60% 40% at 50% 0%, var(--accent-wash), transparent 70%),
+    var(--bg);
 }
-.auth-center { min-height: 100%; display: grid; place-items: center; padding: 32px 24px; }
+.auth-center { min-height: 100%; display: grid; place-items: center; padding: 32px 20px; }
 
 .auth-card {
-  width: min(400px, 92vw);
-  padding: 38px 34px 26px;
-  background: linear-gradient(180deg, rgba(15, 19, 32, 0.92), rgba(8, 10, 19, 0.94));
-  border: 1px solid rgba(120, 245, 255, 0.16);
-  border-radius: 18px;
-  /* Two glows and a top inner highlight — the neon "lit edge", painted once. */
-  box-shadow:
-    0 0 0 1px rgba(0, 231, 255, 0.05),
-    0 40px 90px -30px rgba(0, 0, 0, 0.9),
-    0 0 60px -20px rgba(0, 231, 255, 0.35),
-    inset 0 1px 0 rgba(180, 250, 255, 0.09);
+  width: min(400px, 100%);
+  padding: 32px 28px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
 }
 
-.auth-brand { display: flex; align-items: center; justify-content: center; gap: 9px; margin-bottom: 20px; }
+/* The mark and the word, exactly as the rail draws them. */
+.auth-brand { display: flex; align-items: center; justify-content: center; gap: 9px; margin-bottom: 22px; }
 .auth-mark {
-  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  color: #04050a; background: linear-gradient(140deg, #5ffbf1, #00e7ff 55%, #6f8bff);
-  box-shadow: 0 0 22px -4px rgba(0, 231, 255, 0.75);
+  width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+  color: var(--accent-ink); background: var(--accent);
 }
-.auth-mark svg { width: 18px; height: 18px; }
-.auth-word { font-size: 19px; font-weight: 650; letter-spacing: -.01em; color: #eaf6ff; }
+.auth-mark svg { width: 17px; height: 17px; }
+.auth-word { font-size: var(--t-lg); font-weight: 650; letter-spacing: -.01em; color: var(--text); }
 
-.auth-title {
-  text-align: center; font-size: 27px; font-weight: 600; letter-spacing: -.02em;
-  color: #f2fbff; text-shadow: 0 0 26px rgba(0, 231, 255, 0.35);
-}
-.auth-sub { text-align: center; font-size: 13px; color: #8093ac; margin: 8px 0 26px; line-height: 1.5; }
+.auth-title { text-align: center; font-size: var(--t-2xl); font-weight: 600; letter-spacing: -.02em; line-height: 1.15; color: var(--text); }
+.auth-sub { text-align: center; font-size: var(--t-sm); color: var(--text-muted); margin: 8px 0 24px; line-height: 1.5; }
 
-.auth-form { display: grid; gap: 7px; }
-.auth-label {
-  font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
-  color: #66e6f5; margin-top: 9px;
-}
+.auth-form { display: grid; gap: 6px; }
+.auth-label { font-size: var(--t-xs); font-weight: 550; color: var(--text-muted); margin-top: 8px; }
 .auth-field {
-  width: 100%; height: 44px; border-radius: 10px;
-  border: 1px solid rgba(122, 160, 200, 0.22);
-  background: rgba(3, 6, 14, 0.75);
-  padding: 0 14px; font-size: 14px; font-family: var(--font); color: #e8f6ff; outline: none;
+  width: 100%; height: 44px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--bg);
+  padding: 0 12px; font-size: var(--t-md); font-family: var(--font); color: var(--text); outline: none;
 }
-.auth-field::placeholder { color: #4e6076; }
-/* Focus is a colour and a ring, not a movement. Both the border and the ring
-   change so the state is legible without relying on the glow alone. */
-.auth-field:focus {
-  border-color: rgba(0, 231, 255, 0.7);
-  box-shadow: 0 0 0 3px rgba(0, 231, 255, 0.14), 0 0 18px -6px rgba(0, 231, 255, 0.6);
-}
+.auth-field::placeholder { color: var(--text-faint); }
+/* Focus is the border and a ring in the accent wash, so it reads in both
+   themes without depending on the outline alone. */
+.auth-field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.auth-field:focus-visible { outline: none; }
 /* Chrome paints its own pale-yellow autofill background, which would undo the
-   whole panel on a password-manager fill. An inset shadow the size of the box
-   is the only way to override it. */
+   theme on a password-manager fill. An inset shadow the size of the box is the
+   only way to override it. */
 .auth-field:-webkit-autofill,
 .auth-field:-webkit-autofill:focus {
-  -webkit-text-fill-color: #e8f6ff;
-  box-shadow: 0 0 0 40px #070b16 inset, 0 0 0 1px rgba(0, 231, 255, 0.25) inset;
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 40px var(--bg) inset, 0 0 0 3px var(--accent-wash);
 }
 
 .auth-btn {
-  width: 100%; height: 46px; margin-top: 18px; border: 0; border-radius: 10px; cursor: pointer;
-  font-family: var(--font); font-size: 14px; font-weight: 650; letter-spacing: .01em;
-  color: #03202a; background: linear-gradient(120deg, #5ffbf1, #00e7ff 48%, #7bb0ff);
-  box-shadow: 0 0 28px -8px rgba(0, 231, 255, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  width: 100%; height: 44px; margin-top: 16px; border: 1px solid var(--accent); border-radius: var(--r-sm); cursor: pointer;
+  font-family: var(--font); font-size: var(--t-md); font-weight: 600;
+  color: var(--accent-ink); background: var(--accent);
+  transition: transform var(--press-ms) var(--ease-out), background .12s var(--ease);
 }
-.auth-btn:hover { background: linear-gradient(120deg, #7dfff6, #35eeff 48%, #96c1ff); }
-.auth-btn:focus-visible { outline: 2px solid #b8f7ff; outline-offset: 3px; }
+@media (hover: hover) and (pointer: fine) { .auth-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); } }
+.auth-btn:active { transform: scale(var(--press)); }
 /* Disabled is the in-flight state ("Signing in…"). It has to read as busy
-   rather than broken, so the glow goes and the fill stays. */
-.auth-btn[disabled] { cursor: default; opacity: 0.55; box-shadow: none; }
+   rather than broken, so it dims and keeps its colour. */
+.auth-btn[disabled] { cursor: default; opacity: .6; }
+.auth-btn[disabled]:active { transform: none; }
 
-/* Errors only. The old rule was green by default with a red modifier, from
-   when a magic-link "check your email" shared the element; nothing writes a
-   success message here now, so the neutral case is simply hidden. Magenta
-   rather than red — it is the one colour on this card that is not the accent,
-   which is what makes it read as a stop. */
+/* Errors only; nothing writes a success message here. The same box the
+   forms inside the product use. */
 .auth-note {
-  display: none; margin: 12px 0 0; text-align: center;
-  font-size: 12.5px; line-height: 1.45; color: #ff6aa8;
+  display: none; margin: 12px 0 0; text-align: left;
+  font-size: var(--t-sm); line-height: 1.45; color: var(--risk);
+  padding: 8px 10px; border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--risk) 30%, transparent);
+  background: color-mix(in srgb, var(--risk) 8%, transparent);
 }
 .auth-note.show { display: block; }
 
-.auth-foot { text-align: center; font-size: 11px; color: #566a83; margin-top: 22px; }
+.auth-foot { text-align: center; font-size: var(--t-2xs); color: var(--text-faint); margin-top: 22px; }
 
 /* The other way in, under the button: "Use a password instead" / "Email me a
    code instead" / "Use a different email". A link, not a second button, so
    the card still has one primary action. */
 .auth-alt {
-  display: block; margin: 14px auto 0; padding: 0; border: 0; background: none; cursor: pointer;
-  font-family: var(--font); font-size: 12.5px; font-weight: 550; color: #66e6f5;
+  display: block; margin: 14px auto 0; padding: 2px 4px; border: 0; background: none; cursor: pointer;
+  font-family: var(--font); font-size: var(--t-sm); font-weight: 550; color: var(--accent); border-radius: 4px;
 }
-.auth-alt:hover { text-decoration: underline; }
-.auth-alt:focus-visible { outline: 2px solid #b8f7ff; outline-offset: 3px; border-radius: 4px; }
+@media (hover: hover) and (pointer: fine) { .auth-alt:hover { text-decoration: underline; } }
 
-/* The card is the only content on the screen, so honouring reduced-motion is
-   already the default. Kept as a guard for anything added later. */
 @media (prefers-reduced-motion: reduce) {
-  .auth-screen *, .auth-screen *::before, .auth-screen *::after {
-    animation: none !important; transition: none !important;
-  }
+  .auth-btn { transition: none; }
+  .auth-btn:active { transform: none; }
 }
+/* ===== end auth screen ================================================ */
 
 /* sign-out in the rail footer */
 .rail-foot .rail-user { min-width: 0; }

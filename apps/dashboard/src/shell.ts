@@ -122,8 +122,10 @@ function applyThemeIcon(btn: HTMLElement): void {
  * state. Reloading used to drop it back to the system setting, so a user on a
  * light system who works in dark had to press the button on every visit.
  * No stored value means no choice was made, and the system setting stands.
+ * Exported for `app.ts`, which restores it before the sign-in screen too:
+ * the screen is drawn on the same tokens, so it has the same two looks.
  */
-function restoreTheme(): void {
+export function restoreTheme(): void {
   try {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === 'dark' || saved === 'light') document.documentElement.setAttribute('data-theme', saved);
