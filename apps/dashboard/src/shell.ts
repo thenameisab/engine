@@ -16,6 +16,7 @@ import { onboardingView } from './views/onboarding.js';
 import { getProjectId } from './api.js';
 import { screenName, breadcrumb } from './format.js';
 import { createWorkspace } from './workspace.js';
+import { routeSkeleton } from './skeleton.js';
 
 interface Route {
   id: string;
@@ -322,7 +323,7 @@ export function mountShell(root: HTMLElement): void {
       else n.removeAttribute('aria-current');
     });
     paintCrumb();
-    content.replaceChildren(el('div', { class: 'loading num' }, ['loading…']));
+    content.replaceChildren(routeSkeleton(id));
     try {
       const view = await route.view(ctx);
       content.replaceChildren(view);
