@@ -2,7 +2,7 @@ import { el } from '../dom.js';
 import { fetchAudit, fetchDeployTarget, fetchLatestAuditRequest, proposeFix, requestAudit } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
-import { auditRequestStatusLine, groupFindings, pagePath } from '../format.js';
+import { auditRequestStatusLine, crawlCoverageLine, groupFindings, pagePath } from '../format.js';
 import type { ApiAuditRequest, AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
 
 /**
@@ -99,11 +99,21 @@ function summary(d: AuditData): HTMLElement {
     return el('p', {}, ['No audit has run for this project yet.']);
   }
   const pages = d.pagesAudited === 1 ? '1 page' : `${d.pagesAudited} pages`;
-  return el('p', {
+  const line = el('p', {
     html:
       `Health score <b>${d.healthScore}</b> across ${pages} · ` +
       `<b>${d.autoFixableCount}</b> of <b>${d.findings.length}</b> findings map to a one-click fix.`,
   });
+
+  // What the crawl could reach, beneath what it found. A thin finding list
+  // reads as "nearly clean" unless the screen says how little was looked at.
+  const cov = crawlCoverageLine(d.pagesAudited, d.coverage);
+  if (!cov) return line;
+  return el('div', {}, [
+    line,
+    el('p', { class: 'coverage' }, [cov.text]),
+    ...(cov.warning ? [el('p', { class: 'coverage warn' }, [cov.warning])] : []),
+  ]);
 }
 
 /** How often the header re-checks a queued or running request. */

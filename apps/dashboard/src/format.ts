@@ -624,6 +624,84 @@ export function nextAction(status: ActionStatus): { to: ActionStatus; label: str
   }
 }
 
+/* ── Crawl coverage ───────────────────────────────────────────────────────── */
+
+export interface CrawlCoverageInput {
+  robotsFound: boolean | null;
+  sitemapUrls: number | null;
+  linksDiscovered: number | null;
+  blockedByRobots: number | null;
+  stoppedAtLimit: boolean | null;
+  maxPages: number | null;
+}
+
+export interface CrawlCoverageLine {
+  /** What the crawl reached, always safe to show. */
+  text: string;
+  /**
+   * Why it reached so little, when that is the real story. Null when the crawl
+   * covered the site properly — an explanation offered every time would train
+   * the reader to skip the one time it matters.
+   */
+  warning: string | null;
+}
+
+/**
+ * What the crawl could reach, in the customer's words.
+ *
+ * Production's last crawl audited one page, and the Audit screen showed a thin
+ * finding list — which reads as "your site is nearly clean" when it means "we
+ * only ever saw your home page". A crawl that reaches one page is itself the
+ * first thing to report, and the reason matters more than the number: a
+ * missing sitemap, unfollowable links, a robots.txt in the way and a spent
+ * budget are four different problems with four different fixes.
+ */
+export function crawlCoverageLine(
+  pagesAudited: number | null,
+  coverage: CrawlCoverageInput | null,
+): CrawlCoverageLine | null {
+  if (pagesAudited === null) return null;
+  const pages = pagesAudited === 1 ? '1 page' : `${pagesAudited} pages`;
+
+  // An older run genuinely recorded no coverage. Saying "no sitemap found"
+  // about it would be inventing a fact; the page count is all that is known.
+  if (!coverage || coverage.maxPages === null) {
+    return { text: `Crawled ${pages}.`, warning: null };
+  }
+
+  const parts = [`Crawled ${pages}`];
+  parts.push(
+    coverage.sitemapUrls && coverage.sitemapUrls > 0
+      ? `sitemap listed ${coverage.sitemapUrls}`
+      : 'no sitemap found',
+  );
+  if (coverage.linksDiscovered !== null) {
+    parts.push(`${coverage.linksDiscovered} link${coverage.linksDiscovered === 1 ? '' : 's'} followed`);
+  }
+  if (coverage.blockedByRobots && coverage.blockedByRobots > 0) {
+    parts.push(`${coverage.blockedByRobots} blocked by robots.txt`);
+  }
+  const text = `${parts.join(' · ')}.`;
+
+  // Ordered by what the reader would act on first. A spent budget is not a
+  // problem with their site; the other two are.
+  let warning: string | null = null;
+  if (pagesAudited === 0) {
+    // Not "only the home page" — not even that was reached. The health score
+    // beside this line is computed over nothing, so the line has to say so.
+    warning = 'No page could be reached at all, so there is nothing behind the score above. Check the address and that the site is reachable.';
+  } else if (coverage.stoppedAtLimit) {
+    warning = `This run stopped at its ${coverage.maxPages}-page limit, so there is more of the site to check.`;
+  } else if (pagesAudited <= 1 && !coverage.sitemapUrls && !coverage.linksDiscovered) {
+    warning =
+      'Only the home page could be reached — no sitemap was found and no links were followed from it. ' +
+      'Findings below cover that one page, not the whole site.';
+  } else if (!coverage.sitemapUrls) {
+    warning = 'No sitemap was found, so pages are reached only by following links. Publishing one improves coverage.';
+  }
+  return { text, warning };
+}
+
 /* ── The deterministic audits' last run ───────────────────────────────────── */
 
 export interface AuditRunSummary {

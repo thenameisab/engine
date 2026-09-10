@@ -213,7 +213,36 @@ export function checkAuditBody(body: unknown): Invalid | null {
   const pagesInvalid =
     b.pages === undefined ? null : checkArray(b.pages, 'pages') ?? each(b.pages as unknown[], 'pages', checkCrawledPage);
   if (pagesInvalid) return pagesInvalid;
+  const coverageInvalid = optional(b.coverage, () => checkCrawlCoverage(b.coverage, 'coverage'));
+  if (coverageInvalid) return coverageInvalid;
   return optional(b.target, () => checkDeployTarget(b.target, 'target'));
+}
+
+/**
+ * The crawl's own account of what it could reach. Validated rather than stored
+ * verbatim because these numbers are shown to a customer as statements of fact
+ * about their site — "no sitemap found", "stopped at the 50-page limit" — and a
+ * malformed field would become a sentence nobody could explain.
+ */
+function checkCrawlCoverage(value: unknown, field: string): Invalid | null {
+  const invalid = checkObject(value, field);
+  if (invalid) return invalid;
+  const c = value as Record<string, unknown>;
+  return first(
+    checkBoolean(c.robotsFound, `${field}.robotsFound`),
+    checkNonNegativeInt(c.sitemapUrls, `${field}.sitemapUrls`),
+    checkNonNegativeInt(c.linksDiscovered, `${field}.linksDiscovered`),
+    checkNonNegativeInt(c.pagesCrawled, `${field}.pagesCrawled`),
+    checkNonNegativeInt(c.blockedByRobots, `${field}.blockedByRobots`),
+    checkBoolean(c.stoppedAtLimit, `${field}.stoppedAtLimit`),
+    checkNonNegativeInt(c.maxPages, `${field}.maxPages`),
+  );
+}
+
+function checkNonNegativeInt(value: unknown, field: string): Invalid | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? null
+    : { field, message: `expected a whole number of 0 or more, got ${describe(value)}` };
 }
 
 // ── Finding + ActionContext (POST /projects/:projectId/actions/generate) ────

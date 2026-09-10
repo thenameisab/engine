@@ -8,6 +8,7 @@
  * presents the same shared service token rather than a Neon Auth JWT.
  */
 import type { CrawledPage } from '@engine/diagnosis';
+import type { CrawlCoverage } from './crawlSite.js';
 
 export interface ReportCrawlOptions {
   apiBaseUrl: string;
@@ -19,6 +20,12 @@ export interface ReportCrawlOptions {
    * leaving as a bare status code.
    */
   token?: string;
+  /**
+   * What the crawl could reach. Optional because a one-off CLI crawl of an
+   * explicit URL list has no discovery story to tell, and because an API that
+   * predates the field ignores it.
+   */
+  coverage?: CrawlCoverage;
   fetchImpl?: typeof fetch;
 }
 
@@ -31,7 +38,7 @@ export async function reportCrawlToApi(pages: CrawledPage[], options: ReportCraw
       'content-type': 'application/json',
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
     },
-    body: JSON.stringify({ pages }),
+    body: JSON.stringify({ pages, ...(options.coverage ? { coverage: options.coverage } : {}) }),
   });
   if (!res.ok) {
     // A crawl is expensive; losing one to an unexplained 401 is the difference

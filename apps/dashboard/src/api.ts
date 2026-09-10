@@ -20,6 +20,7 @@ import type {
   ApiProject,
   ApiPulseResponse,
   AuditData,
+  CrawlCoverage,
   CitationOpportunity,
   CompetitorGap,
   CompetitorRef,
@@ -267,6 +268,7 @@ export async function fetchAudit(): Promise<AuditData> {
     healthScore: number | null;
     lastRunAt: string | null;
     pagesAudited: number | null;
+    coverage: CrawlCoverage | null;
   }>(`/projects/${requireProjectId()}/audit`);
   const findings = resp.findings.map(toFindingRow);
   return {
@@ -277,6 +279,7 @@ export async function fetchAudit(): Promise<AuditData> {
     findings,
     lastRunAt: resp.lastRunAt,
     pagesAudited: resp.pagesAudited,
+    coverage: resp.coverage ?? null,
   };
 }
 

@@ -94,7 +94,7 @@ export async function listLocalVisibility(db: Db, projectId: string): Promise<Lo
       score: string;
       gbp_score: string;
       nap_score: string;
-      review_score: string;
+      review_score: string | null;
       reviews_considered: number;
       updated_at: Date;
     }[]
@@ -113,7 +113,7 @@ export async function listLocalVisibility(db: Db, projectId: string): Promise<Lo
     components: {
       gbpCompleteness: Number(r.gbp_score),
       napConsistency: Number(r.nap_score),
-      reviewHealth: Number(r.review_score),
+      reviewHealth: r.review_score === null ? null : Number(r.review_score),
     },
     reviewsConsidered: r.reviews_considered,
     updatedAt: r.updated_at.toISOString(),

@@ -24,6 +24,38 @@ export interface CrawlSiteOptions {
   pageValue?: (url: string) => number | undefined;
 }
 
+/**
+ * What the crawl could reach, as opposed to what it found wrong.
+ *
+ * Production's last crawl audited **one page**, and nothing on any screen said
+ * so: the Audit view showed a thin finding list, which reads as "your site is
+ * nearly clean" when it actually means "we only ever saw your home page". A
+ * crawl that reaches one page is itself the first thing to report, and the
+ * reader needs the reason — no sitemap, no followable links, robots.txt in the
+ * way, or a budget that ran out — not just the number.
+ */
+export interface CrawlCoverage {
+  /** Whether robots.txt was reachable at all. False means default-allow. */
+  robotsFound: boolean;
+  /** URLs declared across every sitemap that could be read. 0 means none was. */
+  sitemapUrls: number;
+  /** Distinct same-origin links found by following pages. 0 on a seeded crawl. */
+  linksDiscovered: number;
+  /** Pages actually fetched and audited. */
+  pagesCrawled: number;
+  /** URLs skipped because robots.txt disallowed them. */
+  blockedByRobots: number;
+  /** True when the page budget ran out with URLs still queued. */
+  stoppedAtLimit: boolean;
+  /** The budget this run was given, so "stopped at the limit" names a number. */
+  maxPages: number;
+}
+
+export interface CrawlSiteResult {
+  pages: CrawledPage[];
+  coverage: CrawlCoverage;
+}
+
 const DEFAULT_MAX_PAGES = 100_000;
 const DEFAULT_DELAY_MS = 250;
 
@@ -33,11 +65,15 @@ function sleep(ms: number): Promise<void> {
 
 async function fetchRobotsRulesAndSitemaps(
   origin: string,
-): Promise<{ rules: RobotsRules; sitemapUrls: Set<string> }> {
+): Promise<{ rules: RobotsRules; sitemapUrls: Set<string>; robotsFound: boolean }> {
   let robotsText = '';
+  let robotsFound = false;
   try {
     const res = await fetch(new URL('/robots.txt', origin));
-    if (res.ok) robotsText = await res.text();
+    if (res.ok) {
+      robotsText = await res.text();
+      robotsFound = true;
+    }
   } catch {
     /* no robots.txt reachable — default-allow everything */
   }
@@ -56,7 +92,7 @@ async function fetchRobotsRulesAndSitemaps(
     const found = await fetchSitemapUrls(candidate);
     for (const url of found) sitemapUrls.add(url);
   }
-  return { rules, sitemapUrls };
+  return { rules, sitemapUrls, robotsFound };
 }
 
 /** Extract same-origin `<a href>` targets from an already-crawled page's live DOM, respecting robots. */
@@ -97,9 +133,9 @@ export async function crawlSite(
   browser: Browser,
   rootUrl: string,
   options: CrawlSiteOptions,
-): Promise<CrawledPage[]> {
+): Promise<CrawlSiteResult> {
   const origin = new URL(rootUrl).origin;
-  const { rules, sitemapUrls } = await fetchRobotsRulesAndSitemaps(origin);
+  const { rules, sitemapUrls, robotsFound } = await fetchRobotsRulesAndSitemaps(origin);
 
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
@@ -108,6 +144,12 @@ export async function crawlSite(
   const queue = [...(options.seedUrls ?? [rootUrl])];
   const visited = new Set<string>();
   const pages: CrawledPage[] = [];
+  const discovered = new Set<string>();
+  let blockedByRobots = 0;
+  // True when the budget ran out *before* the crawler looked for more links.
+  // Without this the run reports "0 links followed", which reads as "your page
+  // links nowhere" when the truth is that nobody looked.
+  let discoveryCutShort = false;
 
   while (queue.length > 0 && pages.length < maxPages) {
     const url = queue.shift()!;
@@ -115,7 +157,10 @@ export async function crawlSite(
     if (visited.has(normalized)) continue;
     visited.add(normalized);
 
-    if (!isAllowed(rules, '*', new URL(url).pathname)) continue;
+    if (!isAllowed(rules, '*', new URL(url).pathname)) {
+      blockedByRobots += 1;
+      continue;
+    }
 
     const page = await crawlPage(browser, url, {
       entityId: options.entityId,
@@ -126,13 +171,33 @@ export async function crawlSite(
     });
     pages.push(page);
 
+    if (discover && pages.length >= maxPages) discoveryCutShort = true;
     if (discover && pages.length < maxPages) {
       const links = await discoverLinks(browser, page.url, rules);
-      for (const link of links) if (!visited.has(link)) queue.push(link);
+      for (const link of links) {
+        discovered.add(link);
+        if (!visited.has(link)) queue.push(link);
+      }
     }
 
     if (queue.length > 0 && pages.length < maxPages) await sleep(delayMs);
   }
 
-  return pages;
+  return {
+    pages,
+    coverage: {
+      robotsFound,
+      sitemapUrls: sitemapUrls.size,
+      linksDiscovered: discovered.size,
+      pagesCrawled: pages.length,
+      blockedByRobots,
+      // Only a budget that ran out counts. A queue emptied because there was
+      // nothing left to follow is a complete crawl of a small site, and saying
+      // it "stopped at the limit" would be a different, wrong story. A budget
+      // that expired before discovery ran counts too: the crawler stopped
+      // short, it just never got as far as queueing what it missed.
+      stoppedAtLimit: pages.length >= maxPages && (queue.length > 0 || discoveryCutShort),
+      maxPages,
+    },
+  };
 }

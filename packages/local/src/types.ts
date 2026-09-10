@@ -54,6 +54,15 @@ export interface LocalProfileFacts {
   description: string | null;
   directoryListings: DirectoryListing[];
   reviews: Review[];
+  /**
+   * Whether reviews were actually looked for. False for a profile a person
+   * typed in: nobody can type their review history, so an empty list means
+   * "unknown", not "none". Review health is left unmeasured in that case and
+   * the score is renormalized over the surfaces that do have input — folding a
+   * 0 in would tell an owner their local presence is weak on the strength of
+   * data nobody ever collected.
+   */
+  reviewsSourced: boolean;
 }
 
 /**
@@ -70,8 +79,11 @@ export interface LocalVisibility {
     gbpCompleteness: number;
     /** 0–1 fraction of directory listings whose NAP matches the profile. */
     napConsistency: number;
-    /** 0–1 blended review health (velocity + response rate + sentiment). */
-    reviewHealth: number;
+    /**
+     * 0–1 blended review health, or null when reviews were never sourced —
+     * a different statement from a location that has none.
+     */
+    reviewHealth: number | null;
   };
   reviewsConsidered: number;
 }

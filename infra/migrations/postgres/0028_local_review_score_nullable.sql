@@ -1,0 +1,15 @@
+-- Let a local audit say review health was never measured.
+--
+-- `review_score` has been `not null`, which forced every audit to state a
+-- review score even when no review data existed to state one from. That was
+-- harmless while the only way to get a profile was the Google Business Profile
+-- sync, which always fetches the review list — an empty list there genuinely
+-- means the location has no reviews, and 0 is the right answer.
+--
+-- A profile a person types in is different. Nobody can type their review
+-- history, so an empty list means "unknown", and scoring it 0 tells an owner
+-- with an otherwise perfect listing that their local presence is weak on the
+-- strength of data nobody ever collected. `runLocalAudit` now leaves review
+-- health null in that case and renormalizes the score over the surfaces that
+-- do have input; the column has to be able to hold that.
+alter table local_audits alter column review_score drop not null;

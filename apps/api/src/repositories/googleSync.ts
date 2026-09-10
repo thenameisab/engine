@@ -592,6 +592,10 @@ export async function syncGbp(
       // Not available from this API surface — preserved, never overwritten.
       photoCount: existing?.photoCount ?? 0,
       directoryListings: existing?.directoryListings ?? [],
+      // This path did fetch the review list. An empty one here means the
+      // location genuinely has no reviews, which is a real finding — unlike a
+      // hand-typed profile, where an empty list means nobody could type it.
+      reviewsSourced: true,
       reviews: reviews.map((r) => ({
         rating: r.starRating,
         respondedTo: r.hasReply,

@@ -27,6 +27,10 @@ function facts(over: Partial<LocalProfileFacts> = {}): LocalProfileFacts {
     description: 'A neighbourhood grocery store serving MG Road for twenty years and counting.',
     directoryListings: [],
     reviews: [],
+    // The fixture stands for a GBP-sourced location: reviews were looked for.
+    // A hand-typed profile is the `reviewsSourced: false` case and is covered
+    // by its own test below.
+    reviewsSourced: true,
     ...over,
   };
 }
@@ -138,3 +142,33 @@ describe('runLocalAudit', () => {
     expect(res.visibility.score).toBeCloseTo(1);
   });
 });
+
+describe('a profile nobody could source reviews for', () => {
+  it('leaves review health unmeasured rather than scoring it zero', () => {
+    // The trap this exists for: a person can type their name, address, phone
+    // and categories, but not their review history. Scoring the empty list as
+    // 0 would tell an owner with a perfect listing that their local presence
+    // is weak, on the strength of data nobody ever collected.
+    const complete = {
+      categories: ['Dentist'],
+      hoursSet: true,
+      attributes: ['wheelchair-accessible'],
+      photoCount: 20,
+      description: 'A dental practice.',
+    };
+    const sourced = runLocalAudit(facts({ ...complete, reviews: [], reviewsSourced: true }));
+    const typed = runLocalAudit(facts({ ...complete, reviews: [], reviewsSourced: false }));
+
+    expect(sourced.visibility.components.reviewHealth).toBe(0);
+    expect(typed.visibility.components.reviewHealth).toBeNull();
+    expect(typed.visibility.score).toBeGreaterThan(sourced.visibility.score);
+  });
+
+  it('does not claim unanswered reviews or low velocity it never looked for', () => {
+    const typed = runLocalAudit(facts({ reviews: [], reviewsSourced: false }));
+    const types = typed.findings.map((f) => f.issueType);
+    expect(types).not.toContain('unanswered-reviews');
+    expect(types).not.toContain('low-review-velocity');
+  });
+});
+

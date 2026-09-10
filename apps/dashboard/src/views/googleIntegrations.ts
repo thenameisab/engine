@@ -12,6 +12,7 @@ import {
   fetchConnections,
   fetchConnectUrl,
   fetchProviderResources,
+  fetchEntities,
   disconnectProvider,
   connectApiKey,
   fetchProjectIntegrations,
@@ -491,25 +492,34 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     ) as HTMLSelectElement;
 
     // GBP assigns to an entity (a location *is* an entity), so it needs one more
-    // field. Asking for a uuid is not a finished experience, but inventing a
-    // location entity on the user's behalf would be worse — it would create rows
-    // in their graph as a side effect of connecting an integration.
-    const entityInput = el('input', {
-      class: 'field',
-      type: 'text',
-      placeholder: 'location entity id (uuid)',
-    }) as HTMLInputElement;
+    // field. It used to ask for a uuid typed by hand, which no customer has and
+    // which fails silently as a 400 if mistyped. The entities are already known,
+    // so the field is a list of them. Still not invented on the customer's
+    // behalf — connecting an integration must not create rows in their graph as
+    // a side effect — so an account with no entity yet is told to add one.
+    // `GET /entities` returns the customer's own brands only, so a competitor
+    // added by domain can never be offered as a location.
+    const entityOptions = entry.id === 'gbp' ? await fetchEntities().catch(() => []) : [];
+    const entitySelect = el(
+      'select',
+      { class: 'field' },
+      entityOptions.map((e) => el('option', { value: e.id }, [e.canonicalName])),
+    ) as HTMLSelectElement;
 
     const assign = el('button', {
       class: 'btn primary',
       onclick: async () => {
         const chosen = resources.find((r) => r.id === select.value);
         if (!chosen) return;
+        if (entry.id === 'gbp' && !entitySelect.value) {
+          ctx.toast('Add a brand for this site before assigning a listing.');
+          return;
+        }
         try {
           await assignProviderResource(entry.id, {
             resourceId: chosen.id,
             resourceLabel: chosen.label,
-            entityId: entry.id === 'gbp' ? entityInput.value.trim() : undefined,
+            entityId: entry.id === 'gbp' ? entitySelect.value : undefined,
           });
           ctx.toast(`${chosen.label} assigned to this project.`);
           reload();
@@ -524,14 +534,13 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
         el('label', { class: 'flabel' }, [`${entry.resourceNoun[0].toUpperCase()}${entry.resourceNoun.slice(1)}`]),
         select,
         ...(entry.id === 'gbp'
-          ? [
-              el('label', { class: 'flabel' }, ['Location entity']),
-              entityInput,
-              infoCard('What an entity id is', {
-                title: 'A location is an entity in Engine',
-                body: ['Paste the id of the entity this listing maps to. Entities are managed on the Entities screen.'],
-              }),
-            ]
+          ? entityOptions.length > 0
+            ? [el('label', { class: 'flabel' }, ['Which brand is this listing?']), entitySelect]
+            : [
+                el('div', { class: 'fq-note' }, [
+                  'Add a brand for this site before assigning a listing — a location is a brand in Engine.',
+                ]),
+              ]
           : []),
         el('div', { class: 'form-actions' }, [assign]),
       ]),
