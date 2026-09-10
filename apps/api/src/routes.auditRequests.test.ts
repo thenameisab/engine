@@ -8,7 +8,10 @@ import { app } from './index.js';
  */
 const env = {
   AUTH_MODE: 'disabled',
-  DATABASE_URL: 'postgres://never.connected.invalid/db',
+  // A dead loopback port. Refused at once, with no name to look up: the old
+  // `never.connected.invalid` host relied on DNS failing quickly, and on CI it
+  // did not — three role reads against it timed out a 5-second test.
+  DATABASE_URL: 'postgres://127.0.0.1:1/db',
   INTERNAL_API_TOKEN: 'service-token-for-tests',
 } as const;
 
