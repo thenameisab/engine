@@ -7,7 +7,7 @@
  */
 import { el } from '../dom.js';
 import { screenName } from '../format.js';
-import { fetchAccounts, setAccountId, setProjectId } from '../api.js';
+import { fetchAccounts, fetchInvitations, inviteToAccount, withdrawInvitation, setAccountId, setProjectId, type ApiInvitation } from '../api.js';
 import { ONBOARDING_INTENT_KEY } from './onboarding.js';
 import type { AppContext } from '../context.js';
 import type { AccountCard, ApiProject } from '../types.js';
@@ -37,6 +37,80 @@ function projectRow(p: ApiProject, accountId: string, ctx: AppContext): HTMLElem
   ]);
 }
 
+/**
+ * Invite a teammate to this client, and see who has not yet accepted.
+ *
+ * An invitation carries no link to click: the invitee signs in with a code
+ * sent to the invited address, and the sign-in accepts it. So the list here
+ * is "sent, not yet signed in", and it empties as people arrive. Owners can
+ * invite; the API refuses anyone else, and the message says so.
+ */
+function invitePanel(a: AccountCard, ctx: AppContext): HTMLElement {
+  const list = el('div', { class: 'client-invites' });
+  const input = el('input', { class: 'field', type: 'email', placeholder: 'teammate@company.com', autocomplete: 'off' }) as HTMLInputElement;
+
+  const renderList = (invitations: ApiInvitation[]) => {
+    list.replaceChildren(
+      ...invitations.map((inv) =>
+        el('div', { class: 'client-invite' }, [
+          el('span', { class: 't' }, [inv.email]),
+          el('span', { class: 'm' }, [`invited · ${inv.role}`]),
+          el('button', {
+            class: 'linklike',
+            onclick: async () => {
+              try {
+                await withdrawInvitation(a.id, inv.id);
+                ctx.toast(`Invitation to ${inv.email} withdrawn.`);
+                void load();
+              } catch (err) {
+                ctx.toast(`Could not withdraw: ${(err as Error).message}`);
+              }
+            },
+          }, ['Withdraw']),
+        ]),
+      ),
+    );
+  };
+
+  const load = async () => {
+    try {
+      renderList(await fetchInvitations(a.id));
+    } catch {
+      // A member who cannot list invitations still sees the client card.
+      list.replaceChildren();
+    }
+  };
+
+  const send = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      const address = input.value.trim();
+      if (!address || !address.includes('@')) {
+        ctx.toast('Enter an email address to invite.');
+        input.focus();
+        return;
+      }
+      send.setAttribute('disabled', 'true');
+      try {
+        await inviteToAccount(a.id, address);
+        input.value = '';
+        ctx.toast(`Invitation sent to ${address}. They sign in with a code to accept.`);
+        void load();
+      } catch (err) {
+        ctx.toast(`Could not invite: ${(err as Error).message}`);
+      } finally {
+        send.removeAttribute('disabled');
+      }
+    },
+  }, ['Invite']);
+
+  void load();
+  return el('div', { class: 'client-invite-panel' }, [
+    el('div', { class: 'client-invite-form' }, [input, send]),
+    list,
+  ]);
+}
+
 function accountCard(a: AccountCard, ctx: AppContext, onNewProject: (accountId: string) => void): HTMLElement {
   const color = a.branding.primaryColor ?? '#4f46e5';
   const initial = (a.branding.companyName ?? a.name).slice(0, 1).toUpperCase();
@@ -60,6 +134,7 @@ function accountCard(a: AccountCard, ctx: AppContext, onNewProject: (accountId: 
     a.projects.length === 0
       ? el('div', { class: 'fq-note' }, ['No projects yet for this client.'])
       : el('div', { class: 'client-projects' }, a.projects.map((p) => projectRow(p, a.id, ctx))),
+    invitePanel(a, ctx),
     el('div', { class: 'client-actions' }, [
       el('button', {
         class: 'linklike',

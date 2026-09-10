@@ -35,6 +35,14 @@ LOCAL_AUTH_USERS=first@example.com:a-long-password:First Person,second@example.c
 # HMAC key for the session tokens `POST /auth/login` mints. Rotating it signs everyone out. Use a different value from OAUTH_STATE_SECRET. [secret, required]
 LOCAL_AUTH_SECRET=a-long-random-string
 
+# ── Resend (transactional email) (identity) ──
+# Delivers the sign-in codes, invitations and password-reset mail the accounts-and-access work sends. One HTTPS call per message from the Worker; no binding.
+# Account: A Resend account with the sending domain verified (SPF and DKIM records on the zone). The free plan is 3,000 emails a month, 100 a day. Chosen over Cloudflare Email Service because that needs Workers Paid and this deployment stays on Free.
+# Resend API key (re_...). Bound as a Worker secret. [secret, required]
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# The From header on every message, `Name <address>`. The address must be on a domain verified in Resend, or every send is refused. [config, required]
+EMAIL_FROM=Engine <login@example.com>
+
 # ── Google integrations (Search Console, GA4, Business Profile) (identity) ──
 # Customers connect their own Google accounts in the product: GSC search performance, GA4 traffic, and GBP location reads plus C5 write-back.
 # Account: One Google Cloud project with an OAuth 2.0 Web client. Enable: Search Console API; Analytics Data API AND Analytics Admin API; My Business Account Management, Business Information and Google My Business (v4) APIs.
@@ -46,7 +54,7 @@ GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
 GOOGLE_REDIRECT_URI=https://engine-api.workers.dev/oauth/google/callback
 # base64 of 32 random bytes (`openssl rand -base64 32`). Seals customer refresh tokens at rest (AES-256-GCM). Rotating it invalidates every stored connection — every customer must reconnect. [secret, required]
 ENCRYPTION_KEY=ZmFrZS1rZXktZm9yLXRoZS1leGFtcGxlLW9ubHktMzJiIQ==
-# Signs the OAuth `state` parameter. Without it the callback cannot tell which account a consent belongs to, and refuses to run. [secret, required]
+# Signs the OAuth `state` parameter. An override only: since #82 the secret is generated and stored sealed in `platform_credentials` on first use (`ensureStateSecret`), so a deployment that never sets this still signs state. Set it to pin the value explicitly, and it wins. [secret, optional]
 OAUTH_STATE_SECRET=a-long-random-string
 # Dashboard origin, for the post-consent return link. Optional — the callback page still renders without it. [config, optional]
 DASHBOARD_URL=https://engine-7vv.pages.dev/app

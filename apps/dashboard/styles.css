@@ -698,6 +698,16 @@ select.field { cursor: pointer; }
 
 .auth-foot { text-align: center; font-size: 11px; color: #566a83; margin-top: 22px; }
 
+/* The other way in, under the button: "Use a password instead" / "Email me a
+   code instead" / "Use a different email". A link, not a second button, so
+   the card still has one primary action. */
+.auth-alt {
+  display: block; margin: 14px auto 0; padding: 0; border: 0; background: none; cursor: pointer;
+  font-family: var(--font); font-size: 12.5px; font-weight: 550; color: #66e6f5;
+}
+.auth-alt:hover { text-decoration: underline; }
+.auth-alt:focus-visible { outline: 2px solid #b8f7ff; outline-offset: 3px; border-radius: 4px; }
+
 /* The card is the only content on the screen, so honouring reduced-motion is
    already the default. Kept as a guard for anything added later. */
 @media (prefers-reduced-motion: reduce) {
@@ -830,6 +840,15 @@ select.field { cursor: pointer; }
 .client-project .t { font-weight: 550; }
 .client-project .m { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
 .client-actions { display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--border); }
+/* Invite a teammate: one row of input + button, then who has not yet signed in. */
+.client-invite-panel { border-top: 1px solid var(--border); padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
+.client-invite-form { display: flex; gap: 8px; }
+.client-invite-form .field { flex: 1; min-width: 0; }
+.client-invites { display: flex; flex-direction: column; }
+.client-invite { display: flex; align-items: baseline; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+.client-invite:last-child { border-bottom: none; }
+.client-invite .t { font-weight: 550; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.client-invite .m { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
 .linklike { background: none; border: none; padding: 0; color: var(--accent); font-family: var(--font); font-size: 12.5px; font-weight: 550; cursor: pointer; }
 .linklike:hover { text-decoration: underline; }
 

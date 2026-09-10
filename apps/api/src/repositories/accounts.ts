@@ -53,6 +53,31 @@ export async function upsertUser(
   `;
 }
 
+/** Whether any user row carries this address — the email sign-in gate's first list. */
+export async function hasUserWithEmail(db: Db, email: string): Promise<boolean> {
+  const rows = await db<{ one: number }[]>`
+    select 1 as one from users where lower(email) = ${email.trim().toLowerCase()} limit 1
+  `;
+  return rows.length === 1;
+}
+
+/**
+ * The `users` row for an email sign-in, created if missing.
+ *
+ * Unlike `upsertUser`, this never overwrites `name`: a code sign-in knows the
+ * address and nothing else, and writing null over a name the person set from
+ * the roster or the CLI would erase it on every login.
+ */
+export async function ensureLocalUser(db: Db, user: { id: string; email: string }): Promise<{ id: string; email: string; name: string | null }> {
+  const [row] = await db<{ id: string; email: string; name: string | null }[]>`
+    insert into users (id, email, name)
+    values (${user.id}, ${user.email}, null)
+    on conflict (id) do update set email = excluded.email
+    returning id, email, name
+  `;
+  return row!;
+}
+
 /**
  * Create an account and make the caller its owner, in one call.
  *

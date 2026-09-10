@@ -12,6 +12,10 @@ compatibility_flags = ["nodejs_compat"]
 # unset AUTH_JWKS_URL means 503, never "allow".
 [vars]
 AUTH_JWKS_URL = "https://ep-wild-wildflower-aomyso5f.neonauth.c-2.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json"
+# The From header on every sign-in code and invitation. Not a secret; the
+# address is on a domain verified in Resend, whose API key is the secret
+# RESEND_API_KEY. See the "email" entry in packages/config/src/integrations.ts.
+EMAIL_FROM = "Engine <login@adityagaur.xyz>"
 
 # ── Scheduled work ─────────────────────────────────────────────────────────
 # Three passes, told apart by the cron expression on the event (see `scheduled`
@@ -62,6 +66,10 @@ crons = ["15 3 * * *", "30 4 * * *", "0 5 * * *"]
 #                         client's own key wins (see `resolveSerpKey`).
 #   SARVAM_API_KEY        Sarvam API subscription key (A2 AI visibility). The
 #                         engine this deployment polls.
+#   RESEND_API_KEY        Resend API key. Sends sign-in codes and invitations
+#                         from EMAIL_FROM (a var above). Cloudflare Email
+#                         Service was the first choice and is closed to this
+#                         deployment: outbound sending needs Workers Paid.
 #   OPENAI_API_KEY        OpenAI API key (A2 AI visibility, optional)
 #   GEMINI_API_KEY        Google Gemini API key (A2 AI visibility, optional)
 #

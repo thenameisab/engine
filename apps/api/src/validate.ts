@@ -479,6 +479,63 @@ export function checkLoginBody(body: unknown): Invalid | null {
   return first(checkString(b.email, 'email'), checkString(b.password, 'password'));
 }
 
+// ── Wave 2: email sign-in codes, passwords, invitations ─────────────────────
+
+/** A plausible address: one `@`, something either side, no whitespace. Deliverability is the mail's problem, not this check's. */
+function checkEmail(value: unknown, field: string): Invalid | null {
+  const bad = checkString(value, field);
+  if (bad) return bad;
+  const s = (value as string).trim();
+  if (s.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) return { field, message: 'expected an email address' };
+  return null;
+}
+
+/** `POST /auth/code/request` */
+export function checkCodeRequestBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  return checkEmail((body as Record<string, unknown>).email, 'email');
+}
+
+/** `POST /auth/code/verify` — six digits, as sent. */
+export function checkCodeVerifyBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  const badEmail = checkEmail(b.email, 'email');
+  if (badEmail) return badEmail;
+  const badCode = checkString(b.code, 'code');
+  if (badCode) return badCode;
+  return /^\d{6}$/.test((b.code as string).trim()) ? null : { field: 'code', message: 'expected the 6-digit code from the email' };
+}
+
+/** The same floor `pnpm db:user` enforces. */
+export const MIN_PASSWORD_LENGTH = 12;
+
+/** `POST /auth/password` */
+export function checkSetPasswordBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  const bad = checkString(b.password, 'password');
+  if (bad) return bad;
+  if ((b.password as string).length < MIN_PASSWORD_LENGTH) {
+    return { field: 'password', message: `expected at least ${MIN_PASSWORD_LENGTH} characters` };
+  }
+  return null;
+}
+
+/** `POST /accounts/:accountId/invitations` */
+export function checkInvitationBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return first(
+    checkEmail(b.email, 'email'),
+    optional(b.role, () => (b.role === 'owner' || b.role === 'member' ? null : { field: 'role', message: "expected 'owner' or 'member'" })),
+  );
+}
+
 // ── M2.5 agency white-label (POST /accounts, POST /accounts/:id/projects,
 // PATCH /accounts/:id/branding) ─────────────────────────────────────────────
 
