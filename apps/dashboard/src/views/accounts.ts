@@ -82,9 +82,14 @@ function invitePanel(a: AccountCard, ctx: AppContext): HTMLElement {
     }
   };
 
-  const send = el('button', {
-    class: 'btn',
-    onclick: async () => {
+  const send = el('button', { class: 'btn', type: 'submit' }, ['Invite']);
+  // A <form>, so Enter in the field sends the invitation — the same reason the
+  // sign-in card is one.
+  const form = el('form', {
+    class: 'client-invite-form',
+    novalidate: true,
+    onsubmit: async (e: Event) => {
+      e.preventDefault();
       const address = input.value.trim();
       if (!address || !address.includes('@')) {
         ctx.toast('Enter an email address to invite.');
@@ -105,13 +110,10 @@ function invitePanel(a: AccountCard, ctx: AppContext): HTMLElement {
         void load();
       }
     },
-  }, ['Invite']);
+  }, [input, send]);
 
   void load();
-  return el('div', { class: 'client-invite-panel' }, [
-    el('div', { class: 'client-invite-form' }, [input, send]),
-    list,
-  ]);
+  return el('div', { class: 'client-invite-panel' }, [form, list]);
 }
 
 function accountCard(a: AccountCard, ctx: AppContext, onNewProject: (accountId: string) => void): HTMLElement {
