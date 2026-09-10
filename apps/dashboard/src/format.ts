@@ -548,6 +548,7 @@ export function toActionCard(a: ApiAction): ActionCard {
     effort: effortLabel(a.target.kind),
     status: a.status,
     needsReview: REVIEW_REQUIRED_TYPES.has(a.type),
+    targetKind: a.target.kind,
     reviewedAt: a.reviewedAt,
     reviewedBy: a.reviewedBy,
   };
@@ -1027,7 +1028,28 @@ export interface VerifyStatus {
  * the old single failure message told them none of it: nobody has looked yet,
  * we are looking, we looked and it is live, we looked and it is not there.
  */
-export function verifyLine(v: VerifyStatus | null, now = Date.now()): { text: string; tone: 'good' | 'watch' | null; canCheck: boolean } {
+export function verifyLine(
+  v: VerifyStatus | null,
+  // Named rather than positional. `targetKind` had to join `now`, and a second
+  // number-or-string parameter is exactly the signature where a caller passing
+  // the old argument in the old place compiles and means something else.
+  //
+  // `targetKind` matters because "deployed" does not mean the same thing on
+  // each: a `github-pr` fix is a pull request someone still has to merge, so
+  // nothing on the site has changed, there is nothing to find on the page yet,
+  // and the deploy no longer queues a check.
+  opts: { targetKind?: string; now?: number } = {},
+): { text: string; tone: 'good' | 'watch' | null; canCheck: boolean } {
+  const now = opts.now ?? Date.now();
+  if (opts.targetKind === 'github-pr' && !v) {
+    return {
+      text: 'Waiting for the pull request to be merged. Engine checks the page once it is.',
+      tone: null,
+      // Still offered: a customer who merged it a minute ago should not have to
+      // wait for the nightly pass to see it confirmed.
+      canCheck: true,
+    };
+  }
   if (!v) return { text: 'Not checked yet.', tone: null, canCheck: true };
   if (v.status === 'queued' || v.status === 'running') {
     return { text: 'Checking the live page…', tone: null, canCheck: false };

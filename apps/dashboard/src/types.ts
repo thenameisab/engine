@@ -93,6 +93,12 @@ export interface ActionCard {
   status: ActionStatus;
   /** True when a person must read the wording before this fix can be approved. */
   needsReview: boolean;
+  /**
+   * Where this fix deploys. The Deployed card needs it: a PR fix is waiting on
+   * a merge, not on a page check, and saying "not checked yet" about it invites
+   * a customer to press a button that cannot succeed.
+   */
+  targetKind: string;
   reviewedAt?: string;
   reviewedBy?: string;
 }

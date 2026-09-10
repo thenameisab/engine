@@ -139,6 +139,7 @@ describe('toActionCard', () => {
       effort: 'edge',
       status: 'proposed',
       needsReview: false,
+      targetKind: 'edge-worker',
       reviewedAt: undefined,
       reviewedBy: undefined,
     });
@@ -874,17 +875,17 @@ describe('what the Deployed card says about the live page', () => {
   });
 
   it('separates never-checked from checked-and-absent', () => {
-    const never = verifyLine(null, now);
+    const never = verifyLine(null, { now });
     expect(never.text).toBe('Not checked yet.');
     expect(never.tone).toBeNull();
 
-    const absent = verifyLine({ status: 'done', verified: false, error: null, finishedAt: null }, now);
+    const absent = verifyLine({ status: 'done', verified: false, error: null, finishedAt: null }, { now });
     expect(absent.text).toBe('Not found on the page yet.');
     expect(absent.tone).toBe('watch');
   });
 
   it('says it is looking, and hides the button while it does', () => {
-    const running = verifyLine({ status: 'queued', verified: null, error: null, finishedAt: null }, now);
+    const running = verifyLine({ status: 'queued', verified: null, error: null, finishedAt: null }, { now });
     expect(running.text).toBe('Checking the live page…');
     expect(running.canCheck).toBe(false);
   });
@@ -892,7 +893,7 @@ describe('what the Deployed card says about the live page', () => {
   it('reports a confirmed fix with when it was confirmed', () => {
     const ok = verifyLine(
       { status: 'done', verified: true, error: null, finishedAt: '2026-09-10T09:00:00.000Z' },
-      now,
+      { now },
     );
     expect(ok.text).toBe('Verified 3h ago');
     expect(ok.tone).toBe('good');
@@ -901,10 +902,44 @@ describe('what the Deployed card says about the live page', () => {
   it('distinguishes an unreachable page from a page missing the change', () => {
     const unreachable = verifyLine(
       { status: 'done', verified: false, error: 'the page answered 503', finishedAt: null },
-      now,
+      { now },
     );
     expect(unreachable.text).toContain('503');
     expect(unreachable.text).not.toBe('Not found on the page yet.');
+  });
+
+  it('says a PR fix is waiting on the merge, not that it is unchecked', () => {
+    // The deploy no longer queues a check for a PR target: nothing on the site
+    // has changed until someone merges it. "Not checked yet" would invite a
+    // customer to press a button that could only report a failure.
+    const pr = verifyLine(null, { targetKind: 'github-pr', now });
+    expect(pr.text).toContain('merged');
+    expect(pr.tone).toBeNull();
+    // Still offered, for someone who merged it a minute ago and does not want
+    // to wait for the nightly pass.
+    expect(pr.canCheck).toBe(true);
+  });
+
+  it('reports a real check on a PR fix once one has run', () => {
+    // Once the merge pass has queued a check, the PR is no longer the story.
+    const pr = verifyLine(
+      { status: 'done', verified: true, error: null, finishedAt: '2026-09-10T09:00:00.000Z' },
+      { targetKind: 'github-pr', now },
+    );
+    expect(pr.text).toBe('Verified 3h ago');
+  });
+
+  it('carries the target kind onto the card, since only the API knows it', () => {
+    const card = toActionCard({
+      id: 'a1',
+      findingId: 'f1',
+      type: 'meta',
+      target: { kind: 'github-pr', repo: 'acme/site' },
+      diff: { before: 'a', after: 'b', format: 'text', field: 'title' },
+      status: 'deployed',
+      predictedImpact: 3,
+    });
+    expect(card.targetKind).toBe('github-pr');
   });
 });
 

@@ -18,7 +18,7 @@ import {
   defaultEnv,
   type ActionContext,
 } from '@engine/actions';
-import { verifyHtmlDeploy, verifyRobotsDeploy, verifyGbpDeploy, exportActionAsPr, getGbpAccessToken, deployGbpAction } from '@engine/deploy';
+import { verifyHtmlDeploy, verifyRobotsDeploy, verifyGbpDeploy, deployChangesTheLivePage, exportActionAsPr, getPullRequestState, getGbpAccessToken, deployGbpAction, type PullRequestState } from '@engine/deploy';
 import {
   verifyStripeSignature,
   mapStripeSubscriptionEvent,
@@ -142,6 +142,7 @@ import {
   saveActionTransition,
   saveActionReview,
   findingIdsWithActions,
+  listDeployedPrActions,
 } from './repositories/actions.js';
 import {
   findingBelongsToProject,
@@ -2485,12 +2486,24 @@ function actionTransitionHandler(to: 'approved' | 'deployed' | 'rolled_back') {
       const saved = await saveActionTransition(db, next);
       if (to === 'deployed') {
         await markFirstFixDeployed(db, projectId);
-        // Queue the check that the fix is actually on the live page. Never
-        // throws: a deploy that succeeded must be recorded as deployed even if
-        // the check behind it cannot be queued.
-        await enqueueVerify(db, projectId, saved, 'service:internal').catch((err: unknown) => {
-          console.warn(`verify not queued for action ${saved.id}: ${err instanceof Error ? err.message : String(err)}`);
-        });
+        // Queue the check that the fix is actually on the live page — but only
+        // for a target where "deployed" means the page changed.
+        //
+        // It used to fire for every kind, `github-pr` included. For a PR,
+        // `deployed` means the pull request is open: nothing on the customer's
+        // site has changed until someone merges it, so the check fetched an
+        // unchanged page and reported "not found on the page yet" about a fix
+        // nobody had rejected. A merged PR is picked up by the scheduled pass
+        // in `scheduledPrMergeCheck` instead. `gbp-api` writes to a Business
+        // Profile listing, which is not a page a crawl can fetch at all.
+        //
+        // Never throws: a deploy that succeeded must be recorded as deployed
+        // even if the check behind it cannot be queued.
+        if (deployChangesTheLivePage(saved.target.kind)) {
+          await enqueueVerify(db, projectId, saved, 'service:internal').catch((err: unknown) => {
+            console.warn(`verify not queued for action ${saved.id}: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
       }
       return c.json({ action: saved });
     } catch (err) {
@@ -3357,7 +3370,107 @@ async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionCo
   }
   await scheduledGoogleSync(env);
   await scheduledDeterministicAudits(env);
+  await scheduledPrMergeCheck(env);
   await scheduledCrawlQueue(env);
+}
+
+/**
+ * Has a deployed PR fix been merged since we last looked.
+ *
+ * The half of verification that was missing. A `github-pr` deploy means the
+ * pull request is open, and nothing on the customer's site changes until
+ * someone merges it — so the page check has to wait for the merge, and nothing
+ * ever read a PR's state. A deployed PR fix could sit in the Deployed lane
+ * forever, or, worse, be checked against an unchanged page and reported as
+ * "not found on the page yet" about a fix nobody had rejected.
+ *
+ * A scheduled pass rather than a webhook, as the plan allows: a webhook needs a
+ * public endpoint, a shared secret per installation and delivery retries, and
+ * the merge-to-crawl delay does not need to be seconds. When the App gains a
+ * webhook this becomes the fallback rather than the only path.
+ *
+ * The token is the account's own GitHub App installation, minted per account —
+ * the same credential the PR was opened with. An account whose installation is
+ * gone is skipped and logged, not failed: one customer revoking the App must
+ * not stop the pass for everyone else.
+ *
+ * Never throws. It runs after the Google sync and the audits, and losing their
+ * results to a failure here would be a worse outcome than a late merge check.
+ */
+async function scheduledPrMergeCheck(env: Env): Promise<void> {
+  const db = createDb(env.DATABASE_URL);
+  try {
+    const pending = await listDeployedPrActions(db);
+    if (pending.length === 0) {
+      console.log('PR merge check: no deployed PR fixes to look at');
+      return;
+    }
+
+    const keyring = await keyringFrom(env);
+    // One token per account, not per action: a customer with eight PR fixes
+    // open would otherwise mint eight installation tokens for one pass.
+    const tokens = new Map<string, string | null>();
+    let merged = 0;
+    let stillOpen = 0;
+    const skipped: string[] = [];
+
+    for (const pr of pending) {
+      const accountId = await getProjectAccountId(db, pr.projectId);
+      if (!accountId) {
+        skipped.push(`${pr.repo}#${pr.prNumber}: project has no account`);
+        continue;
+      }
+      if (!tokens.has(accountId)) {
+        try {
+          tokens.set(accountId, await getAccessToken(db, accountId, 'github', keyring, env));
+        } catch (err) {
+          tokens.set(accountId, env.GITHUB_TOKEN ?? null);
+          if (!env.GITHUB_TOKEN) {
+            skipped.push(`account ${accountId}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
+      const token = tokens.get(accountId);
+      if (!token) continue;
+
+      let state: PullRequestState;
+      try {
+        state = await getPullRequestState(token, pr.repo, pr.prNumber);
+      } catch (err) {
+        // A deleted repository, a revoked installation, a rate limit. The next
+        // pass tries again; the action stays deployed in the meantime.
+        skipped.push(`${pr.repo}#${pr.prNumber}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      if (state !== 'merged') {
+        stillOpen += 1;
+        continue;
+      }
+
+      const action = await getAction(db, pr.actionId);
+      if (!action) continue;
+      // `createVerifyRequest` returns null when one is already queued for this
+      // action, so a merged PR seen on two passes is checked once.
+      await enqueueVerify(db, pr.projectId, action, 'service:pr-merge-check').catch((err: unknown) => {
+        skipped.push(`${pr.repo}#${pr.prNumber}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      merged += 1;
+    }
+
+    console.log(
+      `PR merge check: ${pending.length} looked at, ${merged} merged and queued for verification, ${stillOpen} still open` +
+        (skipped.length > 0 ? `; skipped: ${skipped.join(' | ')}` : ''),
+    );
+    // A merged PR queues a verify request, which the crawl runner drains. Its
+    // own schedule is fifteen minutes; dispatching once means the customer sees
+    // "Verified" on this visit rather than the next.
+    if (merged > 0) {
+      const dispatch = await dispatchCrawlWorkflow(env);
+      if (!dispatch.dispatched) console.warn(`verify requests queued without dispatch: ${dispatch.reason}`);
+    }
+  } catch (error) {
+    console.error(`PR merge check failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**

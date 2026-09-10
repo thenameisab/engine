@@ -7,6 +7,7 @@ import {
   putFileContent,
   openPullRequest,
   exportActionAsPr,
+  getPullRequestState,
 } from './githubPr.js';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -147,5 +148,46 @@ describe('exportActionAsPr', () => {
   it('rejects a non-github-pr target', async () => {
     const wrongTarget = { ...action, target: { kind: 'edge-worker' as const, workerName: 'w' } };
     await expect(exportActionAsPr('tok', wrongTarget, routedFetch())).rejects.toThrow('non-github-pr target');
+  });
+});
+
+/**
+ * A `github-pr` deploy means the PR is open, not that the page changed. This is
+ * what separates "merged, so go and check the page" from "closed, so never
+ * check it" — GitHub reports both as `state: 'closed'`.
+ */
+describe('getPullRequestState', () => {
+  const read = async (body: unknown) => {
+    const fetchImpl = vi.fn(async () => jsonResponse(body));
+    const state = await getPullRequestState('tok', 'acme/site', 42, fetchImpl as unknown as typeof fetch);
+    return { state, url: (fetchImpl.mock.calls[0] as [string])[0] };
+  };
+
+  it('reads an open PR', async () => {
+    const { state, url } = await read({ state: 'open', merged: false });
+    expect(state).toBe('open');
+    expect(url).toBe('https://api.github.com/repos/acme/site/pulls/42');
+  });
+
+  it('separates a merged PR from an abandoned one, which share a state', async () => {
+    expect((await read({ state: 'closed', merged: true })).state).toBe('merged');
+    expect((await read({ state: 'closed', merged: false })).state).toBe('closed');
+  });
+
+  it('accepts merged_at, which the webhook and list payloads carry instead', async () => {
+    expect((await read({ state: 'closed', merged_at: '2026-09-10T12:00:00Z' })).state).toBe('merged');
+    expect((await read({ state: 'closed', merged_at: null })).state).toBe('closed');
+  });
+
+  it('treats an open PR as open even if merged_at is somehow set', async () => {
+    // Order matters: an open PR is never live, whatever else the payload says.
+    expect((await read({ state: 'open', merged_at: '2026-09-10T12:00:00Z' })).state).toBe('open');
+  });
+
+  it('throws naming the status, so the pass can skip and retry rather than guess', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}, 404));
+    await expect(
+      getPullRequestState('tok', 'acme/site', 42, fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow('HTTP 404');
   });
 });

@@ -186,7 +186,7 @@ function verifyBlock(a: ActionCard, ctx: AppContext): HTMLElement {
   const wrap = el('div', { class: 'verify' }, [line, btn]);
 
   function paint(v: VerifyStatus | null): void {
-    const out = verifyLine(v);
+    const out = verifyLine(v, { targetKind: a.targetKind });
     line.className = `verify-line${out.tone ? ` ${out.tone}` : ''}`;
     line.textContent = out.text;
     btn.hidden = !out.canCheck;

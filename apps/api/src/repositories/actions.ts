@@ -100,6 +100,58 @@ export async function findingIdsWithActions(db: Db, findingIds: readonly string[
   return new Set(rows.map((r) => r.finding_id));
 }
 
+/**
+ * One deployed `github-pr` action whose pull request may since have merged.
+ *
+ * `prNumber` and `repo` come from the deploy transition's own audit entry —
+ * `exportActionAsPr` records them there — so no column is needed to hold them.
+ * A row whose audit log has no `prNumber` is skipped: it predates the PR export
+ * recording one, and there is nothing to look up.
+ */
+export interface PendingPr {
+  actionId: string;
+  projectId: string;
+  repo: string;
+  prNumber: number;
+}
+
+/**
+ * Deployed PR fixes that have never been verified, with the project they belong
+ * to — the scheduled merge check's work list.
+ *
+ * `status = 'deployed'` is the whole filter: an action that verified has moved
+ * to `verified`, and one whose PR was closed unmerged stays deployed forever,
+ * which is correct — a closed PR can be reopened and merged, and Engine has no
+ * business deciding a customer abandoned a fix.
+ *
+ * `actions` has no project_id, by design; it belongs to a project through
+ * findings → entities, which is why this joins rather than reading a column.
+ */
+export async function listDeployedPrActions(db: Db, limit = 100): Promise<PendingPr[]> {
+  const rows = await db<{ id: string; project_id: string; target: DeployTarget; audit_log: AuditEntry[] }[]>`
+    select a.id, e.project_id, a.target, a.audit_log
+    from actions a
+    join findings f on f.id = a.finding_id
+    join entities e on e.id = f.entity_id
+    where a.status = 'deployed' and a.target->>'kind' = 'github-pr'
+    order by a.updated_at
+    limit ${limit}
+  `;
+  const pending: PendingPr[] = [];
+  for (const row of rows) {
+    if (row.target.kind !== 'github-pr') continue;
+    // Newest entry first: a retried deploy opens a second PR, and the live one
+    // is the last recorded, not the first.
+    const entry = [...row.audit_log]
+      .reverse()
+      .find((e) => typeof (e.detail as { prNumber?: unknown } | undefined)?.prNumber === 'number');
+    const prNumber = (entry?.detail as { prNumber?: number } | undefined)?.prNumber;
+    if (prNumber === undefined) continue;
+    pending.push({ actionId: row.id, projectId: row.project_id, repo: row.target.repo, prNumber });
+  }
+  return pending;
+}
+
 export async function getAction(db: Db, id: string): Promise<Action | null> {
   const rows = await db<ActionRow[]>`
     select id, finding_id, type, target, diff, status, audit_log, reviewed_at, reviewed_by
