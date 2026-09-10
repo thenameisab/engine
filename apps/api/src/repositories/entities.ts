@@ -1,4 +1,5 @@
 import { DEFAULT_ENTITY_KIND, DEFAULT_ENTITY_ROLE, type Entity, type EntityKind, type EntityRole } from '@engine/core';
+import { toJsonb } from '../db.js';
 import type { Db } from '../db.js';
 
 interface EntityRow {
@@ -132,4 +133,95 @@ export async function setEntityPrompts(
     returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
   `;
   return rows.length > 0 ? toEntity(rows[0]) : null;
+}
+
+/** What one crawl observed about an entity's own site. */
+export interface CrawledEntityFacts {
+  entityId: string;
+  /** Origins that served this entity's pages, e.g. `https://www.acme.com`. */
+  siteUrls: string[];
+  /** Every JSON-LD node found across those pages, deduplicated. */
+  schema: object[];
+}
+
+/** Cap on stored JSON-LD nodes per entity — a large site repeats the same blocks on every page. */
+const MAX_SCHEMA_BLOCKS = 200;
+
+/**
+ * Reduce a crawl's pages to one set of graph facts per entity.
+ *
+ * Deduplicated by serialized form, because a site's Organization block is
+ * usually identical on every page and storing 200 copies of it would say
+ * nothing 199 times.
+ */
+export function entityFactsFromPages(
+  pages: readonly { entityId: string; url: string; jsonLd?: object[] }[],
+): CrawledEntityFacts[] {
+  const byEntity = new Map<string, { siteUrls: Set<string>; schema: Map<string, object> }>();
+  for (const page of pages) {
+    let facts = byEntity.get(page.entityId);
+    if (!facts) {
+      facts = { siteUrls: new Set(), schema: new Map() };
+      byEntity.set(page.entityId, facts);
+    }
+    try {
+      facts.siteUrls.add(new URL(page.url).origin);
+    } catch {
+      /* a page whose URL will not parse contributes no site URL */
+    }
+    for (const node of page.jsonLd ?? []) {
+      if (facts.schema.size >= MAX_SCHEMA_BLOCKS) break;
+      facts.schema.set(JSON.stringify(node), node);
+    }
+  }
+  return [...byEntity].map(([entityId, f]) => ({
+    entityId,
+    siteUrls: [...f.siteUrls],
+    schema: [...f.schema.values()],
+  }));
+}
+
+/**
+ * Write what a crawl observed onto the entity rows it covered.
+ *
+ * Both columns have existed since migration 0001 and nothing has ever written
+ * either, so the B3 entity audit — whose whole contract is reading the
+ * crawler-resolved on-site JSON-LD off the row — has been asserting
+ * `missing-entity-schema` for every entity regardless of what its site
+ * publishes, and scoring `sameAsConsistency` a free 1.0 for everyone because
+ * there was nothing to compare against.
+ *
+ * `schema` is replaced, not merged: it is a statement about what the site
+ * publishes *now*, and a block the site has removed must be able to disappear,
+ * or a fixed problem could never be seen to be fixed.
+ *
+ * `urls` is merged: the crawl sees the entity's own site and nothing else,
+ * while the column also holds profile URLs set elsewhere (a competitor added
+ * by domain, anything a person entered). Replacing would silently drop them.
+ *
+ * The caller must already have checked these entities belong to the project;
+ * `project_id` is in the predicate anyway, so a mistake writes nothing rather
+ * than writing across a tenancy boundary.
+ */
+export async function recordCrawledEntityFacts(
+  db: Db,
+  projectId: string,
+  facts: readonly CrawledEntityFacts[],
+): Promise<number> {
+  let written = 0;
+  for (const f of facts) {
+    const [row] = await db<{ id: string }[]>`
+      update entities
+      set urls = (
+            select coalesce(array_agg(distinct u), '{}')
+            from unnest(urls || ${f.siteUrls}::text[]) as u
+          ),
+          schema = ${toJsonb(db, f.schema)},
+          updated_at = now()
+      where id::text = ${f.entityId} and project_id::text = ${projectId}
+      returning id
+    `;
+    if (row) written += 1;
+  }
+  return written;
 }

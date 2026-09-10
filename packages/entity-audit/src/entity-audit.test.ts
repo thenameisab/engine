@@ -11,6 +11,7 @@ function entity(over: Partial<EntityGraphFacts> = {}): EntityGraphFacts {
     canonicalName: 'Acme Corp',
     wikidataId: 'Q42',
     urls: ['https://twitter.com/acme', 'https://linkedin.com/company/acme'],
+    siteDomain: 'acme.com',
     mentions: ['https://techcrunch.com/acme', 'https://forbes.com/acme'],
     citations: ['https://wikipedia.org/Acme'],
     schema: [
@@ -34,6 +35,11 @@ describe('registrableDomain', () => {
   });
   it('returns null for empty input', () => {
     expect(registrableDomain('  ')).toBeNull();
+  });
+  it('strips a port, which is not part of the domain', () => {
+    // Left in, `acme.com:8443` and `acme.com` count as two distinct sources.
+    expect(registrableDomain('https://acme.com:8443/x')).toBe('acme.com');
+    expect(registrableDomain('acme.com:8443')).toBe('acme.com');
   });
 });
 
@@ -117,5 +123,50 @@ describe('runEntityAudit', () => {
     const a = runEntityAudit([entity({ wikidataId: null })]);
     const b = runEntityAudit([entity({ wikidataId: null })]);
     expect(a.findings.map((f) => f.id)).toEqual(b.findings.map((f) => f.id));
+  });
+});
+
+describe('sameAs consistency and the entity\'s own site', () => {
+  const withSiteUrl = { urls: ['https://acme.com', 'https://twitter.com/acme', 'https://linkedin.com/company/acme'] };
+
+  it('does not demand that a site list itself in its own sameAs', () => {
+    // The crawler now records the origin that served the entity's pages onto
+    // `entities.urls`. `sameAs` is for the entity's *other* homes — schema.org
+    // states the site itself with `url` — so counting the site as a missing
+    // profile would flag every correctly marked-up page.
+    const { issues, strength } = inspectEntity(entity({ ...withSiteUrl, siteDomain: 'acme.com' }));
+    expect(strength.components.sameAsConsistency).toBe(1);
+    expect(issues.map((i) => i.type)).not.toContain('inconsistent-sameas');
+  });
+
+  it('still reports a genuinely omitted profile', () => {
+    const { issues, strength } = inspectEntity(
+      entity({
+        urls: ['https://acme.com', 'https://twitter.com/acme', 'https://linkedin.com/company/acme'],
+        siteDomain: 'acme.com',
+        schema: [
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Organization',
+            name: 'Acme Corp',
+            sameAs: ['https://twitter.com/acme'],
+          },
+        ],
+      }),
+    );
+    expect(strength.components.sameAsConsistency).toBe(0.5);
+    const issue = issues.find((i) => i.type === 'inconsistent-sameas');
+    expect(issue).toBeDefined();
+    // The evidence names the profiles the reader is expected to add, and the
+    // site is not one of them.
+    expect(issue?.evidence.knownProfiles).toEqual(['twitter.com', 'linkedin.com']);
+  });
+
+  it('scores a full 1 only because there is nothing to compare, when urls is empty', () => {
+    // The state every production row was in before the crawler wrote to it:
+    // no known profiles, so no inconsistency is detectable. Recorded so the
+    // free 1.0 is a documented consequence rather than a silent one.
+    const { strength } = inspectEntity(entity({ urls: [], siteDomain: 'acme.com' }));
+    expect(strength.components.sameAsConsistency).toBe(1);
   });
 });
