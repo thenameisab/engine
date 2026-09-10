@@ -12,8 +12,10 @@
  * to open. The cost is ours, which is why the cap below is on prompts polled
  * per run rather than on anything the customer controls.
  */
-import { createLlmConnectors, type LlmEngineConnector, type PromptQuery } from '@engine/connectors';
-import { insertCitationEvents } from './citationEvents.js';
+import { createLlmConnectors, isLlmCompleter, type LlmCompleter, type LlmEngineConnector, type PromptQuery } from '@engine/connectors';
+import { insertCitationEvents, type StoredSample } from './citationEvents.js';
+import { listKnownBrands, mineMentions, recordMentions, type KnownBrand } from './answerMentions.js';
+import { CADENCE_WINDOW_HOURS, effectiveCadence, type CadenceOverride, type PlanTier } from '@engine/core';
 import type { Db } from '../db.js';
 
 export interface AiPollEnv {
@@ -53,6 +55,26 @@ export interface ScheduledAiPollSummary {
  */
 export const AI_POLL_CRON = '0 5 * * *';
 
+/**
+ * The model the poll measures with (issue 16, decided 2026-09-10).
+ *
+ * The conversational model, not the reasoning one. Measured on three category
+ * prompts on 2026-09-09: `sarvam-105b` named a company in one of the three
+ * while `sarvam-105b-conversations` named companies in all three. A citation
+ * rate over answers that name nobody cannot move, and a metric that cannot
+ * vary is not a metric. #93 stores the model on every sample, so bands from
+ * before and after this switch are reported apart rather than pooled.
+ *
+ * `SARVAM_MODEL` still overrides it, as a deployment-level escape hatch; a
+ * change there is a change of instrument and shows up as a new band.
+ */
+export const AI_POLL_MODEL = 'sarvam-105b-conversations';
+
+/** The env the poll builds its connectors from: the deployment's, with the poll's model filled in. */
+export function aiPollConnectorEnv(env: AiPollEnv): Record<string, string | undefined> {
+  return { ...(env as Record<string, string | undefined>), SARVAM_MODEL: env.SARVAM_MODEL ?? AI_POLL_MODEL };
+}
+
 /** n samples per (prompt, engine) — A2's n=3-5, at the low end because each
  * Sarvam call spends a 16,000-token reasoning budget. */
 export const AI_POLL_SAMPLES = 3;
@@ -89,11 +111,12 @@ export const AI_VISIBILITY_LOOKBACK_DAYS = 30;
  * The (entity, prompt) pairs whose weekly sample is due, least recently
  * sampled first.
  *
- * Weekly, not daily: an AI answer to "what is payroll data api" does not move
- * between Tuesday and Wednesday, and each sample is three model calls. The
- * window is 6 days 12 hours rather than 7 days for the reason the rank poll's
- * is 20 hours — a cron fires with drift, and requiring a full 7 days turns a
- * weekly prompt into an every-eighth-day one.
+ * Weekly on paid tiers and monthly on the free tier, per the account's
+ * effective cadence (issue 10): an AI answer to "what is payroll data api"
+ * does not move between Tuesday and Wednesday, and each sample is three model
+ * calls. Each window is short of its nominal period for the reason the rank
+ * poll's daily window is 20 hours — a cron fires with drift, and requiring a
+ * full 7 days turns a weekly prompt into an every-eighth-day one.
  *
  * Due-ness is decided per prompt across all engines rather than per (prompt,
  * engine): the engines are polled together in one pass, so a per-engine window
@@ -108,21 +131,53 @@ export const AI_VISIBILITY_LOOKBACK_DAYS = 30;
  * true, so every prompt would look sampled and nothing would ever be due.
  */
 export async function listDuePrompts(db: Db, cap = DEFAULT_AI_POLL_CAP): Promise<DuePromptRow[]> {
-  return db<DuePromptRow[]>`
-    select e.id as entity_id, p.id as project_id, e.canonical_name, p.domain, e.urls, pr.prompt
+  // Every prompt with its last sample and its account's cadence inputs; the
+  // window is decided in code from the effective policy (issue 10), because
+  // the tier defaults live in `@engine/core` and a second copy in SQL would
+  // drift from them.
+  const rows = await db<
+    (DuePromptRow & {
+      sampled_at: Date | null;
+      plan_tier: PlanTier | null;
+      rank_poll: CadenceOverride['rankPoll'] | null;
+      ai_poll: CadenceOverride['aiPoll'] | null;
+      crawl: CadenceOverride['crawl'] | null;
+      has_override: boolean;
+    })[]
+  >`
+    select e.id as entity_id, p.id as project_id, e.canonical_name, p.domain, e.urls, pr.prompt,
+           last.sampled_at,
+           s.plan_tier, c.rank_poll, c.ai_poll, c.crawl, (c.account_id is not null) as has_override
     from entities e
     join projects p on p.id = e.project_id
+    left join subscriptions s on s.account_id = p.account_id
+    left join account_cadence c on c.account_id = p.account_id
     cross join unnest(e.prompts) as pr(prompt)
     left join lateral (
       select max(ce.sampled_at) as sampled_at
       from citation_events ce
       where ce.entity_id = e.id and ce.prompt = pr.prompt
     ) last on true
-    where last.sampled_at is null
-       or last.sampled_at < now() - interval '6 days 12 hours'
     order by last.sampled_at asc nulls first, e.created_at asc, pr.prompt asc
-    limit ${cap}
   `;
+  const now = Date.now();
+  const due: DuePromptRow[] = [];
+  for (const r of rows) {
+    const override = r.has_override ? { rankPoll: r.rank_poll, aiPoll: r.ai_poll, crawl: r.crawl } : null;
+    const cadence = effectiveCadence(r.plan_tier ?? 'free', override).policy.aiPoll;
+    const windowMs = CADENCE_WINDOW_HOURS[cadence] * 3_600_000;
+    if (r.sampled_at && now - new Date(r.sampled_at).getTime() < windowMs) continue;
+    due.push({
+      entity_id: r.entity_id,
+      project_id: r.project_id,
+      canonical_name: r.canonical_name,
+      domain: r.domain,
+      urls: r.urls,
+      prompt: r.prompt,
+    });
+    if (due.length >= cap) break;
+  }
+  return due;
 }
 
 /**
@@ -152,7 +207,7 @@ export async function runScheduledAiPoll(
   cap = DEFAULT_AI_POLL_CAP,
   nSamples = AI_POLL_SAMPLES,
 ): Promise<ScheduledAiPollSummary> {
-  const connectors: LlmEngineConnector[] = createLlmConnectors(env as Record<string, string | undefined>);
+  const connectors: LlmEngineConnector[] = createLlmConnectors(aiPollConnectorEnv(env));
   const summary: ScheduledAiPollSummary = {
     attempted: 0,
     polled: 0,
@@ -167,6 +222,12 @@ export async function runScheduledAiPoll(
   summary.capped = due.length === cap;
   if (due.length === 0) return summary;
 
+  // The extraction pass asks the same engine which companies each answer
+  // names. One connector offers completions here; without one, only the
+  // deterministic pass runs and share of voice covers tracked brands alone.
+  const extractor = pickExtractor(connectors);
+  const brandsByProject = new Map<string, KnownBrand[]>();
+
   for (const row of due) {
     summary.attempted++;
     const query: PromptQuery = {
@@ -180,8 +241,9 @@ export async function runScheduledAiPoll(
     for (const connector of connectors) {
       try {
         const result = await connector.poll(query, nSamples);
-        await insertCitationEvents(db, [result]);
+        const samples = await insertCitationEvents(db, [result]);
         stored += result.samples.length;
+        await mineStoredSamples(db, row.project_id, samples, extractor, brandsByProject);
       } catch (error) {
         summary.failed.push({
           projectId: row.project_id,
@@ -196,4 +258,34 @@ export async function runScheduledAiPoll(
     }
   }
   return summary;
+}
+
+/**
+ * Attach mentions to freshly stored samples: tracked brands by matching, the
+ * rest by asking the model. A failure here is logged into the summary by the
+ * caller's catch and costs the mentions, never the sample — the cited share
+ * is already stored.
+ */
+export async function mineStoredSamples(
+  db: Db,
+  projectId: string,
+  samples: readonly StoredSample[],
+  extractor: LlmCompleter | null,
+  cache: Map<string, KnownBrand[]> = new Map(),
+): Promise<void> {
+  let brands = cache.get(projectId);
+  if (!brands) {
+    brands = await listKnownBrands(db, projectId);
+    cache.set(projectId, brands);
+  }
+  for (const sample of samples) {
+    const mentions = await mineMentions(sample.answerText, brands, extractor);
+    await recordMentions(db, sample.id, mentions);
+  }
+}
+
+/** The first connector that can answer a bare instruction, or null. */
+export function pickExtractor(connectors: readonly LlmEngineConnector[]): LlmCompleter | null {
+  for (const c of connectors) if (isLlmCompleter(c)) return c;
+  return null;
 }

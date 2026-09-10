@@ -10,13 +10,14 @@ import {
   fetchEntities,
   setEntityKindApi,
   setPasswordApi,
+  fetchAccountCadence,
 } from '../api.js';
 import { ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND } from '../format.js';
 import { readableError } from '../errors.js';
 import { platformSection } from './platform.js';
 import { vendorKeysPanel } from './integrations.js';
 import type { AppContext } from '../context.js';
-import type { DeployTarget } from '../types.js';
+import type { DeployTarget, EffectiveCadence } from '../types.js';
 
 /**
  * Where an approved fix for this project lands (M2.3 #3). Every generated
@@ -208,6 +209,51 @@ function passwordSection(ctx: AppContext): HTMLElement {
   ]);
 }
 
+export const CADENCE_LABELS: Record<string, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+  on_demand: 'Only when you run it',
+};
+
+/**
+ * How often this account is measured (issue 10). Read-only here: the values
+ * follow the plan, and an administrator can override them from the platform
+ * screen. Shown so a customer knows why a number is a week old.
+ */
+async function cadenceSection(): Promise<HTMLElement> {
+  const accountId = getAccountId();
+  if (!accountId) {
+    return el('section', { class: 'panel' }, [
+      el('header', {}, [el('h3', {}, ['Polling cadence'])]),
+      el('div', { class: 'fq-note' }, ['Pick a client from the Clients grid first.']),
+    ]);
+  }
+  let c: EffectiveCadence;
+  try {
+    c = await fetchAccountCadence(accountId);
+  } catch (err) {
+    return el('section', { class: 'panel' }, [
+      el('header', {}, [el('h3', {}, ['Polling cadence'])]),
+      el('div', { class: 'fq-note' }, [`Could not load the cadence: ${readableError(err)}`]),
+    ]);
+  }
+  const row = (label: string, value: string, source: string, why: string) =>
+    el('div', { class: 'kw-row' }, [
+      el('div', { class: 'kw-main' }, [el('div', { class: 't' }, [label]), el('div', { class: 'm num' }, [why])]),
+      el('div', { class: 'num' }, [CADENCE_LABELS[value] ?? value, source === 'override' ? ' · set by Engine' : ` · ${c.tier} plan`]),
+    ]);
+  return el('section', { class: 'panel' }, [
+    el('header', {}, [el('h3', {}, ['Polling cadence'])]),
+    el('div', { class: 'kw-list' }, [
+      row('Rank positions', c.policy.rankPoll, c.source.rankPoll, 'Positions move daily; each lookup is billed, so the rhythm follows the plan.'),
+      row('AI answers', c.policy.aiPoll, c.source.aiPoll, 'A model\'s knowledge changes when the vendor ships a model, so more often only narrows the range.'),
+      row('Site crawl', c.policy.crawl, c.source.crawl, 'Also runs whenever you press Run audit.'),
+      row('Entity, off-site, competitor and local audits', 'nightly', 'plan-default', 'No vendor call, so these run every night for everyone.'),
+    ]),
+  ]);
+}
+
 export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
@@ -220,6 +266,8 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     await deployTargetSection(ctx),
     el('div', { class: 'settings-sec' }, ['Branding']),
     brandingSection(ctx),
+    el('div', { class: 'settings-sec' }, ['Polling cadence']),
+    await cadenceSection(),
     el('div', { class: 'settings-sec' }, ['Sign-in']),
     passwordSection(ctx),
     el('div', { class: 'settings-sec' }, ['Connected accounts']),

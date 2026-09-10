@@ -22,10 +22,13 @@ import {
   clearPlatformClient,
   fetchPlatformUsers,
   setUserRole,
+  fetchPlatformCadences,
+  setAccountCadence,
 } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
-import type { PlatformClientView, PlatformUser } from '../types.js';
+import type { PlatformClientView, PlatformUser, AccountCadenceRow, CadenceOverride } from '../types.js';
+import { CADENCE_LABELS } from './settings.js';
 
 /** Copy-to-clipboard for the one value a vendor compares byte for byte. */
 function copyableUri(uri: string, ctx: AppContext): HTMLElement {
@@ -321,6 +324,85 @@ function userRow(u: PlatformUser, selfIsOnly: boolean, ctx: AppContext, reload: 
   ]);
 }
 
+/**
+ * Per-account cadence overrides (issue 10). Each account shows its effective
+ * rhythm; "Plan default" follows the tier, anything else pins it. Changing a
+ * select saves at once and repaints from the API's answer.
+ */
+async function cadencePanel(ctx: AppContext): Promise<HTMLElement> {
+  const host = el('div', {}, []);
+  const FIELDS: { key: keyof CadenceOverride; label: string; options: string[] }[] = [
+    { key: 'rankPoll', label: 'Rank poll', options: ['daily', 'weekly'] },
+    { key: 'aiPoll', label: 'AI answer poll', options: ['weekly', 'monthly'] },
+    { key: 'crawl', label: 'Site crawl', options: ['weekly', 'monthly', 'on_demand'] },
+  ];
+
+  const accountRow = (a: AccountCadenceRow, reload: () => void): HTMLElement => {
+    const selects = FIELDS.map((f) => {
+      const current = a.override?.[f.key] ?? '';
+      const sel = el('select', { class: 'ci-select', title: f.label }, [
+        el('option', { value: '' }, [`${f.label}: plan default (${CADENCE_LABELS[a.effective.policy[f.key]] ?? a.effective.policy[f.key]})`]),
+        ...f.options.map((o) => el('option', { value: o }, [`${f.label}: ${CADENCE_LABELS[o] ?? o}`])),
+      ]) as HTMLSelectElement;
+      sel.value = current;
+      sel.addEventListener('change', async () => {
+        const next: CadenceOverride = {
+          rankPoll: a.override?.rankPoll ?? null,
+          aiPoll: a.override?.aiPoll ?? null,
+          crawl: a.override?.crawl ?? null,
+          [f.key]: sel.value === '' ? null : sel.value,
+        } as CadenceOverride;
+        try {
+          await setAccountCadence(a.accountId, next);
+          ctx.toast(`${a.name}: ${f.label} ${sel.value === '' ? 'follows the plan again' : `set to ${CADENCE_LABELS[sel.value] ?? sel.value}`}.`);
+          reload();
+        } catch (err) {
+          ctx.toast(readableError(err));
+        }
+      });
+      return sel;
+    });
+    return el('div', { class: 'intg-assign' }, [
+      el('div', { class: 'intg-assign-main' }, [
+        el('div', { class: 'intg-assign-label' }, [a.name]),
+        el('div', { class: 'num' }, [`${a.effective.tier} plan`]),
+      ]),
+      el('div', { class: 'ci-controls' }, selects),
+    ]);
+  };
+
+  const render = async () => {
+    host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
+    let rows: AccountCadenceRow[];
+    try {
+      rows = await fetchPlatformCadences();
+    } catch (err) {
+      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
+      return;
+    }
+    host.replaceChildren(
+      el('section', { class: 'panel' }, [
+        el('header', {}, [
+          el('h3', {}, ['Cadence']),
+          infoCard('What the defaults are', {
+            title: 'Plan defaults',
+            body: [
+              'Free: rank weekly, AI answers monthly, crawl monthly.',
+              'Paid plans: rank daily, AI answers weekly, crawl weekly.',
+              'An override pins one value for one account; "plan default" follows the plan again, including after an upgrade.',
+            ],
+          }),
+        ]),
+        el('div', { class: 'intg-body' }, [
+          el('div', { class: 'intg-assigns' }, rows.map((a) => accountRow(a, () => void render()))),
+        ]),
+      ]),
+    );
+  };
+  await render();
+  return host;
+}
+
 async function usersPanel(ctx: AppContext): Promise<HTMLElement> {
   const host = el('div', {}, []);
   const render = async () => {
@@ -414,16 +496,18 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
   const render = async () => {
     host.replaceChildren(el('div', { class: 'fhint num' }, ['Loading…']));
     const reload = () => void render();
-    const [google, github, users] = await Promise.all([
+    const [google, github, users, cadence] = await Promise.all([
       vendorPanel(GOOGLE_FORM, reload),
       vendorPanel(GITHUB_FORM, reload),
       usersPanel(ctx),
+      cadencePanel(ctx),
     ]);
     host.replaceChildren(
       el('div', { class: 'settings-sec' }, ['Platform']),
       google,
       github,
       users,
+      cadence,
     );
   };
 

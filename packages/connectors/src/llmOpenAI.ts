@@ -57,6 +57,7 @@ export class OpenAIConnector implements LlmEngineConnector {
     const rawAnswerRef = await this.rawSink(query, raw);
     return {
       rawAnswerRef,
+      answerText,
       citation: buildCitationEvent(answerText, [], query.citationTargets),
       sampledAt: this.now().toISOString(),
     };

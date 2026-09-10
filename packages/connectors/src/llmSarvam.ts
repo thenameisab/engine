@@ -17,7 +17,7 @@
  * are whatever URLs the answer text contains, and `cited` is normally decided
  * by the brand-name targets. `buildCitationEvent` already handles that.
  */
-import type { LlmEngineConnector, LlmAnswerResult, LlmAnswerSample, PromptQuery } from './llmEngine.js';
+import type { LlmEngineConnector, LlmAnswerResult, LlmAnswerSample, LlmCompleter, PromptQuery } from './llmEngine.js';
 import { buildCitationEvent, runSamples } from './llmCitation.js';
 import { parseSseJson, type LlmStreamChunk, type LlmStreamingConnector } from './llmStream.js';
 
@@ -60,7 +60,7 @@ export interface SarvamConnectorOptions {
   now?: () => Date;
 }
 
-export class SarvamConnector implements LlmEngineConnector, LlmStreamingConnector {
+export class SarvamConnector implements LlmEngineConnector, LlmStreamingConnector, LlmCompleter {
   readonly engine = 'sarvam' as const;
   private readonly apiKey: string;
   private readonly model: string;
@@ -108,9 +108,31 @@ export class SarvamConnector implements LlmEngineConnector, LlmStreamingConnecto
     const rawAnswerRef = await this.rawSink(query, raw);
     return {
       rawAnswerRef,
+      answerText,
       citation: buildCitationEvent(answerText, [], query.citationTargets),
       sampledAt: this.now().toISOString(),
     };
+  }
+
+  /**
+   * One answer to one instruction, for the extraction pass that asks which
+   * companies a stored answer names. Same endpoint and model as `sample`, a
+   * smaller budget because the reply is a short list, and no citation logic
+   * because the caller is not measuring anything with it.
+   */
+  async complete(prompt: string, opts: { maxTokens?: number } = {}): Promise<string> {
+    const resp = await this.fetchImpl(SARVAM_ENDPOINT, {
+      method: 'POST',
+      headers: { 'api-subscription-key': this.apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: this.model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: Math.min(opts.maxTokens ?? this.maxTokens, this.maxTokens),
+      }),
+    });
+    if (!resp.ok) throw new Error(`Sarvam request failed: ${resp.status} ${await resp.text()}`);
+    const raw = (await resp.json()) as SarvamChatResponse;
+    return raw.choices?.[0]?.message?.content ?? '';
   }
 
   async poll(query: PromptQuery, nSamples: number): Promise<LlmAnswerResult> {

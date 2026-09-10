@@ -52,6 +52,10 @@ import type {
   GroundedAnswer,
   PromptCitationResult,
   AiModels,
+  ShareOfVoice,
+  EffectiveCadence,
+  AccountCadenceRow,
+  CadenceOverride,
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
@@ -897,6 +901,28 @@ export async function inviteToAccount(accountId: string, email: string): Promise
 export async function withdrawInvitation(accountId: string, invitationId: string): Promise<void> {
   await request<{ ok: true }>(`/accounts/${encodeURIComponent(accountId)}/invitations/${encodeURIComponent(invitationId)}`, {
     method: 'DELETE',
+  });
+}
+
+/** Who gets named instead of you: share of voice per brand over the mined samples. */
+export async function fetchShareOfVoice(entityId: string): Promise<ShareOfVoice> {
+  return request<ShareOfVoice>(`/projects/${requireProjectId()}/entities/${encodeURIComponent(entityId)}/share-of-voice`);
+}
+
+/** The account's effective cadence and where each value came from. */
+export async function fetchAccountCadence(accountId: string): Promise<EffectiveCadence & { accountId: string }> {
+  return request<EffectiveCadence & { accountId: string }>(`/accounts/${encodeURIComponent(accountId)}/cadence`);
+}
+
+export async function fetchPlatformCadences(): Promise<AccountCadenceRow[]> {
+  const data = await request<{ accounts: AccountCadenceRow[] }>('/platform/accounts/cadence');
+  return data.accounts;
+}
+
+export async function setAccountCadence(accountId: string, override: CadenceOverride): Promise<EffectiveCadence> {
+  return request<EffectiveCadence>(`/platform/accounts/${encodeURIComponent(accountId)}/cadence`, {
+    method: 'PUT',
+    body: JSON.stringify(override),
   });
 }
 

@@ -14,22 +14,33 @@ import type { Db } from '../db.js';
  * recompute a Wilson interval over any lookback window, and collapsing to a
  * single rate at write time would bake in whatever window this poll used.
  */
-export async function insertCitationEvents(db: Db, results: readonly LlmAnswerResult[]): Promise<void> {
+/** One stored sample and the row it became, so the mining pass can attach mentions to it. */
+export interface StoredSample {
+  id: string;
+  entityId: string;
+  answerText: string;
+}
+
+export async function insertCitationEvents(db: Db, results: readonly LlmAnswerResult[]): Promise<StoredSample[]> {
+  const stored: StoredSample[] = [];
   for (const r of results) {
     for (const s of r.samples) {
-      await db`
+      const [row] = await db<{ id: string }[]>`
         insert into citation_events
           (entity_id, engine, model, prompt, cited, cited_by_name, cited_by_domain,
-           sources_cited, sentiment, accuracy, method, raw_answer_ref, sampled_at)
+           sources_cited, sentiment, accuracy, method, raw_answer_ref, answer_text, sampled_at)
         values (
           ${r.query.entityId}, ${r.engine}, ${r.model}, ${r.query.prompt},
           ${s.citation.cited}, ${s.citation.citedByName}, ${s.citation.citedByDomain},
           ${s.citation.sourcesCited},
-          ${s.citation.sentiment}, ${s.citation.accuracy}, ${r.method}, ${s.rawAnswerRef}, ${s.sampledAt}
+          ${s.citation.sentiment}, ${s.citation.accuracy}, ${r.method}, ${s.rawAnswerRef}, ${s.answerText}, ${s.sampledAt}
         )
+        returning id
       `;
+      stored.push({ id: row!.id, entityId: r.query.entityId, answerText: s.answerText });
     }
   }
+  return stored;
 }
 
 /** One stored sample, grouped by (engine, prompt) for the A3 AI-SoV rollup. */
