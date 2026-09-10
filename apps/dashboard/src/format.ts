@@ -15,6 +15,10 @@ import type {
   ApiFinding,
   ApiPulseResponse,
   ChannelContribution,
+  PlatformClientView,
+  PlatformUser,
+  QueueHealth,
+  ReadinessReport,
   FindingRow, FindingGroup,
   PulseData,
   ScoreBand,
@@ -178,6 +182,166 @@ export function integrationTileState(
       : { label: 'Not available yet', tone: 'muted', sort: 2 };
   }
   return { label: 'Not connected', tone: null, sort: 1 };
+}
+
+/**
+ * One row of the operator checklist: what has to be true, whether it is, and
+ * the exact next action when it is not.
+ */
+export interface OperatorCheck {
+  id: string;
+  label: string;
+  state: 'done' | 'partial' | 'todo';
+  /** What is true now, in one line. */
+  detail: string;
+  /** The next action, or null when the row is done. */
+  next: string | null;
+}
+
+export interface OperatorChecklistInput {
+  readiness: ReadinessReport | null;
+  google: PlatformClientView | null;
+  github: PlatformClientView | null;
+  users: { users: PlatformUser[]; adminCount: number } | null;
+  queue: QueueHealth | null;
+}
+
+/** How long the oldest queued crawl may wait before the runner looks stuck. */
+const QUEUE_STUCK_SECONDS = 30 * 60;
+
+function readinessCheck(
+  report: ReadinessReport | null,
+  id: string,
+  label: string,
+  todo: string,
+): OperatorCheck {
+  if (!report) {
+    return { id, label, state: 'todo', detail: 'Could not read the deployment’s configuration.', next: todo };
+  }
+  const entry = report.integrations.find((i) => i.id === id);
+  if (!entry) {
+    return { id, label, state: 'todo', detail: 'Not in the integration registry.', next: todo };
+  }
+  if (entry.status === 'configured') {
+    return { id, label, state: 'done', detail: 'Every required variable is set.', next: null };
+  }
+  // Naming the variables is the whole value of the row: "partial" tells an
+  // operator nothing they can act on, and the readiness report already knows
+  // exactly which names are absent.
+  const missing = entry.missing.map((m) => m.name).join(', ');
+  return {
+    id,
+    label,
+    state: entry.status === 'partial' ? 'partial' : 'todo',
+    detail: `Missing: ${missing}`,
+    next: `Set ${missing} with \`wrangler secret put\`.`,
+  };
+}
+
+function clientCheck(
+  view: PlatformClientView | null,
+  id: string,
+  label: string,
+  where: string,
+): OperatorCheck {
+  if (!view) {
+    return { id, label, state: 'todo', detail: 'Could not read the registration.', next: `Register the client under ${where}.` };
+  }
+  if (view.client) {
+    return { id, label, state: 'done', detail: `Registered, redirecting to ${view.client.redirectUri}`, next: null };
+  }
+  // A deployment can still supply the client as Worker config. That works, but
+  // it cannot be rotated from the product, so it is a partial rather than done.
+  if (view.configuredByEnvironment) {
+    return {
+      id,
+      label,
+      state: 'partial',
+      detail: 'Supplied as Worker config, not registered in the product.',
+      next: `Re-enter it under ${where} so it can be rotated without a deploy.`,
+    };
+  }
+  return { id, label, state: 'todo', detail: 'Not registered. Every tile for this vendor reads "Needs setup".', next: `Register the client under ${where}.` };
+}
+
+/**
+ * The operator checklist: is this deployment able to do the job.
+ *
+ * Ordered by dependency, so the first row that is not done is the one to fix —
+ * an unregistered Google client cannot be worked around by setting a vendor
+ * key, and nothing can be crawled before the database is reachable.
+ *
+ * Derived rather than stored. Every row reads state the deployment already
+ * reports, so the list cannot claim something is done after someone deletes
+ * the secret behind it.
+ */
+export function operatorChecklist(input: OperatorChecklistInput): OperatorCheck[] {
+  const { readiness, google, github, users, queue } = input;
+
+  const signIn = ((): OperatorCheck => {
+    const withCredential = users?.users.filter((u) => u.hasCredential).length ?? 0;
+    if (!users) {
+      return { id: 'sign-in', label: 'Credential sign-in', state: 'todo', detail: 'Could not read the user list.', next: 'Check that the API is reachable.' };
+    }
+    if (users.adminCount === 0) {
+      // A deployment with no admin cannot be administered from the product at
+      // all — including fixing this row, which is why it is called out.
+      return { id: 'sign-in', label: 'Credential sign-in', state: 'todo', detail: 'No administrator exists.', next: 'Create one with `pnpm db:user --email <address> --role admin`.' };
+    }
+    if (withCredential === 0) {
+      return { id: 'sign-in', label: 'Credential sign-in', state: 'partial', detail: `${users.users.length} user${users.users.length === 1 ? '' : 's'}, none with a password.`, next: 'Sign in with an emailed code, then set a password under Settings.' };
+    }
+    return {
+      id: 'sign-in',
+      label: 'Credential sign-in',
+      state: 'done',
+      detail: `${withCredential} of ${users.users.length} can sign in with a password · ${users.adminCount} admin${users.adminCount === 1 ? '' : 's'}`,
+      next: null,
+    };
+  })();
+
+  const runner = ((): OperatorCheck => {
+    if (!queue) {
+      return { id: 'runner', label: 'Crawl runner', state: 'todo', detail: 'Could not read the queue.', next: 'Check that the API is reachable.' };
+    }
+    const waited = queue.oldestQueuedAgeSeconds;
+    if (waited !== null && waited > QUEUE_STUCK_SECONDS) {
+      return {
+        id: 'runner',
+        label: 'Crawl runner',
+        state: 'todo',
+        detail: `${queue.queued} queued, oldest waiting ${Math.round(waited / 60)} min.`,
+        next: 'The runner is not draining the queue. Check the workflow’s last run in GitHub Actions.',
+      };
+    }
+    if (queue.lastFinishedAt === null) {
+      // Nothing queued and nothing ever finished is indistinguishable from a
+      // runner that has never worked, so it is not reported as healthy.
+      return { id: 'runner', label: 'Crawl runner', state: 'partial', detail: 'Nothing has ever been crawled.', next: 'Run an audit on a site, then check this row again.' };
+    }
+    const inFlight = queue.queued + queue.running;
+    return {
+      id: 'runner',
+      label: 'Crawl runner',
+      state: 'done',
+      detail: inFlight > 0
+        ? `${queue.queued} queued, ${queue.running} running · last finished ${relativeTime(queue.lastFinishedAt)}`
+        : `Idle · last finished ${relativeTime(queue.lastFinishedAt)}`,
+      next: null,
+    };
+  })();
+
+  return [
+    readinessCheck(readiness, 'database', 'Database', 'Set DATABASE_URL with `wrangler secret put`.'),
+    readinessCheck(readiness, 'google-integrations', 'Encryption key and Google scopes', 'Set the missing variables with `wrangler secret put`.'),
+    signIn,
+    clientCheck(google, 'google-client', 'Google OAuth client', 'Google’s OAuth client below'),
+    clientCheck(github, 'github-client', 'GitHub App', 'GitHub’s App below'),
+    readinessCheck(readiness, 'serp', 'Search results key', 'Set the missing variables with `wrangler secret put`.'),
+    readinessCheck(readiness, 'llm-sarvam', 'LLM engine', 'Set the missing variables with `wrangler secret put`.'),
+    readinessCheck(readiness, 'email', 'Transactional email', 'Set the missing variables with `wrangler secret put`.'),
+    runner,
+  ];
 }
 
 export interface OnboardingDefaults {
@@ -612,6 +776,7 @@ export const SCREEN_NAMES = {
   report: 'Branded report',
   'get-started': 'Set up',
   clients: 'Clients',
+  platform: 'Platform',
   rankings: 'Rankings',
   brand: 'Brand',
   competitors: 'Competitors',

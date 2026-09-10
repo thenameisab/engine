@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist } from './format.js';
 import { VISIBILITY_TABS, visibilityTabId } from './views/visibility.js';
 import { firstSentence } from './views/home.js';
 import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
@@ -1052,5 +1052,140 @@ describe('firstSentence', () => {
 
   it('returns a single sentence whole, with no trailing cut', () => {
     expect(firstSentence('Only one sentence here.')).toBe('Only one sentence here.');
+  });
+});
+
+describe('operatorChecklist', () => {
+  const readiness = (over: Record<string, 'configured' | 'partial' | 'missing'> = {}) => ({
+    mvpReady: false,
+    summary: { configured: 0, partial: 0, missing: 0, total: 0 },
+    integrations: ['database', 'google-integrations', 'serp', 'llm-sarvam', 'email'].map((id) => ({
+      id,
+      name: id,
+      category: 'x',
+      logoDomain: '',
+      requiredForMvp: true,
+      status: over[id] ?? ('configured' as const),
+      missing: (over[id] ?? 'configured') === 'configured' ? [] : [{ name: 'SOME_KEY', description: '' }],
+      optionalPresent: [],
+    })),
+  });
+  const client = (registered: boolean, byEnv = false) => ({
+    vendor: 'google',
+    client: registered ? { clientId: 'id', redirectUri: 'https://api.example/callback', updatedAt: '', updatedBy: '' } : null,
+    suggestedRedirectUri: 'https://api.example/callback',
+    configuredByEnvironment: byEnv,
+    events: [],
+  });
+  const users = (over: Partial<{ admins: number; withCredential: number; total: number }> = {}) => {
+    const total = over.total ?? 2;
+    const withCredential = over.withCredential ?? 2;
+    return {
+      adminCount: over.admins ?? 1,
+      users: Array.from({ length: total }, (_, i) => ({
+        id: `u${i}`,
+        platformRole: (i === 0 ? 'admin' : 'user') as 'admin' | 'user',
+        hasCredential: i < withCredential,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      })),
+    };
+  };
+  const queue = (over: Partial<{ queued: number; running: number; oldest: number | null; last: string | null }> = {}) => ({
+    queued: over.queued ?? 0,
+    running: over.running ?? 0,
+    oldestQueuedAgeSeconds: over.oldest === undefined ? null : over.oldest,
+    lastFinishedAt: over.last === undefined ? new Date(Date.now() - 60_000).toISOString() : over.last,
+  });
+  const full = (over: Partial<Parameters<typeof operatorChecklist>[0]> = {}) =>
+    operatorChecklist({
+      readiness: readiness(),
+      google: client(true),
+      github: client(true),
+      users: users(),
+      queue: queue(),
+      ...over,
+    });
+  const row = (rows: ReturnType<typeof operatorChecklist>, id: string) => rows.find((r) => r.id === id)!;
+
+  it('reports every row done on a fully configured deployment', () => {
+    const rows = full();
+    expect(rows.every((r) => r.state === 'done')).toBe(true);
+    // A done row carries no next action, which is what makes "the first row
+    // that is not done is the one to fix" readable.
+    expect(rows.every((r) => r.next === null)).toBe(true);
+  });
+
+  it('is ordered by dependency, so the first unfinished row is the one to fix', () => {
+    // Registering a Google client cannot help while the database is unset.
+    expect(full().map((r) => r.id)).toEqual([
+      'database',
+      'google-integrations',
+      'sign-in',
+      'google-client',
+      'github-client',
+      'serp',
+      'llm-sarvam',
+      'email',
+      'runner',
+    ]);
+  });
+
+  it('names the missing variables rather than saying "partial"', () => {
+    const r = row(full({ readiness: readiness({ database: 'missing' }) }), 'database');
+    expect(r.state).toBe('todo');
+    expect(r.detail).toContain('SOME_KEY');
+    expect(r.next).toContain('SOME_KEY');
+  });
+
+  it('counts a client supplied as Worker config as partial, not done', () => {
+    // It works, but it cannot be rotated from the product.
+    const r = row(full({ google: client(false, true) }), 'google-client');
+    expect(r.state).toBe('partial');
+    expect(r.next).toContain('rotated');
+  });
+
+  it('says what an unregistered client costs on the customer screen', () => {
+    const r = row(full({ github: client(false) }), 'github-client');
+    expect(r.state).toBe('todo');
+    expect(r.detail).toContain('Needs setup');
+  });
+
+  it('calls out a deployment with no administrator', () => {
+    // Nobody can fix this row from inside the product, so it names the CLI.
+    const r = row(full({ users: users({ admins: 0 }) }), 'sign-in');
+    expect(r.state).toBe('todo');
+    expect(r.next).toContain('pnpm db:user');
+  });
+
+  it('treats an admin with no password as partial', () => {
+    const r = row(full({ users: users({ withCredential: 0 }) }), 'sign-in');
+    expect(r.state).toBe('partial');
+  });
+
+  it('does not call a runner healthy when nothing has ever been crawled', () => {
+    // An empty queue with no completion is indistinguishable from a runner
+    // that has never worked.
+    const r = row(full({ queue: queue({ last: null }) }), 'runner');
+    expect(r.state).toBe('partial');
+    expect(r.detail).toContain('ever been crawled');
+  });
+
+  it('flags a queue that is not draining', () => {
+    const r = row(full({ queue: queue({ queued: 4, oldest: 45 * 60 }) }), 'runner');
+    expect(r.state).toBe('todo');
+    expect(r.detail).toContain('45 min');
+    expect(r.next).toContain('GitHub Actions');
+  });
+
+  it('accepts a deep queue that is still fresh', () => {
+    const r = row(full({ queue: queue({ queued: 12, running: 1, oldest: 20 }) }), 'runner');
+    expect(r.state).toBe('done');
+    expect(r.detail).toContain('12 queued');
+  });
+
+  it('reports a failed read as a to-do naming the read, not by throwing', () => {
+    const rows = operatorChecklist({ readiness: null, google: null, github: null, users: null, queue: null });
+    expect(rows).toHaveLength(9);
+    expect(rows.every((r) => r.next !== null)).toBe(true);
   });
 });

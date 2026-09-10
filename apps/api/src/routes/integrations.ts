@@ -52,6 +52,7 @@ import { checkCadenceBody } from '../validate.js';
 import type { AuthEnv, AuthUser } from '../middleware/auth.js';
 import { getAccountRole, upsertUser, getProjectAccountId, isAccountMember, getAccount } from '../repositories/accounts.js';
 import { markGscConnected } from '../repositories/onboarding.js';
+import { queueHealth } from '../repositories/auditRequests.js';
 import { syncGsc, syncGa4, syncGbp } from '../repositories/googleSync.js';
 import { startFlow, claimFlow, keyringFrom } from '../repositories/oauthFlows.js';
 import {
@@ -1426,6 +1427,19 @@ integrationsRoutes.get('/platform/users', async (c) => {
   if ('error' in guard) return guard.error;
 
   return c.json({ users: await listUsers(db), adminCount: await countAdmins(db) });
+});
+
+/**
+ * Is the crawl runner alive and keeping up, for the operator checklist's last
+ * row. Admin only, like every other `/platform/*` route: queue depth across
+ * every project is a deployment fact, not a customer's.
+ */
+integrationsRoutes.get('/platform/queue', async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const guard = await requirePlatformAdmin(c, db);
+  if ('error' in guard) return guard.error;
+
+  return c.json({ queue: await queueHealth(db) });
 });
 
 /**

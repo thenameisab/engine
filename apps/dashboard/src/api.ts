@@ -43,6 +43,7 @@ import type {
   PlatformClientView,
   PlatformUser,
   ProviderCatalogEntry,
+  QueueHealth,
   IntegrationConnection,
   IntegrationAssignment,
   ProviderResource,
@@ -951,6 +952,11 @@ export async function setAccountCadence(accountId: string, override: CadenceOver
     method: 'PUT',
     body: JSON.stringify(override),
   });
+}
+
+/** Queue depth and last completion, for the operator checklist. Admin only. */
+export async function fetchQueueHealth(): Promise<QueueHealth> {
+  return (await request<{ queue: QueueHealth }>('/platform/queue')).queue;
 }
 
 export async function fetchPlatformUsers(): Promise<{ users: PlatformUser[]; adminCount: number }> {

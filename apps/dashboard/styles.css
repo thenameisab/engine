@@ -1078,6 +1078,35 @@ select.field { cursor: pointer; }
 .intg-status-line.good { color: var(--good); }
 .intg-status-line.muted { color: var(--text-faint); }
 
+/* ── Operator checklist ─────────────────────────────────────────────────── */
+/* Ordered by dependency, so the first row that is not done is the one to fix.
+   Rows rather than cards: nine of them read as a list to work down, which is
+   what it is. */
+.oplist { display: flex; flex-direction: column; padding: 4px 16px 14px; }
+.oprow { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: baseline; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border); }
+.oprow:first-child { border-top: none; }
+/* The mark carries the state without colour, for greyscale and for a reader
+   who cannot separate the three hues. */
+.opmark { font-family: var(--mono); font-size: var(--t-sm); font-weight: 700; text-align: center; }
+.oprow.done .opmark { color: var(--good); }
+.oprow.partial .opmark { color: var(--watch); }
+.oprow.todo .opmark { color: var(--risk); }
+.opmain { min-width: 0; }
+.opmain .t { font-size: var(--t-sm); font-weight: 600; }
+.opmain .m { font-size: var(--t-xs); color: var(--text-muted); margin-top: 2px; line-height: 1.45; overflow-wrap: anywhere; }
+/* The next action, set apart from the state above it: one is what is true, the
+   other is what to type. */
+.opnext { font-size: var(--t-xs); color: var(--text); margin-top: 5px; line-height: 1.45; overflow-wrap: anywhere; }
+.opstate { font-family: var(--mono); font-size: var(--t-3xs); text-transform: uppercase; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+.opstate.done { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.opstate.partial { color: var(--watch); background: color-mix(in srgb, var(--watch) 13%, transparent); }
+.opstate.todo { color: var(--risk); background: color-mix(in srgb, var(--risk) 11%, transparent); }
+@media (max-width: 560px) {
+  .oprow { grid-template-columns: 18px minmax(0, 1fr); }
+  /* The pill moves under the text rather than squeezing it to two words. */
+  .opstate { grid-column: 2; justify-self: start; margin-top: 6px; }
+}
+
 /* ── Rankings: tracked keywords ─────────────────────────────────────────── */
 .kw-summary { padding: 0 16px 10px; color: var(--text-muted); font-size: var(--t-xs); }
 .kw-list { padding: 0 8px 8px; }

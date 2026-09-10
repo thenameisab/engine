@@ -199,6 +199,18 @@ export interface ReadinessReport {
   summary: { configured: number; partial: number; missing: number; total: number };
 }
 
+/**
+ * Whether the crawl runner is alive and keeping up, as `GET /platform/queue`
+ * returns it. Three facts rather than one, because a depth on its own cannot
+ * tell a healthy empty queue from a deployment nobody has ever asked to crawl.
+ */
+export interface QueueHealth {
+  queued: number;
+  running: number;
+  oldestQueuedAgeSeconds: number | null;
+  lastFinishedAt: string | null;
+}
+
 /** One organic SERP result (A1). */
 export interface SerpOrganic {
   position: number;

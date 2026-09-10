@@ -2,11 +2,19 @@ import { el } from '../dom.js';
 import { screenName } from '../format.js';
 import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
-import { fetchIntegrations, fetchPlatformAccess } from '../api.js';
+import {
+  fetchAccounts,
+  fetchDeployTarget,
+  fetchIntegrations,
+  fetchPlatformAccess,
+  getAccountId,
+  updateBrandingApi,
+} from '../api.js';
+import { deployTargetFields } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import { integrationsGallery } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
-import type { ReadinessReport, IntegrationReadiness } from '../types.js';
+import type { AccountCard, DeployTarget, ReadinessReport, IntegrationReadiness } from '../types.js';
 
 const STATUS_TEXT: Record<IntegrationReadiness['status'], string> = {
   configured: 'Wired',
@@ -73,20 +81,140 @@ export async function integrationsSection(): Promise<HTMLElement> {
 }
 
 /**
- * The Integrations page: the customer's connections, and nothing else.
+ * Where an approved fix for this project lands (M2.3 #3). Every generated
+ * Action needs a target, so this is what unlocks the Findings screen's
+ * "Propose fix" button. One target per project; the kind selects which fields
+ * matter.
  *
- * The operator panels that used to sit under the cards (Engine's own OAuth
- * client, the deployment's vendor keys) moved to Settings. A customer opening
- * this page has one question, "is my account connected", and the answer should
- * not share a screen with the deployment's configuration.
+ * It sat on Settings, one screen away from the accounts it depends on — a
+ * GitHub PR target needs the GitHub connection, and a Cloudflare worker target
+ * needs the Cloudflare key, both of which are connected here. The customer had
+ * to set up half of one thing in two places.
+ */
+async function deployTargetSection(ctx: AppContext): Promise<HTMLElement> {
+  let current: DeployTarget | null = null;
+  try {
+    current = await fetchDeployTarget();
+  } catch {
+    // No API / not reachable — render the empty form rather than blocking the page.
+  }
+
+  const fields = deployTargetFields(ctx, {
+    current,
+    onSaved: () => ctx.toast('Deploy target saved. Auto-fixable findings can now be proposed.'),
+  });
+
+  return el('section', { class: 'panel' }, [
+    el('header', {}, [
+      el('h3', {}, ['Where approved fixes deploy']),
+      el('span', { class: 'more' }, [current ? `current: ${current.kind}` : 'none set']),
+    ]),
+    fields,
+  ]);
+}
+
+/**
+ * M2.5 agency white-label: the name, logo and colour a branded report carries.
+ *
+ * Agency accounts only, which is what 0035's `kind` is for. A company or an
+ * individual has no client to put someone else's name in front of, so the
+ * panel was three fields they would never fill — and returning null rather
+ * than a disabled panel means they are not told a feature exists that does not
+ * apply to them.
+ *
+ * Operates on `getAccountId()`, the client last selected from the Clients grid,
+ * since this view has no id in the URL to read one from.
+ */
+async function brandingSection(ctx: AppContext): Promise<HTMLElement | null> {
+  const accountId = getAccountId();
+  if (!accountId) return null;
+
+  // One read serves both questions: whether to show the panel at all, and what
+  // to prefill it with. Three blank inputs over saved values read as "nothing
+  // is set", and saving one field then wiped the other two.
+  let account: AccountCard | undefined;
+  try {
+    account = (await fetchAccounts()).find((a) => a.id === accountId);
+  } catch {
+    // Unreachable API. The panel is agency-only and cannot be shown without
+    // knowing the kind, so it is left out rather than guessed at.
+    return null;
+  }
+  if (!account || account.kind !== 'agency') return null;
+  const current = account.branding;
+
+  const nameInput = el('input', { class: 'field', type: 'text', placeholder: 'Acme Agency', value: current.companyName ?? '' }) as HTMLInputElement;
+  const logoInput = el('input', { class: 'field', type: 'text', placeholder: 'https://…/logo.png', value: current.logoUrl ?? '' }) as HTMLInputElement;
+  const colorInput = el('input', { class: 'field', type: 'text', placeholder: '#4f46e5', value: current.primaryColor ?? '' }) as HTMLInputElement;
+
+  const save = el('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      try {
+        // All three sent, empty string included: the inputs hold the whole
+        // object, so a field the user emptied is a deletion the API applies.
+        await updateBrandingApi(accountId, {
+          companyName: nameInput.value.trim(),
+          logoUrl: logoInput.value.trim(),
+          primaryColor: colorInput.value.trim(),
+        });
+        ctx.toast('Branding saved.');
+      } catch (err) {
+        ctx.toast(`Could not save branding: ${readableError(err)}`);
+      }
+    },
+  }, ['Save branding']);
+
+  return el('section', { class: 'panel' }, [
+    el('header', {}, [
+      el('h3', {}, ['Report branding']),
+      el('span', { class: 'more' }, [account.name]),
+    ]),
+    el('div', { class: 'form' }, [
+      el('div', { class: 'fhint' }, ['What a branded report shows instead of Engine’s own name.']),
+      el('label', { class: 'flabel' }, ['Company name']),
+      nameInput,
+      el('label', { class: 'flabel' }, ['Logo URL']),
+      logoInput,
+      el('label', { class: 'flabel' }, ['Primary color']),
+      colorInput,
+      el('div', { class: 'form-actions' }, [save]),
+    ]),
+  ]);
+}
+
+/**
+ * The Integrations page: everything a customer sets up, and nothing a
+ * deployment operator does.
+ *
+ * Three sections. Where fixes go, the connected accounts, and — for an agency —
+ * report branding. The first and last were on Settings, which split one job
+ * across two screens: a GitHub PR target needs the GitHub connection that is
+ * granted here, and a branded report needs the client whose connections are
+ * listed here.
+ *
+ * The operator panels (Engine's own OAuth client, the deployment's vendor keys)
+ * stay on Settings. A customer opening this page is setting up their own
+ * account, and that should not share a screen with the deployment's
+ * configuration.
  */
 export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
+  const [deploy, gallery, branding] = await Promise.all([
+    deployTargetSection(ctx),
+    integrationsGallery(ctx),
+    brandingSection(ctx),
+  ]);
+
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, [screenName('integrations')]),
-      el('p', {}, ['Connect the accounts Engine reads from and writes to. Pick one to sign in or paste a key.']),
+      el('p', {}, ['Where approved fixes deploy, and the accounts Engine reads from and writes to.']),
     ]),
-    await integrationsGallery(ctx),
+    el('div', { class: 'settings-sec' }, ['Where fixes go']),
+    deploy,
+    el('div', { class: 'settings-sec' }, ['Connected accounts']),
+    gallery,
+    ...(branding ? [el('div', { class: 'settings-sec' }, ['Report branding']), branding] : []),
   ]);
 }
 

@@ -13,6 +13,7 @@ import { settingsView } from './views/settings.js';
 import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
 import { onboardingView } from './views/onboarding.js';
+import { platformView } from './views/platform.js';
 import { getProjectId } from './api.js';
 import { screenName, breadcrumb } from './format.js';
 import { readableError } from './errors.js';
@@ -54,12 +55,18 @@ const ROUTES: Route[] = [
 /**
  * Reachable, but not from the rail. `report` opens from a Clients card,
  * `get-started` from the redirect below, `clients` from the workspace column's
- * "+".
+ * "+", `platform` from the pointer on Settings.
+ *
+ * `platform` is an operator screen. It is hidden rather than railed because an
+ * admin is a customer on every other screen, and a seventh rail item invisible
+ * to almost everyone is worse than one hash an operator learns once. The view
+ * sends a non-admin to Home; the API answers 404 to them either way.
  */
 const HIDDEN_ROUTES: Route[] = [
   { id: 'report', iconMarkup: ICONS.doc, view: reportView },
   { id: 'get-started', iconMarkup: ICONS.check, view: onboardingView },
   { id: 'clients', iconMarkup: ICONS.clients, view: accountsView },
+  { id: 'platform', iconMarkup: ICONS.gear, view: platformView },
 ];
 
 /**
