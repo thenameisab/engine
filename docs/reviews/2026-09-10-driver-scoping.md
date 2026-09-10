@@ -435,8 +435,12 @@ dashboard.
 Driver will be judged on its first answer, and the first answer is only as good as the data behind
 it. Two facts about the current deployment matter:
 
-- Production Search Console and Analytics sync has been blocked on the production `ENCRYPTION_KEY`.
-  Until that is resolved, the search and traffic tools return "not connected" for real customers.
+- Whether any customer has completed the Google connect flow on production. The pipeline itself is
+  in place — `ENCRYPTION_KEY` is bound on the Worker, Engine's OAuth client lives in
+  `platform_credentials` since migration 0019 rather than in the environment, and the nightly sync
+  cron runs. What is not established is that `gsc_*` and `ga` hold rows for a real account. Check
+  `GET /health/integrations` and the Integrations screen before assuming the search and traffic
+  tools have anything to return.
 - Wave 3 of the action plan — what we measure and how often — has not been done. The action plan
   sequenced Driver last for exactly this reason: it "should cite trustworthy data, which waves 1
   and 3 produce."
@@ -508,8 +512,8 @@ These need answers before step 3. Recommendations included; the decision is your
 
 1. **Sequencing against wave 3.** Build Driver now on thin data, or after wave 3 so its first
    answers are substantial? *Recommendation: start steps 1 and 2 now — they are vendor and
-   connector work that wave 3 does not touch — and gate the surface on the search and traffic
-   pipelines being live for at least one real customer.*
+   connector work that wave 3 does not touch — and gate the surface on `gsc_*` and `ga` holding
+   rows for at least one real customer.*
 
 2. **Tool catalogue size per turn.** Offer all twenty tools every turn, or route to a subset first?
    *Recommendation: measure in step 1. Offer all of them if latency allows; a router is a second
