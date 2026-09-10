@@ -486,4 +486,14 @@ describe('checkBrandingBody', () => {
   it('rejects a non-string companyName', () => {
     expect(checkBrandingBody({ companyName: 42 })?.field).toBe('companyName');
   });
+
+  it('accepts an empty logoUrl, which is how the form clears one', () => {
+    // `new URL('')` throws, so the URL check refused the only body that can
+    // remove a stored logo.
+    expect(checkBrandingBody({ logoUrl: '' })).toBeNull();
+  });
+
+  it('still rejects a non-empty string that is not a URL', () => {
+    expect(checkBrandingBody({ logoUrl: 'logo.png' })?.field).toBe('logoUrl');
+  });
 });

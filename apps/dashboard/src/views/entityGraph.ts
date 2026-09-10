@@ -1,6 +1,7 @@
 import { el } from '../dom.js';
 import { auditLastRunLine, screenName } from '../format.js';
 import { fetchEntityStrengths, runEntityAudit, type AuditLastRun } from '../api.js';
+import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
 import type { EntityStrength } from '../types.js';
 
@@ -56,7 +57,7 @@ export async function entityGraphView(ctx: AppContext): Promise<HTMLElement> {
   try {
     ({ strengths, lastRun } = await fetchEntityStrengths());
   } catch (err) {
-    loadError = (err as Error).message;
+    loadError = readableError(err);
   }
 
   const runBtn = el('button', { class: 'btn' }, ['Run entity audit']);
@@ -90,7 +91,7 @@ export async function entityGraphView(ctx: AppContext): Promise<HTMLElement> {
       });
       ctx.toast(`Audited ${res.entitiesAudited} entit${res.entitiesAudited === 1 ? 'y' : 'ies'} · ${res.findingsCount} finding(s) → Audit`);
     } catch (err) {
-      ctx.toast(`Entity audit failed: ${(err as Error).message}`);
+      ctx.toast(`Entity audit failed: ${readableError(err)}`);
     } finally {
       runBtn.removeAttribute('disabled');
       runBtn.textContent = 'Run entity audit';

@@ -15,6 +15,7 @@ import { reportView } from './views/report.js';
 import { onboardingView } from './views/onboarding.js';
 import { getProjectId } from './api.js';
 import { screenName, breadcrumb } from './format.js';
+import { readableError } from './errors.js';
 import { createWorkspace } from './workspace.js';
 import { routeSkeleton } from './skeleton.js';
 
@@ -328,7 +329,7 @@ export function mountShell(root: HTMLElement): void {
       const view = await route.view(ctx);
       content.replaceChildren(view);
     } catch (err) {
-      content.replaceChildren(el('div', { class: 'errbox' }, [`Failed to render: ${(err as Error).message}`]));
+      content.replaceChildren(el('div', { class: 'errbox' }, [`Failed to render: ${readableError(err)}`]));
     }
     content.scrollTop = 0;
   }

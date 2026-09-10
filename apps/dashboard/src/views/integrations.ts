@@ -3,6 +3,7 @@ import { screenName } from '../format.js';
 import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
 import { fetchIntegrations, fetchPlatformAccess } from '../api.js';
+import { readableError } from '../errors.js';
 import { integrationsGallery } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
 import type { ReadinessReport, IntegrationReadiness } from '../types.js';
@@ -56,7 +57,7 @@ export async function integrationsSection(): Promise<HTMLElement> {
     report = await fetchIntegrations();
   } catch (err) {
     return el('div', { class: 'fq-note' }, [
-      `Could not read integration readiness: ${(err as Error).message}`,
+      `Could not read integration readiness: ${readableError(err)}`,
     ]);
   }
 

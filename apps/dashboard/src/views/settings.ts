@@ -5,6 +5,7 @@ import {
   getProjectId,
   getAccountId,
   updateBrandingApi,
+  fetchAccounts,
   fetchDeployTarget,
   saveDeployTarget,
   fetchEntities,
@@ -17,7 +18,7 @@ import { readableError } from '../errors.js';
 import { platformSection } from './platform.js';
 import { vendorKeysPanel } from './integrations.js';
 import type { AppContext } from '../context.js';
-import type { DeployTarget, EffectiveCadence } from '../types.js';
+import type { ApiAccountBranding, DeployTarget, EffectiveCadence } from '../types.js';
 
 /**
  * Where an approved fix for this project lands (M2.3 #3). Every generated
@@ -115,7 +116,7 @@ async function brandKindSection(ctx: AppContext): Promise<HTMLElement> {
  * page. Operates on `getAccountId()` — the account last selected from the
  * Clients grid — since this view has no id in the URL to read one from.
  */
-function brandingSection(ctx: AppContext): HTMLElement {
+async function brandingSection(ctx: AppContext): Promise<HTMLElement> {
   const accountId = getAccountId();
   if (!accountId) {
     return el('section', { class: 'panel' }, [
@@ -124,22 +125,36 @@ function brandingSection(ctx: AppContext): HTMLElement {
     ]);
   }
 
-  const nameInput = el('input', { class: 'field', type: 'text', placeholder: 'Acme Agency' }) as HTMLInputElement;
-  const logoInput = el('input', { class: 'field', type: 'text', placeholder: 'https://…/logo.png' }) as HTMLInputElement;
-  const colorInput = el('input', { class: 'field', type: 'text', placeholder: '#4f46e5' }) as HTMLInputElement;
+  // Prefilled, because the form is the only way to see what is stored. Three
+  // blank inputs over saved values read as "nothing is set", and saving one
+  // field then cleared the other two.
+  let current: ApiAccountBranding = {};
+  try {
+    const account = (await fetchAccounts()).find((a) => a.id === accountId);
+    if (account) current = account.branding;
+  } catch {
+    // Unreachable API — render the form empty rather than blocking Settings,
+    // the same choice `deployTargetSection` makes.
+  }
+
+  const nameInput = el('input', { class: 'field', type: 'text', placeholder: 'Acme Agency', value: current.companyName ?? '' }) as HTMLInputElement;
+  const logoInput = el('input', { class: 'field', type: 'text', placeholder: 'https://…/logo.png', value: current.logoUrl ?? '' }) as HTMLInputElement;
+  const colorInput = el('input', { class: 'field', type: 'text', placeholder: '#4f46e5', value: current.primaryColor ?? '' }) as HTMLInputElement;
 
   const save = el('button', {
     class: 'btn primary',
     onclick: async () => {
       try {
+        // All three sent, empty string included: the inputs hold the whole
+        // object, so a field the user emptied is a deletion the API applies.
         await updateBrandingApi(accountId, {
-          companyName: nameInput.value.trim() || undefined,
-          logoUrl: logoInput.value.trim() || undefined,
-          primaryColor: colorInput.value.trim() || undefined,
+          companyName: nameInput.value.trim(),
+          logoUrl: logoInput.value.trim(),
+          primaryColor: colorInput.value.trim(),
         });
         ctx.toast('Branding saved.');
       } catch (err) {
-        ctx.toast(`Could not save branding: ${(err as Error).message}`);
+        ctx.toast(`Could not save branding: ${readableError(err)}`);
       }
     },
   }, ['Save branding']);
@@ -265,7 +280,7 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     el('div', { class: 'settings-sec' }, ['Deploy target']),
     await deployTargetSection(ctx),
     el('div', { class: 'settings-sec' }, ['Branding']),
-    brandingSection(ctx),
+    await brandingSection(ctx),
     el('div', { class: 'settings-sec' }, ['Polling cadence']),
     await cadenceSection(),
     el('div', { class: 'settings-sec' }, ['Sign-in']),

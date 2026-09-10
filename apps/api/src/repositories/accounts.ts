@@ -223,13 +223,32 @@ export async function getAccount(db: Db, accountId: string): Promise<Account | n
   return rows[0] ? toAccount(rows[0]) : null;
 }
 
+/**
+ * Apply a branding patch, one field at a time.
+ *
+ * `PATCH` promises a partial update, so this merges rather than replaces: a
+ * field the caller did not send keeps its stored value. It used to assign
+ * `branding = <body>` outright, so saving one field from a form that held only
+ * that field silently wiped the other two.
+ *
+ * `set` writes values; `clear` removes keys. Removal has to delete the key, not
+ * store `''`, because every reader falls back with `branding.companyName ??
+ * account.name` — an empty string is not null, so it would defeat the fallback
+ * and render a blank name and an `<img src="">`.
+ *
+ * One statement rather than read-modify-write, so two concurrent saves cannot
+ * interleave and lose a field. `branding` is `not null default '{}'`, so the
+ * left side of `||` never needs a coalesce.
+ */
 export async function updateAccountBranding(
   db: Db,
   accountId: string,
-  branding: AccountBranding,
+  patch: { set: AccountBranding; clear: string[] },
 ): Promise<Account> {
   const [row] = await db<AccountRow[]>`
-    update accounts set branding = ${toJsonb(db, branding)} where id::text = ${accountId}
+    update accounts
+    set branding = (branding || ${toJsonb(db, patch.set)}) - ${patch.clear}::text[]
+    where id::text = ${accountId}
     returning id, name, branding, created_at
   `;
   return toAccount(row);

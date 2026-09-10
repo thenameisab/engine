@@ -432,9 +432,6 @@ async function usersPanel(ctx: AppContext): Promise<HTMLElement> {
           el('div', { class: 'intg-assigns' }, data.users.map((u) =>
             userRow(u, data.adminCount <= 1, ctx, () => void render()),
           )),
-          el('div', { class: 'fhint num' }, [
-            'New sign-in accounts are created with `pnpm db:user --email <address> --role admin|user`.',
-          ]),
         ]),
       ]),
     );

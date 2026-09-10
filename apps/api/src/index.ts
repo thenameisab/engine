@@ -3105,13 +3105,26 @@ app.patch('/accounts/:accountId/branding', async (c) => {
   if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
   const body = raw as { companyName?: string; logoUrl?: string; primaryColor?: string };
 
+  // A `PATCH` body carries only the fields the caller means to change. An
+  // absent key is left alone; a key sent empty is a deletion, which is how the
+  // form clears a field it has prefilled. Splitting it here keeps the
+  // repository from having to guess what `''` meant.
+  const set: { companyName?: string; logoUrl?: string; primaryColor?: string } = {};
+  const clear: string[] = [];
+  for (const field of ['companyName', 'logoUrl', 'primaryColor'] as const) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (value.trim() === '') clear.push(field);
+    else set[field] = value.trim();
+  }
+
   const db = createDb(c.env.DATABASE_URL);
   const user = c.get('user');
   await upsertUser(db, user);
   if (!(await isAccountMember(db, accountId, user.id))) {
     return c.json({ error: 'you are not a member of this account', accountId }, 403);
   }
-  const account = await updateAccountBranding(db, accountId, body);
+  const account = await updateAccountBranding(db, accountId, { set, clear });
   return c.json({ account });
 });
 

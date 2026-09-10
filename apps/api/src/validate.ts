@@ -667,7 +667,9 @@ export function checkBrandingBody(body: unknown): Invalid | null {
   const b = body as Record<string, unknown>;
   return first(
     optional(b.companyName, () => checkString(b.companyName, 'companyName')),
-    optional(b.logoUrl, () => checkUrl(b.logoUrl, 'logoUrl')),
+    // `''` is how the form clears a prefilled logo, so it has to pass the URL
+    // check rather than fail it. Any other non-URL string is still rejected.
+    optional(b.logoUrl, () => (b.logoUrl === '' ? null : checkUrl(b.logoUrl, 'logoUrl'))),
     optional(b.primaryColor, () => checkString(b.primaryColor, 'primaryColor')),
   );
 }

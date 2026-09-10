@@ -7,6 +7,7 @@
 import { el } from '../dom.js';
 import { screenName } from '../format.js';
 import { fetchReportUrl, getAccountId } from '../api.js';
+import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
 
 export async function reportView(ctx: AppContext): Promise<HTMLElement> {
@@ -25,7 +26,7 @@ export async function reportView(ctx: AppContext): Promise<HTMLElement> {
   try {
     url = await fetchReportUrl(accountId);
   } catch (err) {
-    loadError = (err as Error).message;
+    loadError = readableError(err);
   }
 
   if (!url) {
