@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -599,5 +599,37 @@ describe('rankLabel', () => {
     expect(rankLabel(null, null)).toBe('not polled yet');
     expect(rankLabel(null, '2026-09-09T00:00:00.000Z')).toBe('not in top 10');
     expect(rankLabel(3, '2026-09-09T00:00:00.000Z')).toBe('#3');
+  });
+});
+
+describe('auditLastRunLine', () => {
+  const now = Date.parse('2026-09-10T12:00:00.000Z');
+
+  it('says an audit has never run, without implying a clean result', () => {
+    const line = auditLastRunLine(null, now);
+    expect(line).toContain('Not checked yet');
+    expect(line).not.toContain('nothing to fix');
+  });
+
+  it('reports a clean run as a result, not as an absence', () => {
+    // The distinction the whole run table exists for: this must not read the
+    // same as "never run".
+    const line = auditLastRunLine(
+      { trigger: 'schedule', findingsCount: 0, ranAt: '2026-09-10T09:00:00.000Z' },
+      now,
+    );
+    expect(line).toBe('Last checked 3h ago · on the nightly pass · nothing to fix');
+  });
+
+  it('names what set the audit off', () => {
+    const at = '2026-09-10T09:00:00.000Z';
+    expect(auditLastRunLine({ trigger: 'crawl', findingsCount: 2, ranAt: at }, now)).toContain('after a crawl');
+    expect(auditLastRunLine({ trigger: 'manual', findingsCount: 2, ranAt: at }, now)).toContain('you asked');
+  });
+
+  it('counts one finding in the singular', () => {
+    const at = '2026-09-10T09:00:00.000Z';
+    expect(auditLastRunLine({ trigger: 'crawl', findingsCount: 1, ranAt: at }, now)).toMatch(/· 1 finding$/);
+    expect(auditLastRunLine({ trigger: 'crawl', findingsCount: 4, ranAt: at }, now)).toContain('4 findings');
   });
 });

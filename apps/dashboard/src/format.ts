@@ -624,6 +624,36 @@ export function nextAction(status: ActionStatus): { to: ActionStatus; label: str
   }
 }
 
+/* ── The deterministic audits' last run ───────────────────────────────────── */
+
+export interface AuditRunSummary {
+  trigger: 'crawl' | 'schedule' | 'manual';
+  findingsCount: number;
+  ranAt: string;
+}
+
+/**
+ * The line each of the four audit screens carries: when it last ran, what set
+ * it off, and what it found.
+ *
+ * Every word of "Last checked 3h ago · after a crawl · nothing to fix" is
+ * load-bearing. Before these audits were scheduled the only honest reading of
+ * an empty screen was "nobody has pressed the button", and a customer had no
+ * way to tell that from "we looked and you are fine". The two now read
+ * differently, so the clean result is worth something.
+ */
+export function auditLastRunLine(run: AuditRunSummary | null | undefined, now = Date.now()): string {
+  if (!run) return 'Not checked yet — this runs on its own; you can also check now.';
+  const when = relativeTime(run.ranAt, now);
+  const why =
+    run.trigger === 'crawl' ? 'after a crawl' : run.trigger === 'schedule' ? 'on the nightly pass' : 'you asked';
+  const found =
+    run.findingsCount === 0
+      ? 'nothing to fix'
+      : `${run.findingsCount} ${run.findingsCount === 1 ? 'finding' : 'findings'}`;
+  return `Last checked ${when} · ${why} · ${found}`;
+}
+
 /* ── Search and traffic (Pulse) ───────────────────────────────────────────── */
 
 /** "2h ago" for a timestamp; "never" for none. */

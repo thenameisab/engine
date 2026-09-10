@@ -1,4 +1,5 @@
 import { el } from '../dom.js';
+import { auditLastRunLine } from '../format.js';
 import {
   fetchEntities,
   fetchCompetitors,
@@ -6,6 +7,7 @@ import {
   removeCompetitor,
   fetchCompetitorGaps,
   runCompetitorAudit,
+  type AuditLastRun,
 } from '../api.js';
 import type { AppContext } from '../context.js';
 import type { ApiEntity, CompetitorGap, CompetitorRef, GapType } from '../types.js';
@@ -85,6 +87,13 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
   }
 
   const root = el('div', {});
+  // The nightly pass re-runs this analysis for every self-entity that has a
+  // competitor set, so the head says when it last did. Kept out of `head`'s
+  // initial children because the early returns above render `head` alone.
+  const lastRunLine = el('p', { class: 'lastrun' }, [auditLastRunLine(null)]);
+  function setLastRun(run: AuditLastRun | null): void {
+    lastRunLine.textContent = auditLastRunLine(run);
+  }
   const head = el('div', { class: 'pagehead' }, [
     el('h1', {}, ['Competitor intelligence']),
     el('p', {}, ['Where do competitors beat you — across SEO and GEO — on one entity model? Pick your entity, name its competitors, then close the biggest gaps.']),
@@ -158,7 +167,9 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     refreshCompOptions(competitors);
     renderChips(competitors);
     try {
-      renderGaps(await fetchCompetitorGaps(selfId()));
+      const { gaps, lastRun } = await fetchCompetitorGaps(selfId());
+      renderGaps(gaps);
+      setLastRun(lastRun);
     } catch {
       renderGaps([]);
     }
@@ -182,6 +193,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     try {
       const res = await runCompetitorAudit(selfId());
       renderGaps(res.gaps);
+      setLastRun({ kind: 'competitor', trigger: 'manual', findingsCount: res.findingsCount, ranAt: new Date().toISOString() });
       ctx.toast(`Compared vs ${res.competitorsAudited} competitor(s) · ${res.findingsCount} finding(s) → Audit`);
     } catch (err) {
       ctx.toast(`Analysis failed: ${(err as Error).message}`);
@@ -192,6 +204,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
   });
 
   head.append(
+    lastRunLine,
     el('div', { class: 'ci-controls' }, [
       el('label', { class: 'ci-lbl' }, ['You', selfSelect]),
       el('label', { class: 'ci-lbl' }, ['Competitor', compSelect]),

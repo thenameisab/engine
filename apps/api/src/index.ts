@@ -119,6 +119,12 @@ import {
 } from './repositories/actions.js';
 import { findingBelongsToProject, getFindingInProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun } from './repositories/auditRuns.js';
+import {
+  recordDeterministicAuditRun,
+  latestDeterministicAuditRun,
+  runEntityAuditAfterCrawl,
+  runScheduledDeterministicAudits,
+} from './repositories/deterministicAudits.js';
 import { upsertCrawledPages, getCrawledPage, listInternalLinkTargets } from './repositories/crawledPages.js';
 import { getProjectDeployTarget, setProjectDeployTarget } from './repositories/projectTarget.js';
 import { insertSerpPositions } from './repositories/rankPositions.js';
@@ -1043,6 +1049,13 @@ app.post('/projects/:projectId/entity-audit', async (c) => {
 
   const result = await runProjectEntityAudit(db, projectId);
   if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  await recordDeterministicAuditRun(db, {
+    projectId,
+    entityId: null,
+    kind: 'entity',
+    trigger: 'manual',
+    findingsCount: result.findings.length,
+  });
   return c.json({
     entitiesAudited: result.entitiesAudited,
     findingsCount: result.findings.length,
@@ -1063,7 +1076,7 @@ app.get('/projects/:projectId/entity-audit', async (c) => {
   if (accessError) return c.json(accessError.body, accessError.status);
 
   const strengths = await listEntityStrengths(db, projectId);
-  return c.json({ strengths });
+  return c.json({ strengths, lastRun: await latestDeterministicAuditRun(db, projectId, 'entity') });
 });
 
 /**
@@ -1132,6 +1145,13 @@ app.post('/projects/:projectId/entities/:selfEntityId/competitor-audit', async (
   const result = await runProjectCompetitorAudit(db, projectId, selfEntityId);
   if (!result) return c.json({ error: 'self entity not found in project' }, 404);
   if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  await recordDeterministicAuditRun(db, {
+    projectId,
+    entityId: selfEntityId,
+    kind: 'competitor',
+    trigger: 'manual',
+    findingsCount: result.findings.length,
+  });
   return c.json({
     selfEntityId: result.selfEntityId,
     competitorsAudited: result.competitorsAudited,
@@ -1153,7 +1173,7 @@ app.get('/projects/:projectId/entities/:selfEntityId/competitor-audit', async (c
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
   const gaps = await listCompetitorGaps(db, projectId, selfEntityId);
-  return c.json({ gaps });
+  return c.json({ gaps, lastRun: await latestDeterministicAuditRun(db, projectId, 'competitor') });
 });
 
 /**
@@ -1175,6 +1195,13 @@ app.post('/projects/:projectId/entities/:selfEntityId/offsite-audit', async (c) 
   const result = await runProjectOffsiteAudit(db, projectId, selfEntityId);
   if (!result) return c.json({ error: 'self entity not found in project' }, 404);
   if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  await recordDeterministicAuditRun(db, {
+    projectId,
+    entityId: selfEntityId,
+    kind: 'offsite',
+    trigger: 'manual',
+    findingsCount: result.findings.length,
+  });
   return c.json({
     selfEntityId: result.selfEntityId,
     observationsAnalyzed: result.observationsAnalyzed,
@@ -1197,7 +1224,7 @@ app.get('/projects/:projectId/entities/:selfEntityId/offsite-audit', async (c) =
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
   const opportunities = await listCitationOpportunities(db, projectId, selfEntityId);
-  return c.json({ opportunities });
+  return c.json({ opportunities, lastRun: await latestDeterministicAuditRun(db, projectId, 'offsite') });
 });
 
 /**
@@ -1366,6 +1393,13 @@ app.post('/projects/:projectId/entities/:entityId/local-audit', async (c) => {
   if (result === null) return c.json({ error: 'entity not found in project' }, 404);
   if (result === 'no-profile') return c.json({ error: 'no local profile set for this entity' }, 409);
   if (result.findings.length > 0) await markFirstInsight(db, projectId);
+  await recordDeterministicAuditRun(db, {
+    projectId,
+    entityId,
+    kind: 'local',
+    trigger: 'manual',
+    findingsCount: result.findings.length,
+  });
   return c.json({
     entityId: result.entityId,
     findingsCount: result.findings.length,
@@ -1381,7 +1415,7 @@ app.get('/projects/:projectId/local-audit', async (c) => {
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
   const visibility = await listLocalVisibility(db, projectId);
-  return c.json({ visibility });
+  return c.json({ visibility, lastRun: await latestDeterministicAuditRun(db, projectId, 'local') });
 });
 
 /**
@@ -2250,6 +2284,15 @@ app.post('/internal/audit-requests/:id/finish', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const request = await finishAuditRequest(db, id, raw as AuditRequestOutcome);
   if (!request) return c.json({ error: 'request is not running', id }, 409);
+
+  // A crawl is the moment the entity's facts changed, so it is the moment the
+  // deterministic entity audit is worth running. Only after a success: a crawl
+  // that failed re-audits the same stale facts and would put a fresh timestamp
+  // on an answer nothing had refreshed. Never throws — the request is finished
+  // either way.
+  const outcome = raw as AuditRequestOutcome;
+  if ('auditRunId' in outcome) await runEntityAuditAfterCrawl(db, request.projectId);
+
   return c.json({ request });
 });
 
@@ -2509,6 +2552,38 @@ app.get('/accounts/:accountId/report', async (c) => {
 app.route('/', integrationsRoutes);
 
 /**
+ * The nightly deterministic audits (off-site, competitor, local), folded into
+ * the 03:15 pass behind the Google sync.
+ *
+ * No new cron, because these need no vendor key and no clock of their own —
+ * they read data the system already holds. Running them after the sync means a
+ * night's Google data is in place before anything scores against it.
+ *
+ * Never throws: the sync has already completed by this point, and losing its
+ * result to a failure in the pass that follows it would be a worse outcome
+ * than an unaudited night.
+ */
+async function scheduledDeterministicAudits(env: Env): Promise<void> {
+  const db = createDb(env.DATABASE_URL);
+  try {
+    const summary = await runScheduledDeterministicAudits(db);
+    if (summary.attempted === 0) {
+      console.log('scheduled audits: nothing was due');
+      return;
+    }
+    console.log(
+      `scheduled audits: ${summary.ran}/${summary.attempted} run` +
+        (summary.capped ? ' (stopped at the per-run cap; the rest follow tomorrow)' : '') +
+        (summary.failed.length > 0
+          ? `; failures: ${summary.failed.map((f) => `${f.projectId}/${f.kind}: ${f.error}`).join(' | ')}`
+          : ''),
+    );
+  } catch (error) {
+    console.error(`scheduled audits failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
  * The scheduled rank poll (cron, see `wrangler.toml` `[triggers]`).
  *
  * Split from the Google sync because the two have nothing in common but a
@@ -2645,6 +2720,7 @@ async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionCo
     return;
   }
   await scheduledGoogleSync(env);
+  await scheduledDeterministicAudits(env);
 }
 
 // Only handlers may be named exports of a Worker's entry module: the runtime

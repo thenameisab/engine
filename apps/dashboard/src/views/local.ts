@@ -1,5 +1,6 @@
 import { el } from '../dom.js';
-import { fetchEntities, fetchLocalVisibility, runLocalAudit } from '../api.js';
+import { auditLastRunLine } from '../format.js';
+import { fetchEntities, fetchLocalVisibility, runLocalAudit, type AuditLastRun } from '../api.js';
 import type { AppContext } from '../context.js';
 import type { ApiEntity, LocalVisibility } from '../types.js';
 
@@ -48,9 +49,13 @@ function visibilityCard(v: LocalVisibility): HTMLElement {
 export async function localView(ctx: AppContext): Promise<HTMLElement> {
   let entities: ApiEntity[] = [];
   let visibility: LocalVisibility[] = [];
+  let lastRun: AuditLastRun | null = null;
   let loadError: string | null = null;
   try {
-    [entities, visibility] = await Promise.all([fetchEntities(), fetchLocalVisibility()]);
+    const [fetchedEntities, local] = await Promise.all([fetchEntities(), fetchLocalVisibility()]);
+    entities = fetchedEntities;
+    visibility = local.visibility;
+    lastRun = local.lastRun;
   } catch (err) {
     loadError = (err as Error).message;
   }
@@ -58,11 +63,14 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
   const select = el('select', { class: 'ci-select' }, entities.map((e) => el('option', { value: e.id }, [e.canonicalName]))) as HTMLSelectElement;
   const runBtn = el('button', { class: 'btn' }, ['Run local audit']);
   const listWrap = el('div', { class: 'eg-list' });
+  const lastRunLine = el('p', { class: 'lastrun' }, [auditLastRunLine(lastRun)]);
 
   function render(rows: LocalVisibility[]): void {
     listWrap.replaceChildren(
       rows.length === 0
-        ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, ['No local audit has run yet. Set a location profile (via the GBP connector/API), then run one to score its local visibility.'])])
+        ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [
+              'No location has profile facts yet. Set a profile, and the nightly pass scores it from then on.',
+            ])])
         : el('div', {}, rows.map(visibilityCard)),
     );
   }
@@ -76,6 +84,11 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
       const others = visibility.filter((v) => v.entityId !== res.visibility.entityId);
       visibility = [...others, res.visibility].sort((a, b) => a.score - b.score);
       render(visibility);
+      lastRunLine.textContent = auditLastRunLine({
+        trigger: 'manual',
+        findingsCount: res.findingsCount,
+        ranAt: new Date().toISOString(),
+      });
       ctx.toast(`Local visibility ${pct(res.visibility.score)} · ${res.findingsCount} finding(s) → Audit`);
     } catch (err) {
       const msg = (err as Error).message;
@@ -96,6 +109,7 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
     el('div', { class: 'pagehead' }, [
       el('h1', {}, ['Local SEO']),
       el('p', {}, ['Is each location’s Google Business Profile complete, its NAP consistent across directories, and its reviews healthy? Score blends GBP completeness, NAP consistency, and review health.']),
+      lastRunLine,
       el('div', { class: 'ci-controls' }, [el('label', { class: 'ci-lbl' }, ['Location', select]), runBtn]),
     ]),
     listWrap,
