@@ -128,6 +128,44 @@ Goal: the "Design engineering" table from the 2026-09-08 review, unchanged on ma
 - Removes: the sign-in hex block, the second semantic palette, chained toast timers.
 - Done when: both themes pass a visual check on every screen at 1440 and 390 px; keyboard focus is visible on every control; reduced motion shows final states. Tests: none beyond the existing suite; verification is the screenshot walk repeated.
 
+### Step 9 — One row grammar, one stat cell, one empty state (M)
+
+Goal: the defects step 8 did not cover. Step 8 was a component pass — press states, focus rings, hover behind a media query, the colour triad, the type scale, skeletons. Every problem below is layout, and all of them survived it.
+
+This step was added on 2026-09-10 after walking the deployed app. Three primitives — a list row, a stat cell, an empty state — are each implemented between four and eight times, and Home uses the weakest version of all three.
+
+**What the sheet actually holds.** Eight independent list-row implementations, four of which align their numbers and four of which do not:
+
+| Class | `styles.css` | Mechanism | Numbers line up |
+|---|---|---|---|
+| `.ci-lead-row` | `:918` | grid `100px 1fr auto 52px` | yes |
+| `.ci-row` | `:919` | grid `1fr auto 52px` | yes |
+| `.off-row` | `:933` | grid `1fr auto 52px` | yes |
+| `.kw-row` | `:1050` | grid `1fr 92px 84px auto` | yes |
+| `.serp-row` | `:606` | flex, one fixed 34px cell | partly |
+| `.row` | `:264` | flex, value pushed by `margin-left: auto` | no |
+| `.frow` | `:331` | flex, body takes the slack | no |
+| `.gm-row` | `:1022` | flex, every numeric cell `flex: none` | no |
+
+`.ci-row` and `.off-row` are the same four declarations written twice. `.gm-row` is the one Home's Search and Traffic panels use, so "215 clicks 724 impr. 3.8 pos." shrink-wraps to its own content on every row and the three figures land at a different x position on each row. Reading down the list to compare impressions therefore requires reading each row separately.
+
+**Six classes for one empty state**, and the one that won is named after the fix queue: `.fq-note` (`:327`) is used 53 times across 16 files, including `workspace.ts` and `deployTargetForm.ts`. `.gm-empty` (`:1036`), `.lane-empty` (`:325`), `.serp-empty` (`:586`), `.loading` and `.errbox` (`:162`) each say the same thing in a different size, register and alignment. Competitors renders six of them at once. Because `.fq-note` is `padding: 24px 16px; text-align: center`, a one-line message is priced as a full panel: Home's visibility block and Rankings' tracked-keywords panel each spend a bordered box the height of a chart to say nothing has been measured.
+
+**Seven breakpoints, no scale:** 560, 620, 640, 720, 760, 860 and 1080 px. Each screen picked its own number. Two rows drop a column below 560 px (`.ci-lead-row`, `.off-row`); the other six squeeze instead.
+
+- `styles.css`: one `.row` grammar built on the `.kw-row` pattern, because a grid with fixed numeric tracks is the one mechanism in the sheet that already works. Columns: body `1fr` with `min-width: 0`, then numeric tracks sized by their widest real value with `font-variant-numeric: tabular-nums`, then one action track of a single width used by Findings, Rankings and the gap tables. `.gm-row`, `.row`, `.frow`, `.serp-row`, `.ci-row` and `.off-row` become modifiers of it or are deleted. The action column is a track, not `margin-left: auto`, so a 68ch body no longer leaves 900 px of nothing between a Findings explanation and its severity pill.
+- `styles.css`: `.gm-stats .cell .top { min-height: 0 }` (`:1013`) goes. The base `.cell .top` reserves `min-height: 32px` (`:253`) precisely so a label that wraps to two lines does not push its number down; the Google panels opt out of it, which is why "Engaged sessions" sits a line lower than "Sessions" and "Key events" beside it.
+- `styles.css`: one empty state. A line of body text in the panel, left-aligned, no centring and no reserved height, with the panel's own padding. `.fq-note`, `.gm-empty`, `.lane-empty` and `.serp-empty` collapse into it; `.loading` goes with them once `copilot.ts` and `serp.ts` stop using it. A screen shows at most one — Competitors states it once above the dimension cards rather than once inside each.
+- `styles.css`: fields size to their content. `.serp-form-row .field { flex: 1 }` (`:582`) gives a two-letter country select the same width as a domain field, about 840 px on a 1440 px screen. Selects and short fields become `flex: none` with an intrinsic width; exactly one field per row absorbs the slack.
+- `styles.css`: three breakpoints, not seven — 560, 860 and 1080 — declared as a comment naming what each one is for, and every existing rule moved onto the nearest of them.
+- `views/competitors.ts`: `.ci-blurb` clamped to two lines so the five dimension cards are the same height, and the fifth card spans the empty track rather than sitting alone at quarter width. The control row (`:225-227`) labels all four controls or none; today "You" and "A competitor's website" carry labels and the two buttons do not, so the row has an uneven top edge.
+- `views/audit.ts`: the Findings page head becomes the overview strip the plan asked for in step 4 and did not get — health, severity counts, pages, Run audit — using `severityCounts` (`format.ts:1285`), which exists and is read only by Home. Three prose lines in three colours become one strip and one warning.
+- `views/googleIntegrations.ts`: planned providers move behind one disclosure instead of sorting last in the same flat list.
+- Removes: `.gm-row`'s shrink-wrapped numeric cells, the `min-height: 0` override, five of the six empty-state classes, four of the seven breakpoints, and the duplicate `.ci-row`/`.off-row` template.
+- Done when: on Home, Findings, Rankings, Competitors and AI answers, every numeric column lines up down its list at 1440 and 390 px in both themes; no screen shows more than one empty state; no control is more than twice the width its longest value needs; the walk records no element whose height changes only because a neighbour's label wrapped. Tests: `styles.test.ts` gains a case that the breakpoint set is exactly the three declared values, and one that no rule outside the shared grammar sets `margin-left: auto` on a row's action; the Playwright walk from step 8's verification is the evidence, diffed against the pre-branch run so every moved pixel is deliberate.
+
+**Order.** This step edits `styles.css` and so runs alone. It should go before steps 6 and 7, which add an operator checklist and three new Integrations sections built from exactly these primitives — doing them first means building the rows twice.
+
 ## 5. The data screens, one by one
 
 Each is its own step after step 8, in this order, one branch at a time. Each has one decision and a done-when.
@@ -154,13 +192,17 @@ Each is its own step after step 8, in this order, one branch at a time. Each has
 ## 7. Order and dependencies
 
 ```
-1 Shell ──► 2 Home v1 ──► 3 Home v2 ──► 4 Findings & verify ──► 5 Set up ──► 6 Invite & Platform ──► 7 Integrations ──► 8 Craft
-                                                                                                         │
-                                                                                                         └──► data screens 1 → 2 → 3 → 4 → 5 → 6
+1 Shell ──► 2 Home v1 ──► 3 Home v2 ──► 4 Findings & verify ──► 5 Set up ──► 8 Craft ──► 9 Layout ──► 6 Invite & Platform ──► 7 Integrations
+                                                                                                          │
+                                                                                                          └──► data screens 1 → 2 → 3 → 4 → 5 → 6
 ```
 
-Steps 1 to 8 are sequential because each edits `shell.ts`, `styles.css` or `format.ts`. The data screens follow 8 and are sequential for the same reason. Migrations are numbered in order of merge: 0023 (step 1), 0024 (step 4 if a table is chosen; otherwise none), 0025 (step 6), then one per data screen that needs it. Roadmap effect: steps 1 to 6 complete M1.6 (self-serve onboarding to first insight) and make M1.4's "verified" state real.
+Steps 1 to 9 are sequential because each edits `shell.ts`, `styles.css` or `format.ts`. The data screens follow 9 and are sequential for the same reason.
+
+Steps 8 and 9 moved ahead of 6 and 7 on 2026-09-10. The order above is what was built: 1, 2, 3, 5 and 8 merged first (PRs #105, #107, #108, #113, #114, #115, #116, #117), with step 4 already substantially in place from the pre-review work. Steps 6 and 7 add an operator checklist and three new Integrations sections, both built from the row, stat and empty-state primitives step 9 rewrites, so running 9 first means building those rows once.
+
+Migrations are numbered in order of merge: 0023 (step 1), 0024 (step 4 if a table is chosen; otherwise none), 0025 (step 6), then one per data screen that needs it. Roadmap effect: steps 1 to 6 complete M1.6 (self-serve onboarding to first insight) and make M1.4's "verified" state real.
 
 ## 8. What to verify before each merge
 
-The screenshot walk in `docs/reviews/assets/2026-09-09/` is the baseline. For each step: repeat the walk for the screens touched, both themes, 1440 and 390 px, from a clean worktree of the branch with the scratch Postgres migrated; run `npx turbo run test --force`; and record in `working_log.md` what changed on screen, not only in code.
+The screenshot walk in `docs/reviews/assets/2026-09-09/` is the baseline. From step 8 onward the walk is scripted: Playwright driven from `packages/crawler`'s copy, a seed that stubs `window.fetch` per API path and sets the four `engine.*` keys, and a run that records for every text-bearing element its font size, weight, width and height plus document overflow, across every route in both themes at 1440 and 390 px. Diffing that run against the same run on `origin/main` is what proves a branch changed only what it meant to — #117 moved 0 of 2,588 elements. For each step: repeat the walk for the screens touched, both themes, 1440 and 390 px, from a clean worktree of the branch with the scratch Postgres migrated; run `npx turbo run test --force`; and record in `working_log.md` what changed on screen, not only in code.
