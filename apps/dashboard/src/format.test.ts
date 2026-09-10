@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -685,6 +685,93 @@ describe('crawlCoverageLine', () => {
   it('counts pages blocked by robots.txt, and only when there are some', () => {
     expect(crawlCoverageLine(40, { ...full, blockedByRobots: 3 })!.text).toContain('3 blocked by robots.txt');
     expect(crawlCoverageLine(40, full)!.text).not.toContain('robots.txt');
+  });
+});
+
+describe('the workspace rail', () => {
+  const clients = [
+    {
+      id: 'a1',
+      name: 'Bright Smile Dental',
+      connectedProviders: ['gsc'],
+      sites: [
+        { id: 'p1', name: 'Main site', domain: 'brightsmile.example' },
+        { id: 'p2', name: 'Clinic blog', domain: 'blog.brightsmile.example' },
+      ],
+    },
+    {
+      id: 'a2',
+      name: 'Acme',
+      connectedProviders: [],
+      sites: [{ id: 'p3', name: 'Main site', domain: 'acme.example' }],
+    },
+  ];
+
+  describe('clientInitials', () => {
+    it('takes the first and last word, so a long name stays distinctive', () => {
+      expect(clientInitials('Bright Smile Dental')).toBe('BD');
+    });
+    it('takes two letters from a single word, because one is not distinctive', () => {
+      expect(clientInitials('Acme')).toBe('AC');
+    });
+    it('does not render an empty square for an empty name', () => {
+      expect(clientInitials('   ')).toBe('?');
+    });
+  });
+
+  describe('filterWorkspace', () => {
+    it('returns everything for an empty query', () => {
+      expect(filterWorkspace(clients, '  ')).toHaveLength(2);
+    });
+
+    it('narrows a matched client to its matching sites', () => {
+      // Searching a domain must not hand back every other site the agency runs
+      // for that client.
+      const out = filterWorkspace(clients, 'blog.brightsmile');
+      expect(out).toHaveLength(1);
+      expect(out[0].sites.map((s) => s.id)).toEqual(['p2']);
+    });
+
+    it('keeps every site when the client name is what matched', () => {
+      const out = filterWorkspace(clients, 'bright');
+      expect(out[0].sites).toHaveLength(2);
+    });
+
+    it('matches a site name shared across two clients, under both', () => {
+      const out = filterWorkspace(clients, 'main site');
+      expect(out.map((c) => c.id)).toEqual(['a1', 'a2']);
+    });
+
+    it('returns nothing rather than everything when nothing matches', () => {
+      expect(filterWorkspace(clients, 'zzz')).toEqual([]);
+    });
+  });
+
+  describe('needsWorkspaceSearch', () => {
+    it('is quiet until a search field would have something to find', () => {
+      expect(needsWorkspaceSearch(clients)).toBe(false);
+      const many = Array.from({ length: 9 }, (_, i) => ({ ...clients[1], id: `a${i}` }));
+      expect(needsWorkspaceSearch(many)).toBe(true);
+    });
+  });
+
+  describe('openSiteLabel', () => {
+    it('names the client, the site and the domain', () => {
+      // The site name alone is ambiguous: both clients here have a "Main site".
+      expect(openSiteLabel(clients, 'a2', 'p3')).toEqual({
+        client: 'Acme',
+        site: 'Main site',
+        domain: 'acme.example',
+      });
+    });
+
+    it('is null when nothing is open, so the header can prompt instead of blank', () => {
+      expect(openSiteLabel(clients, 'a1', '')).toBeNull();
+    });
+
+    it('does not name a site from a client that is not the open one', () => {
+      expect(openSiteLabel(clients, 'a2', 'p1')).toBeNull();
+    });
   });
 });
 
