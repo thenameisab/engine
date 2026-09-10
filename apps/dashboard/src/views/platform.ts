@@ -553,17 +553,21 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
       usersPanel(ctx),
       cadencePanel(ctx),
     ]);
-    host.replaceChildren(
-      el('div', { class: 'settings-sec' }, ['Platform']),
-      google,
-      github,
-      users,
-      cadence,
-    );
+    // No section heading of its own any more. It carried one while it was a
+    // block at the bottom of Settings; on a screen already titled Platform it
+    // repeated the h1 two lines below it.
+    host.replaceChildren(google, github, users, cadence);
   };
 
   await render();
   return host;
+}
+
+/** One panel's failure, named, so the rest of the screen still renders. */
+function failedPanel(what: string, err: unknown): HTMLElement {
+  return el('section', { class: 'panel' }, [
+    el('div', { class: 'fq-note' }, [`Could not load ${what}: ${readableError(err)}`]),
+  ]);
 }
 
 /**
@@ -594,10 +598,15 @@ export async function platformView(ctx: AppContext): Promise<HTMLElement> {
     return el('div', {});
   }
 
+  // Each part settles on its own. A panel that throws — `cadencePanel` reading
+  // a field off a row an older API did not send, say — used to take the whole
+  // screen to the shell's "Failed to render" box, and the checklist with it.
+  // The checklist is what an operator opens this screen for when something is
+  // broken, so it must not share a failure with the panels below it.
   const [checklist, panels, vendorKeys] = await Promise.all([
     checklistPanel(),
-    platformSection(ctx),
-    vendorKeysPanel(),
+    platformSection(ctx).catch((err: unknown) => failedPanel('the platform panels', err)),
+    vendorKeysPanel().catch((err: unknown) => failedPanel('the vendor keys', err)),
   ]);
 
   return el('div', {}, [

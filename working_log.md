@@ -1194,3 +1194,79 @@
 5. **Tool catalogue size is measured in step 1**, as recommended. Plus a requirement the document does not have: **an admin control in Settings that allows or blocks individual tools for the whole organisation, and sets read against write access.** That is org-level tool governance, and it lands on §4.2 and §4.3 rather than on the loop.
 6. **Ship the Driver surface regardless of Google data.** No gate on `gsc_*` and `ga` holding rows. Consequence to design for: early on most search and traffic answers will be "not connected", so §4.2 rule 3 — three distinct states, not connected against no data yet against zero — carries the whole first impression and is no longer a nicety.
 - Decisions 3, 4 and 5 each add scope the document did not carry. None of them can be written into it yet: #112 is open against the same file and is frozen. The corrections, the three stale facts and these six decisions go into one follow-up once #112 lands.
+
+## 2026-09-10 (the nine wave 4 follow-ups, on `fix/wave4-followups`)
+Branched off `origin/main` at `b18f670` (#117 merged), carrying the two doc
+commits from `docs/wave4-review` so `working_log.md` has one lineage. One branch,
+five commits, because all nine items touch the same handful of files and parallel
+branches would conflict on every one of them.
+
+- **`readableError` in the five places that still printed a raw message** —
+  `entityGraph`, `integrations`, `report`, `visibility`, `shell.ts:331` and the
+  Findings load. A request error's `.message` is `"<status> <JSON body>"`, so
+  those screens rendered the API's internals.
+- **The `pnpm db:user` hint is off the Users panel.** 0033 replaced it with
+  invitations, so it pointed at the older of two paths.
+- **The branding bug is fixed, and it was real data loss.**
+  `updateAccountBranding` assigned the whole jsonb object and the panel built
+  three empty inputs with no prefill, so filling one field wiped the other two.
+  Now a jsonb merge, the route splits the body into fields to set and keys to
+  clear, and the panel prefills. An emptied field deletes its key rather than
+  storing `''`, because every reader falls back with `?? account.name`.
+  `checkBrandingBody` had to stop refusing `logoUrl: ''` — `new URL('')` throws —
+  since that is the only body that can remove a logo.
+- **Findings leads with a strip, not a sentence.** Health with its band, the
+  three severity counts, pages, fixable ratio. `severityCounts` existed and only
+  Home called it, so the screen built for triage could not say how many findings
+  were high. Same function on both screens, so they cannot disagree.
+- **The six planned integration tiles sit behind one disclosure.** They sorted
+  last already but still filled the grid ahead of nothing.
+- **Migration 0035 stores `accounts.kind`.** Onboarding has asked "a company · an
+  agency's client · me" since step 5 and dropped the answer; `POST /accounts`
+  read `{ name }` only. All 39 existing rows took the `company` default. This is
+  what the agency-only branding gate had no data to read.
+- **Integrations is the one customer setup screen**: where fixes go, the
+  connected accounts, and — for an agency, gated on `kind` — report branding. A
+  GitHub PR target needs the GitHub connection granted on that screen, so the
+  two belonged together.
+- **Platform is a screen at `#/platform`** with a nine-row deployment checklist,
+  each row done or carrying the exact next action, derived from state the
+  deployment already reports. `GET /platform/queue` is new for its last row:
+  depth, how long the oldest queued request has waited, and when one last
+  finished, because depth alone cannot tell an idle queue from a dead runner.
+  Deliberately read-only, unlike `listQueuedAuditRequests`, which fails stale
+  running requests as a side effect.
+- **A PR fix is no longer verified before it is merged.** `enqueueVerify` fired
+  for every target kind, `github-pr` included — so the runner fetched an
+  unchanged page and the card said "Not found on the page yet" about a fix nobody
+  had rejected, the same lesson the removed Verify button taught.
+  `deployChangesTheLivePage` restricts it to `edge-worker` and `cms-plugin`;
+  `getPullRequestState` reads the PR (GitHub reports a merge and an abandonment
+  both as `closed`, so three states); `scheduledPrMergeCheck` walks deployed PR
+  fixes in the nightly pass, takes each PR's repo and number from the deploy
+  transition's own audit entry, and enqueues the page check on merge. The card
+  now says it is waiting on the merge and still offers "Check now".
+
+### What the browser walk found that the tests could not
+A 42-check Playwright walk of Findings, Integrations, Settings, Platform and
+Fixes, at 1440 and 390, light and dark, with the API stubbed. Three things:
+- **A throw in one platform panel took the whole screen**, checklist included —
+  `cadencePanel` reading a field off a row an older API did not send. Each part
+  now settles on its own and names its own failure. Asserted with a walk case
+  that serves exactly that bad shape.
+- **`platformSection` still rendered its own "Platform" heading**, two lines
+  under the h1 that now says Platform.
+- **The deploy panel said "Where approved fixes deploy" twice** — panel header
+  and the form's own first label. The header matches its section heading now, the
+  way the cadence and brand panels do.
+
+Three "failures" in the first walk were the walk's own bugs, recorded so they are
+not re-diagnosed: severity `0.5` is `low` (the band is `>= 0.55` for medium), one
+visual row means shared vertical centres and not shared tops on a
+centre-aligned strip, and `.pagehead p` matches the coverage lines too.
+
+- **Green bar:** `turbo run typecheck test lint build` 68/68. API 419 (was 400),
+  dashboard 155 (was 141), deploy 61 (was 58). Local Postgres migrated to 0035.
+- **Not done, and deliberately:** the GitHub webhook (the scheduled pass is the
+  fallback the plan allows), the "Install Engine on GitHub" tile flow in step 7,
+  and reordering the deploy-target kinds to put WordPress and Cloudflare first.

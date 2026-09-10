@@ -106,7 +106,11 @@ async function deployTargetSection(ctx: AppContext): Promise<HTMLElement> {
 
   return el('section', { class: 'panel' }, [
     el('header', {}, [
-      el('h3', {}, ['Where approved fixes deploy']),
+      // Matches the section heading above it, the way the cadence and brand
+      // panels do. It said "Where approved fixes deploy", which is the exact
+      // text of the form's own first label two lines below — three phrasings
+      // of one thing on one panel.
+      el('h3', {}, ['Where fixes go']),
       el('span', { class: 'more' }, [current ? `current: ${current.kind}` : 'none set']),
     ]),
     fields,
