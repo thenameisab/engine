@@ -74,7 +74,9 @@ export async function runProjectOffsiteAudit(
   const self = await getEntityInProject(db, projectId, selfEntityId);
   if (!self) return null;
 
-  const category = await listEntitiesByProject(db, projectId);
+  // Every entity, competitors included: the whole point is which domains AI
+  // cites across the *category*, and a rival is part of the category.
+  const category = await listEntitiesByProject(db, projectId, 'all');
   const observations = await citationObservations(db, category.map((e) => e.id), sinceDays);
 
   const result = runOffsiteAudit({

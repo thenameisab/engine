@@ -1,4 +1,4 @@
-import { DEFAULT_ENTITY_KIND, type Entity, type EntityKind } from '@engine/core';
+import { DEFAULT_ENTITY_KIND, DEFAULT_ENTITY_ROLE, type Entity, type EntityKind, type EntityRole } from '@engine/core';
 import type { Db } from '../db.js';
 
 interface EntityRow {
@@ -12,6 +12,7 @@ interface EntityRow {
   mentions: string[];
   schema: object[];
   schema_type: string;
+  role: EntityRole;
   created_at: Date;
   updated_at: Date;
 }
@@ -28,16 +29,32 @@ function toEntity(row: EntityRow): Entity {
     mentions: row.mentions,
     schema: row.schema,
     schemaType: row.schema_type,
+    role: row.role,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
 }
 
-export async function listEntitiesByProject(db: Db, projectId: string): Promise<Entity[]> {
+/**
+ * A project's entities.
+ *
+ * `role` is not optional sugar. Most callers mean "the customer's own brands"
+ * — every brand picker, the entity audit, the visibility rollup — and folding
+ * a competitor into those produces a wrong number rather than an error.
+ * Callers that genuinely mean *every* entity in the project (a tenancy check,
+ * or the off-site audit's category, where a rival belongs by definition) pass
+ * `'all'` and say so at the call site.
+ */
+export async function listEntitiesByProject(
+  db: Db,
+  projectId: string,
+  role: EntityRole | 'all' = 'all',
+): Promise<Entity[]> {
   const rows = await db<EntityRow[]>`
-    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
     from entities
     where project_id = ${projectId}
+      ${role === 'all' ? db`` : db`and role = ${role}`}
     order by created_at desc
   `;
   return rows.map(toEntity);
@@ -50,7 +67,7 @@ export async function listEntitiesByProject(db: Db, projectId: string): Promise<
  */
 export async function getEntityInProject(db: Db, projectId: string, entityId: string): Promise<Entity | null> {
   const rows = await db<EntityRow[]>`
-    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+    select id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
     from entities
     where id::text = ${entityId} and project_id::text = ${projectId}
   `;
@@ -62,11 +79,12 @@ export async function createEntity(
   projectId: string,
   canonicalName: string,
   schemaType: EntityKind = DEFAULT_ENTITY_KIND,
+  role: EntityRole = DEFAULT_ENTITY_ROLE,
 ): Promise<Entity> {
   const [row] = await db<EntityRow[]>`
-    insert into entities (project_id, canonical_name, schema_type)
-    values (${projectId}, ${canonicalName}, ${schemaType})
-    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+    insert into entities (project_id, canonical_name, schema_type, role)
+    values (${projectId}, ${canonicalName}, ${schemaType}, ${role})
+    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
   `;
   return toEntity(row);
 }
@@ -87,7 +105,7 @@ export async function setEntitySchemaType(
     update entities
     set schema_type = ${schemaType}, updated_at = now()
     where id::text = ${entityId} and project_id::text = ${projectId}
-    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
   `;
   return rows.length > 0 ? toEntity(rows[0]) : null;
 }
@@ -111,7 +129,7 @@ export async function setEntityPrompts(
     update entities
     set prompts = ${prompts as string[]}, updated_at = now()
     where id::text = ${entityId} and project_id::text = ${projectId}
-    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, created_at, updated_at
+    returning id, canonical_name, wikidata_id, urls, keywords, prompts, citations, mentions, schema, schema_type, role, created_at, updated_at
   `;
   return rows.length > 0 ? toEntity(rows[0]) : null;
 }

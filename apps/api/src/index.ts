@@ -52,7 +52,7 @@ import {
   type SerpQuery,
   type PromptQuery,
 } from '@engine/connectors';
-import { durationMs, isEntityKind, type Entity, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
+import { durationMs, isEntityKind, isEntityRole, type Entity, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
 import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
@@ -107,6 +107,8 @@ import {
   listCompetitors,
   runProjectCompetitorAudit,
   listCompetitorGaps,
+  addCompetitorByDomain,
+  recordCompetitorStandings,
 } from './repositories/competitor.js';
 import { runProjectOffsiteAudit, listCitationOpportunities } from './repositories/offsite.js';
 import {
@@ -542,6 +544,13 @@ app.post('/projects/:projectId/rank/poll', async (c) => {
   const results = await Promise.all((body.queries ?? []).map((q) => connector.fetch(q)));
   if (body.entityId) {
     await insertSerpPositions(db, body.entityId, results, project.domain);
+    // Same response, no extra lookup: see `recordCompetitorStandings`.
+    await recordCompetitorStandings(db, projectId, body.entityId, results).catch((error: unknown) => {
+      console.warn(
+        `competitor standings not recorded for ${projectId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return 0;
+    });
   }
   return c.json({ projectId, vendor: connector.vendor, results });
 });
@@ -767,7 +776,15 @@ app.get('/projects/:projectId/entities', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
-  const entities = await listEntitiesByProject(db, projectId);
+  // `role` defaults to the customer's own brands: this route feeds every brand
+  // picker in the product, and offering a rival as something to audit, track
+  // or set a location on would be wrong in each of them. `?role=all` is there
+  // for the Competitors screen, which has to name both sides.
+  const roleParam = c.req.query('role') ?? 'self';
+  if (roleParam !== 'all' && !isEntityRole(roleParam)) {
+    return c.json({ error: `invalid role: expected 'self', 'competitor' or 'all', got '${roleParam}'`, field: 'role' }, 400);
+  }
+  const entities = await listEntitiesByProject(db, projectId, roleParam);
   return c.json({ entities });
 });
 
@@ -1107,9 +1124,26 @@ app.post('/projects/:projectId/entities/:selfEntityId/competitors', async (c) =>
   const accessError = await projectAccessError(db, projectId, c.get('user'));
   if (accessError) return c.json(accessError.body, accessError.status);
 
-  const body = await c.req.json<{ competitorEntityId?: string }>().catch(() => ({}) as { competitorEntityId?: string });
+  const body = await c.req
+    .json<{ competitorEntityId?: string; domain?: string }>()
+    .catch(() => ({}) as { competitorEntityId?: string; domain?: string });
+
+  // A domain is the way a customer adds a competitor; `competitorEntityId` is
+  // kept for a rival that is already an entity in the project.
+  if (typeof body.domain === 'string' && body.domain.trim() !== '') {
+    const res = await addCompetitorByDomain(db, projectId, selfEntityId, body.domain);
+    if (!res.ok) {
+      if (res.reason === 'self-not-found') return c.json({ error: 'self entity not found in project' }, 404);
+      if (res.reason === 'own-domain') {
+        return c.json({ error: 'That is this site’s own address, not a competitor’s.', field: 'domain' }, 400);
+      }
+      return c.json({ error: 'That does not look like a website address. Try “competitor.com”.', field: 'domain' }, 400);
+    }
+    return c.json({ id: res.id, entityId: res.entityId, canonicalName: res.canonicalName, domain: res.domain }, 201);
+  }
+
   if (!body.competitorEntityId || typeof body.competitorEntityId !== 'string') {
-    return c.json({ error: 'competitorEntityId is required' }, 400);
+    return c.json({ error: 'domain is required' }, 400);
   }
   const res = await addCompetitor(db, projectId, selfEntityId, body.competitorEntityId);
   if (!res.ok) {
@@ -2223,7 +2257,8 @@ app.post('/projects/:projectId/audit-requests', async (c) => {
     }
   } else {
     // listEntitiesByProject is newest first; the brand created at setup is the oldest.
-    const entities = await listEntitiesByProject(db, projectId);
+    // Self only: a crawl is of the customer's own site, never a rival's.
+    const entities = await listEntitiesByProject(db, projectId, 'self');
     entityId = entities.at(-1)?.id;
     if (!entityId) return c.json({ error: 'Add a brand or business name for this site before running an audit.' }, 409);
   }

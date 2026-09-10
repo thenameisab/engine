@@ -28,7 +28,20 @@ export async function resolveSerpKey(
     const key = credential.secrets.apiKey;
     if (key) return key;
   } catch (err) {
-    if (!(err instanceof ConnectionUnavailableError)) throw err;
+    // "Any connection problem falls back" has to mean any. Only
+    // `ConnectionUnavailableError` did, and a *sealed* credential that cannot
+    // be opened throws something else — which is the exact state every stored
+    // connection is left in by an ENCRYPTION_KEY rotation, a thing
+    // wrangler.toml warns about in as many words. That threw out of here and
+    // 500'd the whole rank poll, so the day the key is rotated every customer
+    // who had connected their own Serper key loses rank tracking, instead of
+    // quietly falling back to ours until they reconnect.
+    if (!(err instanceof ConnectionUnavailableError)) {
+      console.warn(
+        `serper credential for account ${accountId} could not be read, falling back to the platform key: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
   }
   return env.SERPER_API_KEY ?? null;
 }

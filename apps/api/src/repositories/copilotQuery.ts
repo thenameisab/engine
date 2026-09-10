@@ -76,7 +76,8 @@ function phrasingModel(options: AskOptions): PhrasingModel {
 export async function answerQuestion(db: Db, projectId: string, question: string, options: AskOptions = {}): Promise<AskResult> {
   const started = Date.now();
 
-  const entities = await listEntitiesByProject(db, projectId);
+  // Self only: the Copilot answers about the customer's brands.
+  const entities = await listEntitiesByProject(db, projectId, 'self');
   const refs: EntityRef[] = entities.map((e) => ({ id: e.id, canonicalName: e.canonicalName }));
   const intent = parseIntent(question, refs);
 
