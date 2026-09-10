@@ -20,7 +20,7 @@ import {
   setProjectId,
 } from '../api.js';
 import { readableError } from '../errors.js';
-import { onboardingDefaults, ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND } from '../format.js';
+import { onboardingDefaults, ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND, screenName } from '../format.js';
 import type { AppContext } from '../context.js';
 import type { AccountCard, ApiProject } from '../types.js';
 
@@ -198,7 +198,7 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Set up a site']),
+      el('h1', {}, [screenName('get-started')]),
       el('p', {}, ['Engine works on one website at a time. Say whose site it is and where it lives; you can add more later from Clients.']),
     ]),
     loadError ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load your clients: ${loadError}`])]) : null,

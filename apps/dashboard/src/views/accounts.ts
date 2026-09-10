@@ -6,6 +6,7 @@
  * rework needed.
  */
 import { el } from '../dom.js';
+import { screenName } from '../format.js';
 import { fetchAccounts, setAccountId, setProjectId } from '../api.js';
 import { ONBOARDING_INTENT_KEY } from './onboarding.js';
 import type { AppContext } from '../context.js';
@@ -122,7 +123,7 @@ export async function accountsView(ctx: AppContext): Promise<HTMLElement> {
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Clients']),
+      el('h1', {}, [screenName('clients')]),
       el('p', {}, ['Every client you manage, with its real projects and branded reporting.']),
       el('button', { class: 'btn primary', onclick: onNewClient }, ['+ New client']),
     ]),

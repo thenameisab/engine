@@ -3,7 +3,7 @@ import { fetchAudit, fetchDeployTarget, fetchLatestAuditRequest, proposeBatch, p
 import { askForDeployTarget } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
-import { auditRequestStatusLine, crawlCoverageLine, groupFindings, issueExplanation, manualFixReason, pagePath } from '../format.js';
+import { auditRequestStatusLine, crawlCoverageLine, groupFindings, issueExplanation, manualFixReason, pagePath, screenName } from '../format.js';
 import type { ApiAuditRequest, AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
 
 /**
@@ -270,7 +270,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
 
     if (!data) {
       container.replaceChildren(
-        el('div', { class: 'pagehead' }, [el('h1', {}, ['Findings'])]),
+        el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('findings')])]),
         el('section', { class: 'panel' }, [
           el('div', { class: 'fq-note' }, [`Could not load the audit: ${loadError}`]),
         ]),
@@ -282,7 +282,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
     const hasTarget = target !== null;
     const parts: (HTMLElement | null)[] = [
       el('div', { class: 'pagehead' }, [
-        el('h1', {}, ['Findings']),
+        el('h1', {}, [screenName('findings')]),
         summary(d),
         statusLine,
         runButton(latest),

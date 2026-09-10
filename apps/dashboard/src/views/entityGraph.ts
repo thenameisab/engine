@@ -1,5 +1,5 @@
 import { el } from '../dom.js';
-import { auditLastRunLine } from '../format.js';
+import { auditLastRunLine, screenName } from '../format.js';
 import { fetchEntityStrengths, runEntityAudit, type AuditLastRun } from '../api.js';
 import type { AppContext } from '../context.js';
 import type { EntityStrength } from '../types.js';
@@ -107,7 +107,7 @@ export async function entityGraphView(ctx: AppContext): Promise<HTMLElement> {
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Entity graph']),
+      el('h1', {}, [screenName('brand')]),
       el('p', {}, ['Do search and AI understand who each entity is? Strength blends Wikidata mapping, on-site schema, sameAs consistency, and cross-web corroboration.']),
       lastRunLine,
       runBtn,

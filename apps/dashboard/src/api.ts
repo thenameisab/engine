@@ -55,9 +55,8 @@ import type {
 } from './types.js';
 import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
-import { getStoredApiToken } from './auth/session.js';
+import { getStoredApiToken, signOut } from './auth/session.js';
 
-const BASE_KEY = 'engine.apiBaseUrl';
 const PROJECT_KEY = 'engine.projectId';
 const ACCOUNT_KEY = 'engine.accountId';
 const AI_MODEL_KEY = 'engine.aiModel';
@@ -110,17 +109,12 @@ function isLoopbackHost(hostname: string): boolean {
  * origin is the build's job, so the build does it.
  */
 export function getApiBaseUrl(): string {
-  const saved = localStorage.getItem(BASE_KEY);
-  if (saved) return saved;
   const baked = typeof window !== 'undefined' ? window.ENGINE_API_BASE : undefined;
   if (baked) return baked.trim().replace(/\/$/, '');
   if (typeof location !== 'undefined' && isLoopbackHost(location.hostname)) return LOCAL_API_BASE;
   return '';
 }
 
-export function setApiBaseUrl(url: string): void {
-  localStorage.setItem(BASE_KEY, url.trim().replace(/\/$/, ''));
-}
 /** The selected project id, or '' when none has been chosen. */
 export function getProjectId(): string {
   return localStorage.getItem(PROJECT_KEY) ?? '';
@@ -172,6 +166,19 @@ async function authToken(): Promise<string | null> {
   return getStoredApiToken() ?? (await getApiToken());
 }
 
+/**
+ * A 401 whose body carries `code: "expired"` (`apps/api/src/middleware/auth.ts`).
+ * The other 401 is a request that carried no token at all, which a reload can
+ * still recover from — only the expired one is worth signing the user out for.
+ */
+function isExpiredSession(body: string): boolean {
+  try {
+    return (JSON.parse(body) as { code?: string }).code === 'expired';
+  } catch {
+    return false;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getApiBaseUrl();
   if (!base) throw new Error('no API base URL configured');
@@ -188,7 +195,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
       signal: controller.signal,
     });
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      const body = await res.text();
+      // The API says which kind of 401 this is. An expired session is not
+      // something the customer can act on from the screen they are on, so
+      // every view used to render the same dead banner and leave them there.
+      // Ending the session puts them on sign-in, which is the only next step.
+      if (res.status === 401 && isExpiredSession(body)) signOut();
+      throw new Error(`${res.status} ${body}`);
+    }
     return (await res.json()) as T;
   } finally {
     clearTimeout(timeout);

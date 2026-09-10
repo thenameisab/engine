@@ -1,10 +1,8 @@
 import { el } from '../dom.js';
+import { screenName } from '../format.js';
 import { deployTargetFields } from '../deployTargetForm.js';
 import {
-  getApiBaseUrl,
-  setApiBaseUrl,
   getProjectId,
-  setProjectId,
   getAccountId,
   updateBrandingApi,
   fetchDeployTarget,
@@ -56,7 +54,7 @@ async function brandKindSection(ctx: AppContext): Promise<HTMLElement> {
   if (!getProjectId()) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Your brand'])]),
-      el('div', { class: 'fq-note' }, ['Pick a site from the Clients grid first.']),
+      el('div', { class: 'fq-note' }, ['Choose a site from the switcher at the top of the rail first.']),
     ]);
   }
   let entities;
@@ -159,47 +157,10 @@ function brandingSection(ctx: AppContext): HTMLElement {
 }
 
 export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
-  const baseInput = el('input', {
-    class: 'field',
-    type: 'text',
-    placeholder: 'https://engine-api.<you>.workers.dev',
-    value: getApiBaseUrl(),
-  }) as HTMLInputElement;
-
-  const projInput = el('input', {
-    class: 'field',
-    type: 'text',
-    placeholder: 'project uuid',
-    value: getProjectId(),
-  }) as HTMLInputElement;
-
-  const save = el('button', {
-    class: 'btn primary',
-    onclick: () => {
-      setApiBaseUrl(baseInput.value);
-      setProjectId(projInput.value);
-      ctx.toast('Saved. Reopen a view to reload data.');
-    },
-  }, ['Save']);
-
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Settings']),
-      el('p', {}, ['Point the dashboard at your Engine API, and set where approved fixes deploy.']),
-    ]),
-    el('section', { class: 'panel' }, [
-      el('header', {}, [el('h3', {}, ['API connection'])]),
-      el('div', { class: 'form' }, [
-        el('label', { class: 'flabel' }, ['API base URL']),
-        baseInput,
-        el('div', { class: 'fhint num' }, ['Where the dashboard reads your data from. Leave blank to use this deployment’s default.']),
-        el('label', { class: 'flabel' }, ['Project ID']),
-        projInput,
-        el('div', { class: 'fhint num' }, [
-          'The uuid of the project this dashboard reads. Create one from the Clients grid to get its id.',
-        ]),
-        el('div', { class: 'form-actions' }, [save]),
-      ]),
+      el('h1', {}, [screenName('settings')]),
+      el('p', {}, ['Your brand, where approved fixes deploy, and how reports are branded.']),
     ]),
     el('div', { class: 'settings-sec' }, ['Your brand']),
     await brandKindSection(ctx),

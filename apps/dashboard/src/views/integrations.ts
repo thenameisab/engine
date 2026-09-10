@@ -1,4 +1,5 @@
 import { el } from '../dom.js';
+import { screenName } from '../format.js';
 import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
 import { fetchIntegrations, fetchPlatformAccess } from '../api.js';
@@ -81,7 +82,7 @@ export async function integrationsSection(): Promise<HTMLElement> {
 export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Integrations']),
+      el('h1', {}, [screenName('integrations')]),
       el('p', {}, ['Connect the accounts Engine reads from and writes to. Pick one to sign in or paste a key.']),
     ]),
     await integrationsGallery(ctx),

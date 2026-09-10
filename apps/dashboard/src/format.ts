@@ -418,6 +418,7 @@ const ISSUE_LABELS: Record<string, string> = {
   'not-in-sitemap': 'Not in the sitemap',
   // Content findings (@engine/content rules).
   'not-answer-first': 'Answer is not at the top of the page',
+  'poor-self-containment': 'Sections do not stand on their own',
   'weak-eeat': 'Weak signs of expertise and trust',
   'weak-entity-coverage': 'Page says too little about your brand',
   'sparse-internal-linking': 'Too few internal links',
@@ -522,6 +523,49 @@ export function manualFixReason(issueType: string): string | null {
 
 export function issueLabel(issueType: string): string {
   return ISSUE_LABELS[issueType] ?? issueType;
+}
+
+/**
+ * One name per screen, used by the nav rail, the breadcrumb and the page's own
+ * h1. Three places used to name the same screen three ways: the rail said
+ * "Findings" while the page said "Technical audit", the rail said "Fix Queue"
+ * while the crumb said "Fix Queue" and the h1 said "Fix queue". A customer who
+ * is told to "open Findings" then has to work out which of the eleven items
+ * that is.
+ *
+ * Keyed by route id, so adding a route without a name here is a type error
+ * rather than a screen the crumb calls by its slug.
+ */
+export const SCREEN_NAMES = {
+  home: 'Home',
+  findings: 'Findings',
+  fixes: 'Fixes',
+  visibility: 'Visibility',
+  integrations: 'Integrations',
+  settings: 'Settings',
+  report: 'Branded report',
+  'get-started': 'Set up',
+  clients: 'Clients',
+  rankings: 'Rankings',
+  brand: 'Brand',
+  competitors: 'Competitors',
+  'ai-answers': 'AI answers',
+  local: 'Local',
+} as const;
+
+export type ScreenId = keyof typeof SCREEN_NAMES;
+
+export function screenName(id: string): string {
+  return (SCREEN_NAMES as Record<string, string>)[id] ?? id;
+}
+
+/**
+ * The breadcrumb: which site is open, then where in it the user is. A tab
+ * inside Visibility adds a third part, so "Visibility" alone never has to
+ * stand for five different screens.
+ */
+export function breadcrumb(site: string | null, screen: string, tab?: string): string {
+  return [site, screen, tab].filter(Boolean).join(' / ');
 }
 
 /**
