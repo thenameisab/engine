@@ -14,6 +14,13 @@ export interface QueuedRequest {
   entityId: string;
   rootUrl: string;
   maxPages: number;
+  /**
+   * What this request is for. Absent from an API that predates verification,
+   * which is treated as a crawl — the old behaviour, unchanged.
+   */
+  kind?: 'crawl' | 'verify';
+  /** The fix being checked, on a verify request. */
+  actionId?: string | null;
 }
 
 export type Outcome = { auditRunId: string } | { error: string };
@@ -23,6 +30,38 @@ export interface QueueApi {
   /** Null when another runner took it first, or it is no longer queued. */
   claim(id: string): Promise<QueuedRequest | null>;
   finish(id: string, outcome: Outcome): Promise<void>;
+  /**
+   * Report what was on the live page. The API owns the matching: the Action and
+   * its diff live in its database, and shipping them to a public GitHub Action
+   * so it could compare them itself would send a customer's proposed content
+   * somewhere it does not need to go.
+   */
+  reportVerify(id: string, result: VerifyReport): Promise<void>;
+}
+
+export type VerifyReport = { renderedHtml: string } | { robotsTxt: string } | { error: string };
+
+/**
+ * Fetch what a verify request points at. A robots fix is checked against the
+ * site's robots.txt; everything else against the page itself.
+ *
+ * A failed fetch is a report, not a throw: "we could not reach the page" is
+ * something the customer needs told, and it is not the same as "the change is
+ * not there".
+ */
+export async function fetchForVerify(
+  request: QueuedRequest,
+  fetchImpl: typeof fetch = fetch,
+): Promise<VerifyReport> {
+  try {
+    const target = new URL(request.rootUrl);
+    const res = await fetchImpl(target.toString());
+    if (!res.ok) return { error: `the page answered ${res.status}` };
+    const body = await res.text();
+    return target.pathname === '/robots.txt' ? { robotsTxt: body } : { renderedHtml: body };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export interface CrawlOutcome {
@@ -41,6 +80,7 @@ export async function runQueue(
   api: QueueApi,
   crawl: (request: QueuedRequest) => Promise<CrawlOutcome>,
   log: (line: string) => void = () => {},
+  verifyFetch: (request: QueuedRequest) => Promise<VerifyReport> = (r) => fetchForVerify(r),
 ): Promise<RunQueueResult> {
   const queued = await api.listQueued();
   const result: RunQueueResult = { seen: queued.length, claimed: 0, done: 0, failed: 0 };
@@ -53,6 +93,19 @@ export async function runQueue(
       continue;
     }
     result.claimed += 1;
+
+    // A verify is one HTTP GET and no browser. Handled before the crawl branch
+    // so a queue holding both drains both, which is the whole reason the two
+    // share one queue.
+    if (request.kind === 'verify') {
+      log(`${request.id}: checking a deployed fix`);
+      const report = await verifyFetch(request);
+      await api.reportVerify(request.id, report);
+      result.done += 1;
+      log(`${request.id}: checked`);
+      continue;
+    }
+
     log(`${request.id}: crawling up to ${request.maxPages} page(s)`);
     try {
       const outcome = await crawl(request);
@@ -100,6 +153,13 @@ export function createQueueApi(options: { apiBaseUrl: string; token: string; fet
       if (status === 409) return null;
       if (status !== 200) throw new Error(`claiming ${id} failed: ${status} ${body.error ?? ''}`.trim());
       return body.request;
+    },
+    async reportVerify(id, result) {
+      const { status, body } = await call<{ error?: string }>(`/internal/audit-requests/${id}/verify-result`, {
+        method: 'POST',
+        body: JSON.stringify(result),
+      });
+      if (status !== 200) throw new Error(`reporting the check for ${id} failed: ${status} ${body.error ?? ''}`.trim());
     },
     async finish(id, outcome) {
       const { status, body } = await call<{ error?: string }>(`/internal/audit-requests/${id}/finish`, { method: 'POST', body: JSON.stringify(outcome) });

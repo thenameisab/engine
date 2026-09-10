@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine } from './format.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -67,10 +67,12 @@ describe('fmtDelta', () => {
 });
 
 describe('nextAction', () => {
-  it('walks the lifecycle and stops at terminal states', () => {
+  it('walks the lifecycle and stops where there is nothing for a person to do', () => {
     expect(nextAction('proposed')).toEqual({ to: 'approved', label: 'Approve' });
     expect(nextAction('approved')).toEqual({ to: 'deployed', label: 'Deploy' });
-    expect(nextAction('deployed')).toEqual({ to: 'verified', label: 'Verify' });
+    // 'deployed' used to offer "Verify". Verification is a machine step now —
+    // see the Deployed-card tests at the end of this file.
+    expect(nextAction('deployed')).toBeNull();
     expect(nextAction('verified')).toBeNull();
     expect(nextAction('rolled_back')).toBeNull();
   });
@@ -772,6 +774,93 @@ describe('the workspace rail', () => {
     it('does not name a site from a client that is not the open one', () => {
       expect(openSiteLabel(clients, 'a2', 'p1')).toBeNull();
     });
+  });
+});
+
+describe('what an issue is, and whether Engine can fix it', () => {
+  it('explains an issue in the customer\u2019s terms, not Engine\u2019s', () => {
+    const text = issueExplanation('canonical-conflict');
+    expect(text).toBeTruthy();
+    // The second sentence is the one that decides whether to care.
+    expect(text!.split('. ').length).toBeGreaterThanOrEqual(2);
+    expect(text).not.toContain('canonical-conflict');
+  });
+
+  it('has no explanation to offer for an issue type it does not know', () => {
+    expect(issueExplanation('some-future-rule')).toBeNull();
+  });
+
+  it('names why Engine will not fix the ones it cannot', () => {
+    expect(manualFixReason('cwv-poor')).toContain('hosting');
+    expect(manualFixReason('missing-wikidata-mapping')).toContain('Wikidata');
+    expect(manualFixReason('meta-title-missing')).toBeNull();
+  });
+
+  it('stops calling an issue auto-fixable when it has a manual reason', () => {
+    // A template says a fix *exists* for this kind of issue, not that Engine
+    // holds what it takes to write one. Claiming otherwise and then producing
+    // nothing costs a click and the credibility of the label.
+    const base = {
+      id: 'f1',
+      entityId: 'e1',
+      source: 'technical',
+      severity: 0.9,
+      predictedImpact: 0.5,
+      evidence: { url: 'https://x.example/a' },
+      createdAt: '2026-09-10T00:00:00.000Z',
+      actionTemplates: [{ type: 'meta' }],
+    } as never;
+
+    expect(toFindingRow({ ...(base as object), issueType: 'meta-title-missing' } as never).autoFixable).toBe(true);
+    expect(toFindingRow({ ...(base as object), issueType: 'cwv-poor' } as never).autoFixable).toBe(false);
+  });
+});
+
+describe('what the Deployed card says about the live page', () => {
+  const now = Date.parse('2026-09-10T12:00:00.000Z');
+
+  it('offers no Verify transition, because the browser could never satisfy one', () => {
+    // The old button asked the browser for the deployed page's HTML, which it
+    // does not have and cannot fetch cross-origin. It posted an empty string
+    // and failed every time — a control that teaches the customer that deploys
+    // do not stick.
+    expect(nextAction('deployed')).toBeNull();
+    expect(nextAction('proposed')).toEqual({ to: 'approved', label: 'Approve' });
+    expect(nextAction('approved')).toEqual({ to: 'deployed', label: 'Deploy' });
+  });
+
+  it('separates never-checked from checked-and-absent', () => {
+    const never = verifyLine(null, now);
+    expect(never.text).toBe('Not checked yet.');
+    expect(never.tone).toBeNull();
+
+    const absent = verifyLine({ status: 'done', verified: false, error: null, finishedAt: null }, now);
+    expect(absent.text).toBe('Not found on the page yet.');
+    expect(absent.tone).toBe('watch');
+  });
+
+  it('says it is looking, and hides the button while it does', () => {
+    const running = verifyLine({ status: 'queued', verified: null, error: null, finishedAt: null }, now);
+    expect(running.text).toBe('Checking the live page…');
+    expect(running.canCheck).toBe(false);
+  });
+
+  it('reports a confirmed fix with when it was confirmed', () => {
+    const ok = verifyLine(
+      { status: 'done', verified: true, error: null, finishedAt: '2026-09-10T09:00:00.000Z' },
+      now,
+    );
+    expect(ok.text).toBe('Verified 3h ago');
+    expect(ok.tone).toBe('good');
+  });
+
+  it('distinguishes an unreachable page from a page missing the change', () => {
+    const unreachable = verifyLine(
+      { status: 'done', verified: false, error: 'the page answered 503', finishedAt: null },
+      now,
+    );
+    expect(unreachable.text).toContain('503');
+    expect(unreachable.text).not.toBe('Not found on the page yet.');
   });
 });
 

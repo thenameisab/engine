@@ -9,9 +9,21 @@ import type { Db } from '../db.js';
 
 export type AuditRequestStatus = 'queued' | 'running' | 'done' | 'failed';
 
+export type AuditRequestKind = 'crawl' | 'verify';
+
 export interface AuditRequest {
   id: string;
   projectId: string;
+  kind: AuditRequestKind;
+  /** The action being checked. Null for a crawl. */
+  actionId: string | null;
+  /**
+   * The outcome of a verify request: true when the deployed page carried the
+   * change, false when it did not. Null while queued, and null forever on a
+   * crawl — "we have not looked" and "we looked and it is not there" are
+   * different things to tell a customer.
+   */
+  verified: boolean | null;
   entityId: string;
   rootUrl: string;
   maxPages: number;
@@ -27,6 +39,9 @@ export interface AuditRequest {
 interface Row {
   id: string;
   project_id: string;
+  kind: AuditRequestKind;
+  action_id: string | null;
+  verified: boolean | null;
   entity_id: string;
   root_url: string;
   max_pages: number;
@@ -39,13 +54,16 @@ interface Row {
   finished_at: Date | null;
 }
 
-const COLUMNS = `id, project_id, entity_id, root_url, max_pages, status, requested_by, error,
-  audit_run_id, created_at, started_at, finished_at`;
+const COLUMNS = `id, project_id, kind, action_id, verified, entity_id, root_url, max_pages, status,
+  requested_by, error, audit_run_id, created_at, started_at, finished_at`;
 
 function toRequest(row: Row): AuditRequest {
   return {
     id: row.id,
     projectId: row.project_id,
+    kind: row.kind,
+    actionId: row.action_id,
+    verified: row.verified,
     entityId: row.entity_id,
     rootUrl: row.root_url,
     maxPages: row.max_pages,
@@ -82,6 +100,57 @@ export async function createAuditRequest(
     if ((err as { code?: string }).code === UNIQUE_VIOLATION) return null;
     throw err;
   }
+}
+
+/**
+ * Queue a check that a deployed fix is actually on the live page.
+ *
+ * Returns null when one is already queued or running for this action — a
+ * customer pressing "Check now" three times gets one check, not three.
+ */
+export async function createVerifyRequest(
+  db: Db,
+  input: { projectId: string; entityId: string; actionId: string; url: string; requestedBy: string },
+): Promise<AuditRequest | null> {
+  try {
+    const [row] = await db<Row[]>`
+      insert into audit_requests (project_id, kind, action_id, entity_id, root_url, max_pages, requested_by)
+      values (${input.projectId}, 'verify', ${input.actionId}, ${input.entityId}, ${input.url}, 1, ${input.requestedBy})
+      returning ${db.unsafe(COLUMNS)}
+    `;
+    return toRequest(row);
+  } catch (err) {
+    if ((err as { code?: string }).code === UNIQUE_VIOLATION) return null;
+    throw err;
+  }
+}
+
+/** One request by id — the runner's result call needs to read what it is finishing. */
+export async function getAuditRequest(db: Db, id: string): Promise<AuditRequest | null> {
+  const rows = await db<Row[]>`select ${db.unsafe(COLUMNS)} from audit_requests where id::text = ${id}`;
+  return rows[0] ? toRequest(rows[0]) : null;
+}
+
+/** The newest verify request for one action, or null if it has never been checked. */
+export async function latestVerifyRequest(db: Db, actionId: string): Promise<AuditRequest | null> {
+  const rows = await db<Row[]>`
+    select ${db.unsafe(COLUMNS)} from audit_requests
+    where action_id::text = ${actionId} and kind = 'verify'
+    order by created_at desc
+    limit 1
+  `;
+  return rows[0] ? toRequest(rows[0]) : null;
+}
+
+/** Record what a verify pass found, and close the request. */
+export async function finishVerifyRequest(db: Db, id: string, verified: boolean, error?: string): Promise<AuditRequest | null> {
+  const rows = await db<Row[]>`
+    update audit_requests
+    set status = 'done', verified = ${verified}, error = ${error ?? null}, finished_at = now()
+    where id::text = ${id} and kind = 'verify' and status = 'running'
+    returning ${db.unsafe(COLUMNS)}
+  `;
+  return rows[0] ? toRequest(rows[0]) : null;
 }
 
 export async function latestAuditRequest(db: Db, projectId: string): Promise<AuditRequest | null> {

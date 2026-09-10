@@ -429,6 +429,97 @@ const ISSUE_LABELS: Record<string, string> = {
   unknown: 'Issue type not recorded',
 };
 
+/**
+ * What each issue is and why it matters, in two sentences.
+ *
+ * The Audit screen has always named issues in Engine's own vocabulary —
+ * "canonical-conflict", "weak-eeat" — and left the reader to know what that
+ * means and whether to care. A label alone is a thing to look up; a customer
+ * deciding whether to spend a fix on it needs the second sentence more than
+ * the first.
+ *
+ * Deliberately not per-page. The explanation is a property of the *kind* of
+ * problem, so it belongs on the group heading, said once.
+ */
+const ISSUE_EXPLANATIONS: Record<string, string> = {
+  'schema-missing':
+    'Structured data tells search engines and AI what this page is about, in a format they read directly. Without it they have to infer it from the wording, and they often infer something else.',
+  'schema-invalid':
+    'This page has structured data, but it breaks the rules search engines check it against. Invalid markup is usually ignored altogether, so the page gets none of the benefit of having it.',
+  'meta-title-missing':
+    'The title is the line a search result and an AI answer use to name this page. With none, they pick something from the page themselves, and it is rarely the sentence you would have chosen.',
+  'meta-description-missing':
+    'The description is the summary shown under the title in a search result. With none, search engines quote a passage from the page, which often lands mid-sentence.',
+  'ai-crawler-blocked':
+    'Your robots.txt tells one or more AI crawlers to stay out. Those engines cannot cite a page they were never allowed to read.',
+  'redirect-chain':
+    'This URL redirects more than once before it lands. Each hop loses a little ranking signal and adds delay, and some crawlers stop following before the end.',
+  'canonical-conflict':
+    'This page names a different URL as the canonical one, so search engines are being asked to index that page instead of this one. If that was not intended, this page is being hidden by its own markup.',
+  'hreflang-missing':
+    'A page published in more than one language needs hreflang to say which version is which. Without it search engines pick one and may serve the wrong language to the wrong country.',
+  'cwv-poor':
+    'This page is slow or unstable to load by Google\u2019s own measurements. Core Web Vitals are a ranking input, and the same slowness costs visitors before it costs rankings.',
+  'noindex-unexpected':
+    'This page tells search engines not to index it. It will not appear in results at all until that instruction is removed.',
+  'not-in-sitemap':
+    'This page is not listed in your sitemap, so crawlers can only reach it by following a link to it. A page nobody links to and the sitemap omits may never be found.',
+  'not-answer-first':
+    'The answer to what this page is about arrives well down the page. AI answers quote from the top, so a page that builds up to its point often gets quoted saying nothing.',
+  'weak-eeat':
+    'The page shows little evidence of who wrote it or why they would know. Search engines and AI weigh that evidence when deciding whether to repeat a claim.',
+  'weak-entity-coverage':
+    'This page says very little about your brand by name. An engine that cannot connect the page to the brand will not cite it when asked about the brand.',
+  'sparse-internal-linking':
+    'Few other pages on your site link to this one. Internal links are how crawlers find pages and how ranking signal moves between them.',
+  'missing-wikidata-mapping':
+    'Your brand has no Wikidata entry, which is the reference many AI systems check to decide whether an entity is real and what it is. Without one, they rely on whatever else they can find.',
+  'missing-entity-schema':
+    'No structured data on your site identifies your brand as an organisation. That is the machine-readable statement of who you are, and nothing is making it.',
+  'inconsistent-sameas':
+    'Your structured data does not list the official profiles that confirm your brand elsewhere. Those links are how an engine ties the site to the company.',
+  'weak-corroboration':
+    'Few independent sources mention your brand in a way an engine can verify. Corroboration is what turns a claim about yourself into a fact an engine will repeat.',
+  unknown:
+    'This finding predates the version of Engine that records issue types, so its kind was never stored. The next audit that still finds it will label it properly.',
+};
+
+/** The two-sentence explanation for an issue type, or null when none is written. */
+export function issueExplanation(issueType: string): string | null {
+  return ISSUE_EXPLANATIONS[issueType] ?? null;
+}
+
+/**
+ * Issue types Engine can never fix by itself, and the reason.
+ *
+ * The Audit screen labels a group "auto-fixable" whenever the finding carries
+ * an action template, which is not the same question: a template says a fix
+ * *exists* for this kind of issue, not that Engine holds what it would take to
+ * write one. A brand with no Wikidata entry cannot be given one by editing the
+ * site; poor Core Web Vitals are a hosting and front-end problem. Labelling
+ * those "auto-fixable" and then producing nothing is the failure the customer
+ * sees, and it costs them a click and their trust in the label.
+ */
+const MANUAL_ISSUES: Record<string, string> = {
+  'cwv-poor':
+    'Engine cannot make a page faster from the outside. This one is for whoever owns the site\u2019s hosting and front-end code.',
+  'missing-wikidata-mapping':
+    'A Wikidata entry has to be created and accepted on Wikidata itself, by a person, against their notability rules.',
+  'weak-corroboration':
+    'Corroboration comes from other people writing about you. Engine can show you where the gaps are; it cannot fill them on your behalf.',
+  'weak-eeat':
+    'Evidence of expertise \u2014 named authors, credentials, sources \u2014 has to be true before it is published. Engine will not invent it.',
+  unknown: 'Engine did not record what this finding was, so it cannot pick a fix for it.',
+};
+
+/**
+ * Why this issue cannot be fixed automatically, or null when it can be.
+ * A group with a reason is labelled "Manual" and says what to do instead.
+ */
+export function manualFixReason(issueType: string): string | null {
+  return MANUAL_ISSUES[issueType] ?? null;
+}
+
 export function issueLabel(issueType: string): string {
   return ISSUE_LABELS[issueType] ?? issueType;
 }
@@ -448,9 +539,13 @@ export function severityBand(severity: number): 'high' | 'medium' | 'low' {
 /**
  * Map a persisted Finding onto the row the Audit view renders.
  *
- * `autoFixable` is `actionTemplates.length > 0` — the §7 contract guarantees a
- * finding carries a template or a documented reason it can't, so an empty list
- * means "no one-click fix exists", which is exactly what the pill claims.
+ * `autoFixable` used to be `actionTemplates.length > 0` alone, which answers a
+ * different question: a template says a fix *exists* for this kind of issue,
+ * not that Engine holds what it would take to write one. A brand with no
+ * Wikidata entry cannot be given one by editing the site. Claiming
+ * "auto-fixable" and then producing nothing costs the customer a click and
+ * their trust in the label, so an issue with a stated manual reason is not
+ * counted as auto-fixable however many templates it carries.
  */
 export function toFindingRow(f: ApiFinding): FindingRow {
   return {
@@ -459,7 +554,7 @@ export function toFindingRow(f: ApiFinding): FindingRow {
     title: issueLabel(f.issueType),
     severity: severityBand(f.severity),
     predictedImpact: impactPoints(f.predictedImpact),
-    autoFixable: f.actionTemplates.length > 0,
+    autoFixable: f.actionTemplates.length > 0 && manualFixReason(f.issueType) === null,
     // Findings are per-page, and the page URL lives in evidence. A finding
     // without one is a bug, but an empty cell beats "undefined" in the UI.
     url: typeof f.evidence?.url === 'string' ? f.evidence.url : '',
@@ -610,18 +705,56 @@ export function toAccountCard(a: ApiAccount): AccountCard {
 /** The Fix Queue lanes, in lifecycle order (rolled_back shown as its own lane). */
 export const LANE_ORDER: ActionStatus[] = ['proposed', 'approved', 'deployed', 'verified'];
 
-/** The legal next transition for an action, or null at a terminal state. */
+/**
+ * The legal next transition for an action, or null when there is nothing for a
+ * person to do.
+ *
+ * `deployed` now returns null. It used to offer "Verify", which asked the
+ * *browser* for the deployed page's HTML — something a browser does not have
+ * and cannot fetch cross-origin. It posted an empty string every time, the
+ * matcher compared that against the proposed diff, and it failed every time. A
+ * control that cannot succeed is worse than no control: it teaches the customer
+ * that deploys do not stick. Verification is a machine step now, and the card
+ * reports what the machine found.
+ */
 export function nextAction(status: ActionStatus): { to: ActionStatus; label: string } | null {
   switch (status) {
     case 'proposed':
       return { to: 'approved', label: 'Approve' };
     case 'approved':
       return { to: 'deployed', label: 'Deploy' };
-    case 'deployed':
-      return { to: 'verified', label: 'Verify' };
     default:
       return null;
   }
+}
+
+export interface VerifyStatus {
+  status: 'queued' | 'running' | 'done' | 'failed';
+  verified: boolean | null;
+  error: string | null;
+  finishedAt: string | null;
+}
+
+/**
+ * What the Deployed lane card says about the check behind it.
+ *
+ * Four states, because they are four different things to tell a customer, and
+ * the old single failure message told them none of it: nobody has looked yet,
+ * we are looking, we looked and it is live, we looked and it is not there.
+ */
+export function verifyLine(v: VerifyStatus | null, now = Date.now()): { text: string; tone: 'good' | 'watch' | null; canCheck: boolean } {
+  if (!v) return { text: 'Not checked yet.', tone: null, canCheck: true };
+  if (v.status === 'queued' || v.status === 'running') {
+    return { text: 'Checking the live page…', tone: null, canCheck: false };
+  }
+  if (v.verified === true) {
+    return { text: `Verified ${relativeTime(v.finishedAt, now)}`, tone: 'good', canCheck: true };
+  }
+  return {
+    text: v.error ? `Not confirmed · ${v.error}` : 'Not found on the page yet.',
+    tone: 'watch',
+    canCheck: true,
+  };
 }
 
 /* ── The workspace rail ───────────────────────────────────────────────────── */

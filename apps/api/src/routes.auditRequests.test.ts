@@ -99,3 +99,25 @@ describe('/internal/audit-requests', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /projects/:projectId/findings/propose-batch', () => {
+  it('requires an issueType, and says so before touching the database', async () => {
+    const res = await post(`/projects/${PROJECT}/findings/propose-batch`, {});
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('issueType');
+  });
+
+  it('refuses a blank issueType rather than proposing for everything', async () => {
+    // The failure this prevents is not an error message: an empty string that
+    // matched nothing would 404, but one that matched *every* finding would
+    // queue a fix for every page on the site from one click.
+    const res = await post(`/projects/${PROJECT}/findings/propose-batch`, { issueType: '   ' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('issueType');
+  });
+
+  it('rejects a body that is not JSON', async () => {
+    const res = await post(`/projects/${PROJECT}/findings/propose-batch`, 'not json');
+    expect(res.status).toBe(400);
+  });
+});
