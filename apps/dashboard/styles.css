@@ -49,6 +49,11 @@
 html, body { height: 100%; }
 body { font-family: var(--font); color: var(--text); background: var(--bg); font-size: 14px; -webkit-font-smoothing: antialiased; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.label { font-size: var(--t-xs); font-weight: 500; color: var(--text-muted); }
+/* Every link in the product takes its colour from its context. Without this
+   an `<a>` falls back to the browser's own blue and underline, which is the
+   one style in the app that answers to neither theme. */
+a { color: inherit; text-decoration: none; }
 
 /* layout */
 .app { display: grid; grid-template-columns: 56px 224px 1fr; min-height: 100vh; }
