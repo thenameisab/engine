@@ -69,7 +69,12 @@ describe.skipIf(!url)('batched Google writes (Postgres)', () => {
     // minutes for this many rows on a remote database.
     console.log(`upsertGscDaily: ${distinct.size} rows in ${elapsed}ms`);
     expect(elapsed).toBeLessThan(30_000);
-  });
+    // A per-test timeout well above that guard, because this one writes 5,600
+    // rows over whatever link `TEST_DATABASE_URL` points at. Against a remote
+    // Neon branch, round-trips alone blow past the 5s default; the assertion
+    // here is about statement *count*, so a slow link must not read as a
+    // failure. The 30s guard above is what should fail if the batching regresses.
+  }, 60_000);
 
   it('writes property totals and page rows to their own tables', async () => {
     const totals = gscDailyRows(
