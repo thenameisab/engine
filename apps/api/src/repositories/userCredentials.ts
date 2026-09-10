@@ -92,3 +92,22 @@ export async function countCredentials(db: Db): Promise<number> {
   const rows = await db<{ count: string }[]>`select count(*)::text as count from user_credentials`;
   return Number(rows[0]?.count ?? 0);
 }
+
+/**
+ * Set or replace a user's own password (`POST /auth/password`).
+ *
+ * The `users` row already exists — the caller is signed in — so only the
+ * credential is written. `password_changed_at` moves, because this is the
+ * person choosing a new password, not a transparent re-hash.
+ */
+export async function setPassword(db: Db, userId: string, passwordHash: string): Promise<void> {
+  if (!passwordHash.trim()) throw new Error('refusing to store a blank password hash');
+  await db`
+    insert into user_credentials (user_id, password_hash, password_changed_at, updated_at)
+    values (${userId}, ${passwordHash}, now(), now())
+    on conflict (user_id) do update
+      set password_hash = excluded.password_hash,
+          password_changed_at = now(),
+          updated_at = now()
+  `;
+}

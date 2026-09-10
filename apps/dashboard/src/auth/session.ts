@@ -19,7 +19,8 @@
 export interface SessionUser {
   name: string;
   email: string;
-  provider: 'google' | 'password';
+  /** 'code' is an email one-time code; it mints the same API token a password sign-in does. */
+  provider: 'google' | 'password' | 'code';
 }
 
 const KEY = 'engine.session';

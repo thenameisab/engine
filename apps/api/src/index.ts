@@ -33,6 +33,7 @@ import { evaluateReadiness } from '@engine/config';
 import {
   verifyLocalCredentials,
   signLocalSession,
+  localUserId,
   localRosterSize,
   verifyPassword,
   hashPassword,
@@ -40,7 +41,7 @@ import {
   dummyHash,
   type LocalUser,
 } from '@engine/auth';
-import { getCredentialByEmail, updatePasswordHash } from './repositories/userCredentials.js';
+import { getCredentialByEmail, updatePasswordHash, setPassword } from './repositories/userCredentials.js';
 import {
   createSerpConnector,
   createLlmConnectors,
@@ -66,8 +67,21 @@ import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_P
   checkBrandingBody,
   checkDeployTargetBody,
   checkLoginBody,
+  checkCodeRequestBody, checkCodeVerifyBody, checkSetPasswordBody, checkInvitationBody,
 } from './validate.js';
 import { requireAuth, type AuthEnv, type AuthUser } from './middleware/auth.js';
+import { parseAllowedEmails } from './middleware/auth.js';
+import { createEmailSender, type EmailEnv } from './email.js';
+import { createLoginCode, verifyLoginCode, LOGIN_CODE_TTL_SECONDS } from './repositories/loginCodes.js';
+import { firstRefusal, recordAttempt, type RateLimit } from './repositories/authAttempts.js';
+import {
+  createInvitation,
+  listOpenInvitations,
+  deleteInvitation,
+  hasOpenInvitation,
+  acceptInvitations,
+  INVITATION_TTL_SECONDS,
+} from './repositories/invitations.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
@@ -149,6 +163,9 @@ import { getProject,
   upsertUser,
   createAccount,
   isAccountMember,
+  getAccountRole,
+  hasUserWithEmail,
+  ensureLocalUser,
   getProjectAccountId,
   listAccountsForUser,
   createProject,
@@ -183,7 +200,7 @@ import {
 } from './repositories/auditRequests.js';
 import { dispatchCrawlWorkflow, type DispatchEnv } from './githubDispatch.js';
 
-interface Env extends AuthEnv, DispatchEnv {
+interface Env extends AuthEnv, DispatchEnv, EmailEnv {
   DATABASE_URL: string;
   /**
    * Bootstrap admin list. The stored `users.platform_role` is authoritative;
@@ -402,6 +419,11 @@ app.post('/auth/login', async (c) => {
   if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
   const body = raw as { email: string; password: string };
 
+  // Issue 13: a login form with no limit is a password oracle at network
+  // speed. Ten tries per address and thirty per client IP in fifteen minutes.
+  const throttled = await refuseIfThrottled(c, 'password', body.email);
+  if (throttled) return throttled;
+
   const outcome = await authenticate(c.env, body.email, body.password);
   if (outcome.kind === 'unavailable') {
     return c.json({ error: 'Credential sign-in is temporarily unavailable on this deployment.' }, 503);
@@ -424,6 +446,178 @@ app.post('/auth/login', async (c) => {
   }
 
   return c.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+});
+
+const RATE_WINDOW_SECONDS = 15 * 60;
+
+/** The client's address as Cloudflare saw it. 'unknown' off-platform (tests, wrangler dev without the header). */
+function clientIp(c: Context): string {
+  return c.req.header('cf-connecting-ip') ?? 'unknown';
+}
+
+/**
+ * Per-address and per-IP limits for one kind of attempt, over fifteen minutes.
+ *
+ * The address limit stops one account being hammered from many places; the
+ * IP limit stops one place trying many addresses. Both are generous for a
+ * person and hopeless for a script: nobody types ten wrong passwords in a
+ * quarter of an hour, and a six-digit code space needs thousands.
+ */
+const RATE_LIMITS: Record<'password' | 'code-request' | 'code-verify', { perAddress: number; perIp: number }> = {
+  password: { perAddress: 10, perIp: 30 },
+  'code-request': { perAddress: 3, perIp: 10 },
+  'code-verify': { perAddress: 10, perIp: 30 },
+};
+
+/**
+ * Refuse with 429 when the caller has exhausted a limit; otherwise record the
+ * attempt and return null. The refused request is not recorded, so a locked
+ * address unlocks on schedule even if someone keeps trying.
+ *
+ * Skipped without a database — the roster-only deployment has nowhere to
+ * count — and a store that cannot be read is logged and waved through rather
+ * than turned into a sign-in outage: the limit is a brake on abuse, and the
+ * password check behind it is the actual gate.
+ */
+async function refuseIfThrottled(
+  c: Context<{ Bindings: Env; Variables: { user: AuthUser } }>,
+  kind: 'password' | 'code-request' | 'code-verify',
+  email: string,
+): Promise<Response | null> {
+  if (!c.env.DATABASE_URL) return null;
+  const address = email.trim().toLowerCase();
+  const ip = `ip:${clientIp(c)}`;
+  const limits = RATE_LIMITS[kind];
+  const rules: RateLimit[] = [
+    { kind, subject: address, limit: limits.perAddress, windowSeconds: RATE_WINDOW_SECONDS },
+    { kind, subject: ip, limit: limits.perIp, windowSeconds: RATE_WINDOW_SECONDS },
+  ];
+  try {
+    const db = createDb(c.env.DATABASE_URL);
+    const refused = await firstRefusal(db, rules);
+    if (refused) {
+      c.header('retry-after', String(refused.retryAfterSeconds));
+      return c.json(
+        { error: 'Too many attempts. Wait a few minutes and try again.', retryAfterSeconds: refused.retryAfterSeconds },
+        429,
+      );
+    }
+    await recordAttempt(db, kind, address);
+    await recordAttempt(db, kind, ip);
+  } catch (err) {
+    console.error('rate limit check failed', err);
+  }
+  return null;
+}
+
+/**
+ * Email one-time-code sign-in, step one: send a code.
+ *
+ * Who gets one: an address that already belongs to a user, one with an open
+ * invitation, or one on `ALLOWED_EMAILS`. Anyone else gets the same 202 and
+ * no email — the response must not say which addresses exist, or the form is
+ * a roster oracle, exactly the property `POST /auth/login` protects.
+ *
+ * The one place that property bends: a send that fails answers 502. During a
+ * Resend outage, that distinguishes eligible addresses from the rest. The
+ * alternative is a 202 for a code that never arrives, and a person waiting on
+ * an inbox with no signal is the failure class this codebase keeps removing.
+ */
+app.post('/auth/code/request', async (c) => {
+  if (!c.env.LOCAL_AUTH_SECRET || !c.env.DATABASE_URL) {
+    return c.json({ error: 'Email sign-in is not configured on this deployment (LOCAL_AUTH_SECRET and a database).' }, 503);
+  }
+  const sender = createEmailSender(c.env);
+  if (!sender) {
+    return c.json({ error: 'Email sign-in is not configured on this deployment (RESEND_API_KEY, EMAIL_FROM).' }, 503);
+  }
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkCodeRequestBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const address = (raw as { email: string }).email.trim().toLowerCase();
+
+  const throttled = await refuseIfThrottled(c, 'code-request', address);
+  if (throttled) return throttled;
+
+  const accepted = { ok: true, message: 'If that address can sign in, a code is on its way.' };
+  const db = createDb(c.env.DATABASE_URL);
+  const eligible =
+    parseAllowedEmails(c.env.ALLOWED_EMAILS).has(address) ||
+    (await hasUserWithEmail(db, address)) ||
+    (await hasOpenInvitation(db, address));
+  if (!eligible) return c.json(accepted, 202);
+
+  const { code } = await createLoginCode(db, address);
+  const minutes = Math.round(LOGIN_CODE_TTL_SECONDS / 60);
+  try {
+    await sender.send({
+      to: address,
+      subject: `${code} is your Engine sign-in code`,
+      text: `Your Engine sign-in code is ${code}.\n\nIt expires in ${minutes} minutes. If you did not ask for it, ignore this email; nobody can sign in without it.`,
+    });
+  } catch (err) {
+    console.error('login code send failed', err);
+    return c.json({ error: 'The sign-in email could not be sent. Try again in a minute.' }, 502);
+  }
+  return c.json(accepted, 202);
+});
+
+/**
+ * Step two: present the code, receive a session.
+ *
+ * The principal is `local:<email>`, the same id a password sign-in mints, so
+ * a person who set a password and one who asked for a code are one user with
+ * one set of memberships. Open invitations for the address are accepted here,
+ * because a valid code is the proof of address an invitation waits for.
+ */
+app.post('/auth/code/verify', async (c) => {
+  const secret = c.env.LOCAL_AUTH_SECRET;
+  if (!secret || !c.env.DATABASE_URL) {
+    return c.json({ error: 'Email sign-in is not configured on this deployment (LOCAL_AUTH_SECRET and a database).' }, 503);
+  }
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkCodeVerifyBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { email: string; code: string };
+  const address = body.email.trim().toLowerCase();
+
+  const throttled = await refuseIfThrottled(c, 'code-verify', address);
+  if (throttled) return throttled;
+
+  const db = createDb(c.env.DATABASE_URL);
+  const result = await verifyLoginCode(db, address, body.code.trim());
+  if (!result.ok) return c.json({ error: 'That code is not valid or has expired. Request a new one.' }, 401);
+
+  const row = await ensureLocalUser(db, { id: localUserId(address), email: address });
+  // Empty when unset, as the password path does; the shell falls back to the address itself.
+  const user: LocalUser = { id: row.id, email: row.email, name: row.name ?? '' };
+  const joinedAccounts = await acceptInvitations(db, address, user.id);
+  const token = await signLocalSession(user, secret);
+  return c.json({ token, user: { id: user.id, email: user.email, name: user.name }, joinedAccounts });
+});
+
+/**
+ * Set or replace your own password. Signed in by any means, so this is also
+ * the password reset: ask for a code, sign in with it, choose a new password.
+ * There is no emailed reset link, because a code sign-in already is one.
+ */
+app.post('/auth/password', requireAuth, async (c) => {
+  const user = c.get('user');
+  if (user.isService || !user.id.startsWith('local:')) {
+    return c.json({ error: 'Passwords apply to email sign-in accounts only.' }, 400);
+  }
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkSetPasswordBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const { password } = raw as { password: string };
+  const db = createDb(c.env.DATABASE_URL);
+  await upsertUser(db, user);
+  await setPassword(db, user.id, await hashPassword(password));
+  return c.json({ ok: true });
 });
 
 /**
@@ -2713,6 +2907,92 @@ app.post('/accounts/:accountId/projects', async (c) => {
   }
   const project = await createProject(db, accountId, body);
   return c.json({ project }, 201);
+});
+
+/**
+ * Who has been invited and has not yet signed in. Any member may see it; only
+ * an owner may change it (below).
+ */
+app.get('/accounts/:accountId/invitations', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  if (!(await isAccountMember(db, accountId, user.id))) {
+    return c.json({ error: 'you are not a member of this account', accountId }, 403);
+  }
+  return c.json({ invitations: await listOpenInvitations(db, accountId) });
+});
+
+/**
+ * Invite an address to this account. Owners only: membership is the thing
+ * that grants access to a customer's data, so handing it out is the owner's
+ * call, not every member's.
+ *
+ * The invitation is stored before the email is sent, and a failed send is a
+ * 502 with the row kept: the address can already sign in with a code, and the
+ * owner sees the pending row and can resend by inviting again.
+ */
+app.post('/accounts/:accountId/invitations', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const sender = createEmailSender(c.env);
+  if (!sender) return c.json({ error: 'Invitations need email, which is not configured on this deployment (RESEND_API_KEY, EMAIL_FROM).' }, 503);
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkInvitationBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const body = raw as { email: string; role?: 'owner' | 'member' };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+  if ((await getAccountRole(db, accountId, user.id)) !== 'owner') {
+    return c.json({ error: 'Only an owner of this account can invite people to it.', accountId }, 403);
+  }
+  const account = await getAccount(db, accountId);
+  if (!account) return c.json({ error: 'account not found', accountId }, 404);
+
+  const invitation = await createInvitation(db, {
+    accountId,
+    email: body.email,
+    role: body.role ?? 'member',
+    invitedBy: user.id,
+  });
+  const days = Math.round(INVITATION_TTL_SECONDS / 86_400);
+  const where = c.env.DASHBOARD_URL ? `Go to ${c.env.DASHBOARD_URL}` : 'Open Engine';
+  try {
+    await sender.send({
+      to: invitation.email,
+      subject: `${user.email ?? 'A teammate'} invited you to ${account.name} on Engine`,
+      text:
+        `${user.email ?? 'A teammate'} has invited you to join ${account.name} on Engine as ${invitation.role === 'owner' ? 'an owner' : 'a member'}.\n\n` +
+        `${where}, enter this address (${invitation.email}) and choose "Email me a code". Signing in accepts the invitation.\n\n` +
+        `The invitation expires in ${days} days.`,
+    });
+  } catch (err) {
+    console.error('invitation send failed', err);
+    return c.json({ error: 'The invitation was saved but the email could not be sent. Invite again to resend.', invitation }, 502);
+  }
+  return c.json({ invitation }, 201);
+});
+
+app.delete('/accounts/:accountId/invitations/:invitationId', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invitationId = c.req.param('invitationId');
+  const invalidId = checkUuidParam(accountId, 'accountId') ?? checkUuidParam(invitationId, 'invitationId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  if ((await getAccountRole(db, accountId, user.id)) !== 'owner') {
+    return c.json({ error: 'Only an owner of this account can withdraw an invitation.', accountId }, 403);
+  }
+  const removed = await deleteInvitation(db, accountId, invitationId);
+  if (!removed) return c.json({ error: 'invitation not found', invitationId }, 404);
+  return c.json({ ok: true });
 });
 
 app.patch('/accounts/:accountId/branding', async (c) => {

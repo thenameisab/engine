@@ -867,6 +867,39 @@ export async function clearPlatformClient(vendor: string): Promise<void> {
 }
 
 /** Everyone who can sign in. Admin-only; the API answers 404 to anyone else. */
+/** Set or replace the signed-in user's password (`POST /auth/password`). Also the reset path: sign in with a code, then set one. */
+export async function setPasswordApi(password: string): Promise<void> {
+  await request<{ ok: true }>('/auth/password', { method: 'POST', body: JSON.stringify({ password }) });
+}
+
+export interface ApiInvitation {
+  id: string;
+  accountId: string;
+  email: string;
+  role: 'owner' | 'member';
+  expiresAt: string;
+  createdAt: string;
+}
+
+export async function fetchInvitations(accountId: string): Promise<ApiInvitation[]> {
+  const data = await request<{ invitations: ApiInvitation[] }>(`/accounts/${encodeURIComponent(accountId)}/invitations`);
+  return data.invitations;
+}
+
+export async function inviteToAccount(accountId: string, email: string): Promise<ApiInvitation> {
+  const data = await request<{ invitation: ApiInvitation }>(`/accounts/${encodeURIComponent(accountId)}/invitations`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+  return data.invitation;
+}
+
+export async function withdrawInvitation(accountId: string, invitationId: string): Promise<void> {
+  await request<{ ok: true }>(`/accounts/${encodeURIComponent(accountId)}/invitations/${encodeURIComponent(invitationId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function fetchPlatformUsers(): Promise<{ users: PlatformUser[]; adminCount: number }> {
   return request<{ users: PlatformUser[]; adminCount: number }>('/platform/users');
 }

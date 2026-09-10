@@ -9,6 +9,7 @@ import {
   saveDeployTarget,
   fetchEntities,
   setEntityKindApi,
+  setPasswordApi,
 } from '../api.js';
 import { ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND } from '../format.js';
 import { readableError } from '../errors.js';
@@ -156,6 +157,57 @@ function brandingSection(ctx: AppContext): HTMLElement {
   ]);
 }
 
+/**
+ * Set or replace the signed-in person's password. Also the reset path: someone
+ * who forgot theirs signs in with an emailed code and lands here. Twelve
+ * characters minimum, the same floor `pnpm db:user` applies; the API refuses
+ * less, and the confirm field catches the typo before the API does.
+ */
+function passwordSection(ctx: AppContext): HTMLElement {
+  const first = el('input', { class: 'field', type: 'password', autocomplete: 'new-password', placeholder: 'At least 12 characters' }) as HTMLInputElement;
+  const again = el('input', { class: 'field', type: 'password', autocomplete: 'new-password', placeholder: 'Type it again' }) as HTMLInputElement;
+  const save = el('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      if (first.value.length < 12) {
+        ctx.toast('Use at least 12 characters.');
+        first.focus();
+        return;
+      }
+      if (first.value !== again.value) {
+        ctx.toast('The two passwords do not match.');
+        again.focus();
+        return;
+      }
+      save.setAttribute('disabled', 'true');
+      try {
+        await setPasswordApi(first.value);
+        first.value = '';
+        again.value = '';
+        ctx.toast('Password saved. You can sign in with it or with an emailed code.');
+      } catch (err) {
+        ctx.toast(`Could not save the password: ${(err as Error).message}`);
+      } finally {
+        save.removeAttribute('disabled');
+      }
+    },
+  }, ['Save password']);
+
+  return el('section', { class: 'panel' }, [
+    el('header', {}, [el('h3', {}, ['Password'])]),
+    el('div', { class: 'form' }, [
+      el('div', { class: 'fhint' }, [
+        'Optional. An emailed code always signs you in; a password lets you sign in without waiting for one. Setting a new one replaces the old.',
+      ]),
+      el('label', { class: 'flabel' }, ['New password']),
+      first,
+      el('label', { class: 'flabel' }, ['Confirm']),
+      again,
+      el('div', { class: 'form-actions' }, [save]),
+    ]),
+  ]);
+}
+
 export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
@@ -168,6 +220,8 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     await deployTargetSection(ctx),
     el('div', { class: 'settings-sec' }, ['Branding']),
     brandingSection(ctx),
+    el('div', { class: 'settings-sec' }, ['Sign-in']),
+    passwordSection(ctx),
     el('div', { class: 'settings-sec' }, ['Connected accounts']),
     el('section', { class: 'panel' }, [
       el('div', { class: 'form' }, [

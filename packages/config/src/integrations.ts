@@ -165,6 +165,36 @@ export const INTEGRATIONS: IntegrationDef[] = [
       'A deliberate stopgap, not the identity story: no signup, no password reset, no recovery. Delete both values to turn credential sign-in off — the API then answers 503 on /auth/login and falls back to Neon Auth JWTs alone.',
   },
   {
+    id: 'email',
+    name: 'Resend (transactional email)',
+    category: 'identity',
+    purpose:
+      'Delivers the sign-in codes, invitations and password-reset mail the accounts-and-access work sends. One HTTPS call per message from the Worker; no binding.',
+    account:
+      'A Resend account with the sending domain verified (SPF and DKIM records on the zone). The free plan is 3,000 emails a month, 100 a day. Chosen over Cloudflare Email Service because that needs Workers Paid and this deployment stays on Free.',
+    logoDomain: 'resend.com',
+    requiredForMvp: true,
+    env: [
+      {
+        name: 'RESEND_API_KEY',
+        description: 'Resend API key (re_...). Bound as a Worker secret.',
+        secret: true,
+        required: true,
+        example: 're_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      },
+      {
+        name: 'EMAIL_FROM',
+        description:
+          'The From header on every message, `Name <address>`. The address must be on a domain verified in Resend, or every send is refused.',
+        secret: false,
+        required: true,
+        example: 'Engine <login@example.com>',
+      },
+    ],
+    notes:
+      'Transactional only: codes, invitations, resets. Nothing here sends marketing mail. Unset both to turn email sign-in off — the API then answers 503 on /auth/code/request and password sign-in still works.',
+  },
+  {
     id: 'google-integrations',
     name: 'Google integrations (Search Console, GA4, Business Profile)',
     category: 'identity',
