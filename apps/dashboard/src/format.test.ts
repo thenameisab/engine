@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts } from './format.js';
 import { VISIBILITY_TABS, visibilityTabId } from './views/visibility.js';
 import { firstSentence } from './views/home.js';
 import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
@@ -378,6 +378,48 @@ describe('onboardingDefaults', () => {
   });
   it('yields an empty domain for an empty address, so the form can refuse it', () => {
     expect(onboardingDefaults('Acme', '   ').domain).toBe('');
+  });
+});
+
+describe('brandNameFromDomain', () => {
+  it('reads a name out of the first label', () => {
+    expect(brandNameFromDomain('https://www.acme-dental.co.uk/about')).toBe('Acme Dental');
+    expect(brandNameFromDomain('brightsmile.example')).toBe('Brightsmile');
+  });
+  it('is empty for an empty address', () => {
+    expect(brandNameFromDomain('  ')).toBe('');
+  });
+});
+
+describe('personNameFrom', () => {
+  it('prefers a real name and falls back to the email', () => {
+    expect(personNameFrom({ name: 'Aditya Gaur', email: 'ag@example.com' })).toBe('Aditya Gaur');
+    expect(personNameFrom({ name: 'jane.doe@example.com', email: 'jane.doe@example.com' })).toBe('Jane Doe');
+    expect(personNameFrom(null)).toBe('');
+  });
+});
+
+describe('onboardingPlan', () => {
+  it('a company: every name comes from the address', () => {
+    expect(onboardingPlan('company', 'https://acme-dental.example/')).toEqual({
+      domain: 'acme-dental.example', siteName: 'acme-dental.example',
+      brandName: 'Acme Dental', accountName: 'Acme Dental', entityKind: 'Organization',
+    });
+  });
+  it('an agency’s client: the client name is the account and the brand', () => {
+    expect(onboardingPlan('agency', 'acme.example', { clientName: ' Acme Dental ' })).toEqual({
+      domain: 'acme.example', siteName: 'acme.example',
+      brandName: 'Acme Dental', accountName: 'Acme Dental', entityKind: 'Organization',
+    });
+  });
+  it('me: the signed-in person is the brand, as a Person', () => {
+    expect(onboardingPlan('individual', 'jane.example', { userName: 'Jane Doe' })).toEqual({
+      domain: 'jane.example', siteName: 'jane.example',
+      brandName: 'Jane Doe', accountName: 'Jane Doe', entityKind: 'Person',
+    });
+  });
+  it('keeps a brand name the customer changed', () => {
+    expect(onboardingPlan('company', 'acme.example', { brandName: 'ACME Inc.' }).brandName).toBe('ACME Inc.');
   });
 });
 
