@@ -18,6 +18,7 @@ import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
 import { onboardingView } from './views/onboarding.js';
 import { getProjectId } from './api.js';
+import { createWorkspace } from './workspace.js';
 
 interface Route {
   id: string;
@@ -139,18 +140,25 @@ export function mountShell(root: HTMLElement): void {
     applyThemeIcon(themeBtn);
   });
 
+  // The workspace column and the rail header are one unit: the column says
+  // which client is open, the header says which of that client's sites. Both
+  // open the same drawer. `renderRoute` is re-run on a switch so the screen the
+  // user is already looking at changes — a toast used to be the only sign.
+  const workspace = createWorkspace(ctx, () => void renderRoute());
+
   const rail = el('aside', { class: 'rail' }, [
     el('div', { class: 'brand' }, [
       el('span', { class: 'mark', html: `<svg viewBox="0 0 24 24" fill="none">${ICONS.logo}</svg>` }),
       el('b', { class: 'navlabel' }, ['Engine']),
     ]),
+    el('div', { class: 'navlabel' }, [workspace.header]),
     ...navItems,
     el('div', { class: 'spacer' }),
     railFoot(),
   ]);
 
   // ---- collapsible rail ----
-  const appEl = el('div', { class: 'app' }, [rail, el('div', { class: 'main' })]);
+  const appEl = el('div', { class: 'app' }, [workspace.element, rail, el('div', { class: 'main' })]);
   function applyRail(collapsed: boolean): void {
     appEl.classList.toggle('rail-collapsed', collapsed);
     collapseBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
@@ -168,6 +176,7 @@ export function mountShell(root: HTMLElement): void {
 
   const topbar = el('div', { class: 'topbar' }, [
     collapseBtn,
+    workspace.chip,
     el('div', { class: 'crumb', id: 'crumb' }, ['Pulse']),
     el('div', { class: 'grow' }),
     el('span', { class: 'kbdhint', title: 'Open the Copilot' }, ['⌘K']),
@@ -192,6 +201,10 @@ export function mountShell(root: HTMLElement): void {
     /* ignore */
   }
   applyRail(startCollapsed);
+  // After the first paint: the column renders from what is already selected, so
+  // the shell is never blank waiting on the network, and fills in when the
+  // client list arrives.
+  void workspace.refresh();
 
   async function renderRoute(): Promise<void> {
     const id = currentRouteId();

@@ -624,6 +624,89 @@ export function nextAction(status: ActionStatus): { to: ActionStatus; label: str
   }
 }
 
+/* ── The workspace rail ───────────────────────────────────────────────────── */
+
+/**
+ * Initials for a client square. Two letters from two words, two from one.
+ *
+ * The square is 36 px and permanent, so three letters do not fit and one is
+ * not distinctive enough to pick a client out of a column of them.
+ */
+export function clientInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+export interface WorkspaceSite {
+  id: string;
+  name: string;
+  domain: string;
+}
+
+export interface WorkspaceClient {
+  id: string;
+  name: string;
+  sites: WorkspaceSite[];
+  connectedProviders: string[];
+}
+
+/**
+ * The drawer's rows, filtered by what was typed.
+ *
+ * A client matches on its own name *or* on any of its sites, and a matching
+ * client keeps only its matching sites — searching "brightsmile" should not
+ * hand back every other site the agency runs for that client. A client whose
+ * name matches but whose sites do not keeps all of them, because the match was
+ * about the client.
+ */
+export function filterWorkspace(clients: readonly WorkspaceClient[], query: string): WorkspaceClient[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...clients];
+  const out: WorkspaceClient[] = [];
+  for (const c of clients) {
+    if (c.name.toLowerCase().includes(q)) {
+      out.push(c);
+      continue;
+    }
+    const sites = c.sites.filter((s) => s.name.toLowerCase().includes(q) || s.domain.toLowerCase().includes(q));
+    if (sites.length > 0) out.push({ ...c, sites });
+  }
+  return out;
+}
+
+/**
+ * Whether the drawer earns a search field. Below this many clients, a search
+ * box is one more thing to look at and nothing to look for.
+ */
+export const WORKSPACE_SEARCH_THRESHOLD = 8;
+
+export function needsWorkspaceSearch(clients: readonly WorkspaceClient[]): boolean {
+  return clients.length > WORKSPACE_SEARCH_THRESHOLD;
+}
+
+/**
+ * What the rail header says about the open site.
+ *
+ * Two lines, never one: the site name alone is ambiguous across clients (two
+ * clients can both have a "Main site"), and the domain alone is not what
+ * anyone calls it. Null when nothing is selected, which the header renders as
+ * a prompt rather than a blank.
+ */
+export function openSiteLabel(
+  clients: readonly WorkspaceClient[],
+  accountId: string | null,
+  projectId: string,
+): { client: string; site: string; domain: string } | null {
+  for (const c of clients) {
+    if (accountId && c.id !== accountId) continue;
+    const site = c.sites.find((s) => s.id === projectId);
+    if (site) return { client: c.name, site: site.name, domain: site.domain };
+  }
+  return null;
+}
+
 /* ── Crawl coverage ───────────────────────────────────────────────────────── */
 
 export interface CrawlCoverageInput {
