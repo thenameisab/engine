@@ -116,6 +116,33 @@ describe('crawlSite (real Chromium + a local HTTP server, real robots.txt/sitema
     ]);
   }, 60_000);
 
+  /**
+   * The defect this pair exists to stop, measured in production on
+   * 2026-09-10: the crawl stored CloudFront's 403 page as tartanhq.com's
+   * homepage and B2 reported five content findings and a health score of 45
+   * over it. An error page is not the site, and page one is the page every
+   * downstream step treats as the homepage.
+   */
+  it('refuses the crawl when the root answers non-2xx, naming the status', async () => {
+    await expect(
+      crawlSite(browser, server.origin + '/blocked', { entityId: 'ent_1', maxPages: 10, delayMs: 0 }),
+    ).rejects.toThrow(/answered 403/);
+  }, 60_000);
+
+  it('keeps a discovered page that 404s, with its status, rather than failing the crawl', async () => {
+    // The opposite case, and the reason the refusal is root-only: a broken
+    // internal link is a real finding about the customer's own site.
+    const { pages } = await crawlSite(browser, server.origin + '/has-broken-link', {
+      entityId: 'ent_1',
+      maxPages: 10,
+      delayMs: 0,
+    });
+    const gone = pages.find((p) => p.url === `${server.origin}/gone`);
+    expect(gone).toBeDefined();
+    expect(gone!.statusCode).toBe(404);
+    expect(pages[0].statusCode).toBe(200);
+  }, 60_000);
+
   it('separates a spent budget from a site with nothing left to follow', async () => {
     // "Stopped at the limit" and "crawled everything there was" are different
     // stories, and only one of them means there is more site to check.
