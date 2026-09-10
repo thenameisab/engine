@@ -502,14 +502,28 @@ export function checkCreateProjectBody(body: unknown): Invalid | null {
  * same open-redirect-adjacent reasoning applies. `companyName`/`primaryColor`
  * are free text — nothing downstream executes them as a URL or a query.
  */
-export const AUDIT_REQUEST_MAX_PAGES_DEFAULT = 50;
+/**
+ * The page budget an audit gets when the caller names none.
+ *
+ * 250, decided 2026-09-10 against a measurement rather than a guess: the one
+ * real customer's site is 198 pages (123 of them blog posts, growing), and the
+ * previous default of 50 covered a quarter of it — two production crawls in a
+ * row ended with `stoppedAtLimit: true`. 250 covers that site with room for
+ * the blog to grow. The costs of a larger budget are time, not money: the
+ * runner spends about 7 seconds per page, so 250 is about half an hour, well
+ * under crawl.yml's 120-minute timeout; the `crawl-queue` concurrency group
+ * means every other customer's audit waits behind a running one; and each
+ * page stores up to 60 KB. Runner minutes themselves are free on a public
+ * repository.
+ */
+export const AUDIT_REQUEST_MAX_PAGES_DEFAULT = 250;
 export const AUDIT_REQUEST_MAX_PAGES_LIMIT = 500;
 
 /**
  * `POST /projects/:id/audit-requests`. Both fields are optional: the product
  * sends an empty body and the API picks the project's brand and the default
- * page cap. `maxPages` is bounded because a runner spends real minutes per
- * page and the queue is shared.
+ * page cap. `maxPages` is bounded because a runner spends real time per page
+ * and the queue is shared.
  */
 export function checkAuditRequestBody(body: unknown): Invalid | null {
   if (body === undefined || body === null) return null;

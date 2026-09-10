@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { app } from './index.js';
+import { checkAuditRequestBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT, AUDIT_REQUEST_MAX_PAGES_LIMIT } from './validate.js';
 
 /**
  * The audit-request routes at the boundary: validation and the service gate,
@@ -45,6 +46,14 @@ describe('POST /projects/:projectId/audit-requests', () => {
     const res = await post('/projects/proj_1/audit-requests', {});
     expect(res.status).toBe(400);
     expect((await res.json()).field).toBe('projectId');
+  });
+
+  it('accepts its own default page budget', () => {
+    // The default is a product decision that moves (50 → 250 on 2026-09-10);
+    // the limit is the runner's ceiling. A default the validator would refuse
+    // makes every empty-body request fail, so pin the relation, not the number.
+    expect(checkAuditRequestBody({ maxPages: AUDIT_REQUEST_MAX_PAGES_DEFAULT })).toBeNull();
+    expect(AUDIT_REQUEST_MAX_PAGES_DEFAULT).toBeLessThanOrEqual(AUDIT_REQUEST_MAX_PAGES_LIMIT);
   });
 
   it('bounds maxPages', async () => {
