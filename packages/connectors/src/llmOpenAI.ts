@@ -64,6 +64,6 @@ export class OpenAIConnector implements LlmEngineConnector {
 
   async poll(query: PromptQuery, nSamples: number): Promise<LlmAnswerResult> {
     const samples = await runSamples(nSamples, () => this.sample(query));
-    return { engine: this.engine, query, method: 'api', samples };
+    return { engine: this.engine, model: this.model, query, method: 'api', samples };
   }
 }

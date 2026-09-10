@@ -19,9 +19,12 @@ export async function insertCitationEvents(db: Db, results: readonly LlmAnswerRe
     for (const s of r.samples) {
       await db`
         insert into citation_events
-          (entity_id, engine, prompt, cited, sources_cited, sentiment, accuracy, method, raw_answer_ref, sampled_at)
+          (entity_id, engine, model, prompt, cited, cited_by_name, cited_by_domain,
+           sources_cited, sentiment, accuracy, method, raw_answer_ref, sampled_at)
         values (
-          ${r.query.entityId}, ${r.engine}, ${r.query.prompt}, ${s.citation.cited}, ${s.citation.sourcesCited},
+          ${r.query.entityId}, ${r.engine}, ${r.model}, ${r.query.prompt},
+          ${s.citation.cited}, ${s.citation.citedByName}, ${s.citation.citedByDomain},
+          ${s.citation.sourcesCited},
           ${s.citation.sentiment}, ${s.citation.accuracy}, ${r.method}, ${s.rawAnswerRef}, ${s.sampledAt}
         )
       `;
@@ -57,14 +60,33 @@ export async function citationEventsByEntity(
   return rows;
 }
 
-/** Cited share for one engine, as a Wilson band over its stored samples. */
+/** Cited share for one (engine, model) pair, as a Wilson band over its samples. */
 export interface EngineCitedShare {
   engine: string;
+  /**
+   * The vendor model, or null for samples stored before migration 0025.
+   *
+   * Its own group rather than merged into the engine's: a vendor's models
+   * disagree, so pooling them would report a change of instrument as a change
+   * in the brand. A null is rendered as "not recorded", never folded into a
+   * model that happens to be current.
+   */
+  model: string | null;
   prompts: number;
   samples: number;
   cited: number;
   /** Wilson 95% band over `cited`/`samples` — never a bare point estimate. */
   band: ConfidenceBand;
+  /**
+   * Of `samples`, how many named the brand in the answer text, and how many
+   * carried a source URL on the brand's own domain. Counted apart because
+   * `cited` is their union and cannot tell a mention from a link — and a
+   * non-browsing engine can only ever produce the first.
+   *
+   * Null when no sample in the group recorded the split (pre-0025 rows).
+   */
+  citedByName: number | null;
+  citedByDomain: number | null;
   /** How many of the samples carried any source URL at all. */
   samplesWithSources: number;
   lastSampledAt: string;
@@ -91,37 +113,87 @@ export async function citedShareByEngine(
   sinceDays = 30,
 ): Promise<EngineCitedShare[]> {
   const rows = await db<
-    { engine: string; prompt: string; cited: boolean; has_sources: boolean; sampled_at: Date }[]
+    {
+      engine: string;
+      model: string | null;
+      prompt: string;
+      cited: boolean;
+      cited_by_name: boolean | null;
+      cited_by_domain: boolean | null;
+      has_sources: boolean;
+      sampled_at: Date;
+    }[]
   >`
-    select engine, prompt, cited,
+    select engine, model, prompt, cited, cited_by_name, cited_by_domain,
            array_length(sources_cited, 1) is not null as has_sources,
            sampled_at
     from citation_events
     where entity_id = ${entityId} and sampled_at >= now() - (${sinceDays}::text || ' days')::interval
   `;
 
-  const byEngine = new Map<string, { prompts: Set<string>; samples: CitationSample[]; withSources: number; last: Date }>();
+  interface Group {
+    engine: string;
+    model: string | null;
+    prompts: Set<string>;
+    samples: CitationSample[];
+    byName: number;
+    byDomain: number;
+    /** How many samples in this group recorded the split at all. */
+    splitKnown: number;
+    withSources: number;
+    last: Date;
+  }
+
+  // Keyed on both, with a sentinel for a null model: an engine's samples are
+  // only comparable within one model.
+  const groups = new Map<string, Group>();
   for (const r of rows) {
-    let g = byEngine.get(r.engine);
+    const key = `${r.engine}\u0000${r.model ?? ''}`;
+    let g = groups.get(key);
     if (!g) {
-      g = { prompts: new Set(), samples: [], withSources: 0, last: r.sampled_at };
-      byEngine.set(r.engine, g);
+      g = {
+        engine: r.engine,
+        model: r.model,
+        prompts: new Set(),
+        samples: [],
+        byName: 0,
+        byDomain: 0,
+        splitKnown: 0,
+        withSources: 0,
+        last: r.sampled_at,
+      };
+      groups.set(key, g);
     }
     g.prompts.add(r.prompt);
     g.samples.push({ cited: r.cited });
+    if (r.cited_by_name !== null || r.cited_by_domain !== null) {
+      g.splitKnown++;
+      if (r.cited_by_name) g.byName++;
+      if (r.cited_by_domain) g.byDomain++;
+    }
     if (r.has_sources) g.withSources++;
     if (r.sampled_at > g.last) g.last = r.sampled_at;
   }
 
-  return [...byEngine.entries()]
-    .map(([engine, g]) => ({
-      engine,
+  return [...groups.values()]
+    .map((g) => ({
+      engine: g.engine,
+      model: g.model,
       prompts: g.prompts.size,
       samples: g.samples.length,
       cited: g.samples.filter((s) => s.cited).length,
       band: citationBandFromSamples(g.samples),
+      // Null rather than 0 when nothing in the group recorded the split: "no
+      // sample said" and "no sample named the brand" are different facts.
+      citedByName: g.splitKnown > 0 ? g.byName : null,
+      citedByDomain: g.splitKnown > 0 ? g.byDomain : null,
       samplesWithSources: g.withSources,
       lastSampledAt: g.last.toISOString(),
     }))
-    .sort((a, b) => b.band.point - a.band.point || a.engine.localeCompare(b.engine));
+    .sort(
+      (a, b) =>
+        b.band.point - a.band.point ||
+        a.engine.localeCompare(b.engine) ||
+        (a.model ?? '').localeCompare(b.model ?? ''),
+    );
 }

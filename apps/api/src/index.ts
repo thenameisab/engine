@@ -667,10 +667,13 @@ app.post('/projects/:projectId/ai/stream', async (c) => {
     return c.json({ error: 'unknown model', field: 'model' }, 400);
   }
 
-  const connector = createStreamingLlmConnector(
-    c.env as unknown as Record<string, string | undefined>,
-    body.model as string | undefined,
-  );
+  // The model that will actually answer, resolved once so the stream can name
+  // it: a reader has to know which instrument produced what they are reading,
+  // and it is not necessarily the one they picked (a deployment override, or
+  // no pick at all).
+  const env = c.env as unknown as Record<string, string | undefined>;
+  const modelId = (body.model as string | undefined) ?? env.SARVAM_MODEL ?? DEFAULT_LLM_MODEL_ID;
+  const connector = createStreamingLlmConnector(env, body.model as string | undefined);
   if (!connector) {
     console.warn('No streaming LLM engine configured: set SARVAM_API_KEY');
     return c.json({ error: 'AI answers are not set up on this deployment yet.' }, 503);
@@ -765,9 +768,15 @@ app.post('/projects/:projectId/ai/stream', async (c) => {
       const citation = buildCitationEvent(answerText, [], targets);
       await send('result', {
         cited: citation.cited,
+        // The two halves apart, because they are different claims: an engine
+        // that does not browse can only ever satisfy the first, so a single
+        // "cited" would read as a link where only a mention happened.
+        citedByName: citation.citedByName,
+        citedByDomain: citation.citedByDomain,
         sourcesCited: citation.sourcesCited,
         targets,
         engine: connector.engine,
+        model: modelId,
       });
     }
     await send('done', { rephrased: mode === 'ask' && answerText.length > 0 });
@@ -1373,6 +1382,10 @@ app.get('/projects/:projectId/entities/:entityId/ai-visibility', async (c) => {
   const engines = await citedShareByEngine(db, entity.id, AI_VISIBILITY_LOOKBACK_DAYS);
   const samples = engines.reduce((n, e) => n + e.samples, 0);
   const withSources = engines.reduce((n, e) => n + e.samplesWithSources, 0);
+  // Totalled across engines only where the split was recorded: summing a null
+  // as zero would report "no answer linked you" for rows that never said.
+  const split = engines.filter((e) => e.citedByName !== null);
+  const splitSamples = split.reduce((n, e) => n + e.samples, 0);
 
   return c.json({
     entityId: entity.id,
@@ -1380,6 +1393,16 @@ app.get('/projects/:projectId/entities/:entityId/ai-visibility', async (c) => {
     lookbackDays: AI_VISIBILITY_LOOKBACK_DAYS,
     engines,
     sourceCoverage: { samples, withSources },
+    /**
+     * How the credited samples were credited. `samples` here counts only the
+     * rows that recorded the split, so a screen can say "of the N we can tell
+     * apart" rather than implying it knows about all of them.
+     */
+    creditSplit: {
+      samples: splitSamples,
+      byName: split.reduce((n, e) => n + (e.citedByName ?? 0), 0),
+      byDomain: split.reduce((n, e) => n + (e.citedByDomain ?? 0), 0),
+    },
   });
 });
 

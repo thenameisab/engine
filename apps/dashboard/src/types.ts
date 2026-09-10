@@ -667,13 +667,21 @@ export interface TrackedKeyword {
   previousPosition: number | null;
 }
 
-/** One engine's cited share over the AI-visibility lookback window. */
+/** One (engine, model) pair's cited share over the lookback window. */
 export interface EngineCitedShare {
   engine: string;
+  /** Null for samples stored before migration 0030 — not recorded, not assumed. */
+  model: string | null;
   prompts: number;
   samples: number;
   cited: number;
   band: ScoreBand;
+  /**
+   * Of `samples`, how many named the brand and how many linked its domain.
+   * Null when the group predates the split being recorded.
+   */
+  citedByName: number | null;
+  citedByDomain: number | null;
   samplesWithSources: number;
   lastSampledAt: string;
 }
@@ -689,6 +697,8 @@ export interface AiVisibility {
    * is mined from exactly those sources.
    */
   sourceCoverage: { samples: number; withSources: number };
+  /** How credited samples were credited, over the rows that recorded it. */
+  creditSplit: { samples: number; byName: number; byDomain: number };
 }
 
 export interface EntityPrompts {
@@ -712,9 +722,13 @@ export interface GroundedAnswer {
 /** Whether a streamed one-off prompt named the brand. */
 export interface PromptCitationResult {
   cited: boolean;
+  citedByName: boolean;
+  citedByDomain: boolean;
   sourcesCited: string[];
   targets: string[];
   engine: string;
+  /** The model that actually answered, which may not be the one picked. */
+  model: string;
 }
 
 /** One selectable model, as described to the customer. */

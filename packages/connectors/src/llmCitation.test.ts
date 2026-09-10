@@ -52,3 +52,50 @@ describe('buildCitationEvent', () => {
     expect(ev.sourcesCited).toEqual(['https://acme.example']);
   });
 });
+
+describe('buildCitationEvent: the two halves of "cited"', () => {
+  it('reports a name match as named, not linked', () => {
+    // The only outcome a non-browsing engine can produce. Reporting it as a
+    // citation would claim the model sent someone to the site.
+    const e = buildCitationEvent('Acme is a good option.', [], ['acme.example', 'Acme']);
+    expect(e.cited).toBe(true);
+    expect(e.citedByName).toBe(true);
+    expect(e.citedByDomain).toBe(false);
+  });
+
+  it('reports a domain match as linked', () => {
+    const e = buildCitationEvent('See https://acme.example/pricing', [], ['acme.example']);
+    expect(e.cited).toBe(true);
+    expect(e.citedByDomain).toBe(true);
+    expect(e.citedByName).toBe(false);
+  });
+
+  it('can be both at once', () => {
+    const e = buildCitationEvent('Acme — https://acme.example', [], ['acme.example', 'Acme']);
+    expect(e.citedByName).toBe(true);
+    expect(e.citedByDomain).toBe(true);
+    expect(e.cited).toBe(true);
+  });
+
+  it('is neither when the brand is absent, even with other sources', () => {
+    const e = buildCitationEvent('Try https://other.example', [], ['acme.example', 'Acme']);
+    expect(e.cited).toBe(false);
+    expect(e.citedByName).toBe(false);
+    expect(e.citedByDomain).toBe(false);
+    expect(e.sourcesCited).toEqual(['https://other.example']);
+  });
+
+  it('is neither when there are no targets to judge against', () => {
+    const e = buildCitationEvent('Acme is great, https://acme.example', [], undefined);
+    expect(e.cited).toBe(false);
+    expect(e.citedByName).toBe(false);
+    expect(e.citedByDomain).toBe(false);
+  });
+
+  it('keeps `cited` the union of the two, so the score reads the same number', () => {
+    for (const text of ['Acme wins', 'https://acme.example', 'nothing here']) {
+      const e = buildCitationEvent(text, [], ['acme.example', 'Acme']);
+      expect(e.cited).toBe(e.citedByName || e.citedByDomain);
+    }
+  });
+});

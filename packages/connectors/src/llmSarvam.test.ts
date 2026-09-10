@@ -190,3 +190,30 @@ describe('SarvamConnector.stream', () => {
     expect(sent.model).toBe('sarvam-105b-conversations');
   });
 });
+
+describe('SarvamConnector reports its model', () => {
+  it('names the model on the result, so a sample records its instrument', async () => {
+    // `engine` is the vendor and cannot tell two Sarvam models apart. Measured
+    // 2026-09-09, they disagree about whether to name companies at all, so a
+    // band pooled across them measures the instrument, not the brand.
+    const fetchImpl = vi.fn(async () =>
+      response({ choices: [{ finish_reason: 'stop', message: { content: 'Acme does.' } }] }),
+    );
+    const connector = new SarvamConnector({
+      apiKey: 'k',
+      model: 'sarvam-105b-conversations',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const result = await connector.poll(query, 1);
+    expect(result.engine).toBe('sarvam');
+    expect(result.model).toBe('sarvam-105b-conversations');
+  });
+
+  it('reports the default model when the caller named none', async () => {
+    const fetchImpl = vi.fn(async () =>
+      response({ choices: [{ finish_reason: 'stop', message: { content: 'Acme does.' } }] }),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect((await connector.poll(query, 1)).model).toBe('sarvam-105b');
+  });
+});
