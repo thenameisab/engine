@@ -940,3 +940,7 @@ select.field { cursor: pointer; }
 /* Ask Engine: the cited answer is already readable while the model rewords
    it, so this is a quiet cue rather than a spinner over the top of it. */
 .copilot-answer-text.rewording { opacity: .72; transition: opacity .18s var(--ease); }
+
+/* The model a band was measured on — part of its identity, since two models
+   of one vendor disagree and their samples are not comparable. */
+.ai-eng-model { margin-left: 8px; font-size: 11px; color: var(--text-faint); font-weight: 500; }

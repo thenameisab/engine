@@ -89,12 +89,38 @@ function opportunityRow(o: CitationOpportunity): HTMLElement {
  * would claim a precision three samples cannot support, which is the rule A2
  * sets for every AI citation rate in the product.
  */
-function engineRow(e: EngineCitedShare): HTMLElement {
+/**
+ * How a group of samples credited the brand.
+ *
+ * "Named" and "linked" are shown apart because they are different results:
+ * an answer that says the brand's name is a mention, and one that carries a
+ * URL on the brand's own domain sent a reader there. The engines polled here
+ * do not browse, so the second is normally zero — and folding both into one
+ * "cited" figure would read as links that never happened.
+ */
+function creditLine(e: EngineCitedShare): string {
+  if (e.citedByName === null) {
+    // Rows written before the split was recorded. Saying "0 linked" here
+    // would invent a measurement that was never taken.
+    return `${e.cited} of ${e.samples} answer${e.samples === 1 ? '' : 's'} credited the brand · how is not recorded`;
+  }
+  return `named in ${e.citedByName} of ${e.samples} · linked in ${e.citedByDomain ?? 0}`;
+}
+
+function engineRow(e: EngineCitedShare, models: AiModels | null): HTMLElement {
   return el('div', { class: 'ai-eng' }, [
     el('div', { class: 'ai-eng-main' }, [
-      el('div', { class: 't' }, [engineLabel(e.engine)]),
+      el('div', { class: 't' }, [
+        engineLabel(e.engine),
+        // The model is part of the measurement's identity, not a detail: two
+        // models of one vendor disagree, so a band is only meaningful within
+        // one of them.
+        el('span', { class: 'ai-eng-model num' }, [
+          e.model === null ? 'model not recorded' : models ? modelLabel(e.model, models) : e.model,
+        ]),
+      ]),
       el('div', { class: 'm num' }, [
-        `${e.cited} of ${e.samples} answer${e.samples === 1 ? '' : 's'} named the brand · ${e.prompts} prompt${e.prompts === 1 ? '' : 's'}`,
+        `${creditLine(e)} · ${e.prompts} prompt${e.prompts === 1 ? '' : 's'}`,
       ]),
     ]),
     el('div', { class: 'ai-eng-band' }, [
@@ -171,7 +197,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
               ? 'Nothing sampled yet. Add a prompt below and the weekly poll starts measuring — or try one now to see an answer immediately.'
               : `${v.promptsTracked} prompt${v.promptsTracked === 1 ? '' : 's'} tracked, nothing sampled yet. The poll runs overnight; a prompt is sampled once a week.`,
           ])
-        : el('div', { class: 'ai-engs' }, v.engines.map(engineRow)),
+        : el('div', { class: 'ai-engs' }, v.engines.map((e) => engineRow(e, models))),
     );
   }
 
@@ -231,7 +257,9 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
             : `${draft.length} prompt${draft.length === 1 ? '' : 's'} saved. The next weekly poll samples ${draft.length === 1 ? 'it' : 'them'}.`,
         );
         await loadBank();
-        await loadVisibility();
+        // The prompt count in the band's empty state comes from this read.
+        await fetchVisibility();
+        renderShare();
       } catch (err) {
         ctx.toast(readableError(err));
         save.removeAttribute('disabled');
@@ -368,7 +396,11 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
             onResult: (result) => {
               footer.replaceChildren(
                 el('span', { class: `pill ${result.cited ? 'impact' : ''}` }, [
-                  result.cited ? 'Named your brand' : 'Did not name your brand',
+                  result.citedByDomain
+                    ? 'Linked your site'
+                    : result.citedByName
+                    ? 'Named your brand'
+                    : 'Did not name your brand',
                 ]),
                 el('span', { class: 'num muted' }, [
                   result.sourcesCited.length > 0
@@ -469,13 +501,15 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   }
 
   // ---------------------------------------------------------------- loading
-  async function loadVisibility(): Promise<void> {
+  /** Read the band without painting it — `loadAll` paints once the model
+   * catalogue is in, so a group can be labelled with the name the picker
+   * uses rather than the raw vendor id. */
+  async function fetchVisibility(): Promise<void> {
     try {
       visibility = await fetchAiVisibility(selfSelect.value);
     } catch {
       visibility = null;
     }
-    renderShare();
   }
 
   async function loadBank(): Promise<void> {
@@ -500,16 +534,22 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   }
 
   async function loadAll(): Promise<void> {
-    // Visibility first: the opportunities panel reads its source coverage to
-    // decide which empty state is the true one.
-    await loadVisibility();
-    await Promise.all([
-      loadBank(),
-      loadOpps(),
-      // The catalogue is read once per visit; a failure leaves the picker out
-      // and the route falls back to the deployment's own model.
-      models === null ? fetchAiModels().then((m) => { models = m; }).catch(() => undefined) : Promise.resolve(),
+    // The catalogue is fetched alongside visibility, not after it: the band
+    // names the model each group was measured on, and that name comes from the
+    // catalogue. Loading it later renders the raw vendor id where the picker
+    // says "Considered", so the same model reads as two different things on
+    // one screen. A failure leaves the picker out and the raw id in, which is
+    // still true, just less friendly.
+    const [, catalogue] = await Promise.all([
+      fetchVisibility(),
+      models === null ? fetchAiModels().catch(() => null) : Promise.resolve(models),
     ]);
+    models = catalogue;
+    renderShare();
+
+    // Opportunities second: its empty state reads the source coverage that
+    // visibility just supplied to decide which one is the true one.
+    await Promise.all([loadBank(), loadOpps()]);
     renderTry();
   }
 

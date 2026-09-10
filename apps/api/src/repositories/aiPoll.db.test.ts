@@ -56,13 +56,24 @@ describe.skipIf(!url)('AI poll (Postgres)', () => {
   /** One stored sample, `daysAgo` in the past. */
   async function sample(
     prompt: string,
-    opts: { cited: boolean; daysAgo: number; engine?: string; sources?: string[] },
+    opts: {
+      cited: boolean;
+      daysAgo: number;
+      engine?: string;
+      sources?: string[];
+      /** Undefined leaves it null — a row from before migration 0030. */
+      model?: string;
+      byName?: boolean;
+      byDomain?: boolean;
+    },
   ): Promise<void> {
     await db`
       insert into citation_events
-        (entity_id, engine, prompt, cited, sources_cited, method, raw_answer_ref, sampled_at)
+        (entity_id, engine, model, prompt, cited, cited_by_name, cited_by_domain,
+         sources_cited, method, raw_answer_ref, sampled_at)
       values (
-        ${entityId}, ${opts.engine ?? 'sarvam'}, ${prompt}, ${opts.cited},
+        ${entityId}, ${opts.engine ?? 'sarvam'}, ${opts.model ?? null}, ${prompt}, ${opts.cited},
+        ${opts.byName ?? null}, ${opts.byDomain ?? null},
         ${opts.sources ?? []}, 'api', 'ref',
         now() - (${String(opts.daysAgo)} || ' days')::interval
       )
@@ -195,6 +206,56 @@ describe.skipIf(!url)('AI poll (Postgres)', () => {
 
     it('returns nothing for an entity with no samples at all', async () => {
       expect(await citedShareByEngine(db, entityId, 30)).toEqual([]);
+    });
+  });
+
+  describe('citedShareByEngine: provenance (migration 0030)', () => {
+    it('keeps two models of one vendor in separate groups', async () => {
+      // The whole reason the column exists. Pooled, these would read as one
+      // 50% band for "sarvam"; apart, they are 100% and 0% — a disagreement
+      // between instruments, which is what it is.
+      await sample('p', { cited: true, daysAgo: 1, model: 'sarvam-105b', byName: true, byDomain: false });
+      await sample('p', { cited: false, daysAgo: 1, model: 'sarvam-105b-conversations', byName: false, byDomain: false });
+
+      const rows = await citedShareByEngine(db, entityId, 30);
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.model).sort()).toEqual(['sarvam-105b', 'sarvam-105b-conversations']);
+      expect(rows.find((r) => r.model === 'sarvam-105b')!.band.point).toBe(1);
+      expect(rows.find((r) => r.model === 'sarvam-105b-conversations')!.band.point).toBe(0);
+    });
+
+    it('keeps unrecorded-model rows out of a recorded model’s band', async () => {
+      // A pre-0030 row must not be absorbed into whichever model is current;
+      // that would be asserting a fact the database never observed.
+      await sample('p', { cited: true, daysAgo: 1 });
+      await sample('p', { cited: true, daysAgo: 1, model: 'sarvam-105b', byName: true, byDomain: false });
+
+      const rows = await citedShareByEngine(db, entityId, 30);
+      expect(rows).toHaveLength(2);
+      expect(rows.some((r) => r.model === null)).toBe(true);
+    });
+
+    it('counts named and linked apart', async () => {
+      await sample('p', { cited: true, daysAgo: 1, model: 'm', byName: true, byDomain: false });
+      await sample('p', { cited: true, daysAgo: 1, model: 'm', byName: true, byDomain: true });
+      await sample('p', { cited: false, daysAgo: 1, model: 'm', byName: false, byDomain: false });
+
+      const [row] = await citedShareByEngine(db, entityId, 30);
+      expect(row.samples).toBe(3);
+      expect(row.cited).toBe(2);
+      expect(row.citedByName).toBe(2);
+      // The stronger claim, and the one a non-browsing engine cannot make.
+      expect(row.citedByDomain).toBe(1);
+    });
+
+    it('reports the split as null, not zero, when no row recorded it', async () => {
+      // "No answer linked you" and "nobody measured whether an answer linked
+      // you" are different facts, and zero would state the first.
+      await sample('p', { cited: true, daysAgo: 1 });
+      const [row] = await citedShareByEngine(db, entityId, 30);
+      expect(row.citedByName).toBeNull();
+      expect(row.citedByDomain).toBeNull();
+      expect(row.cited).toBe(1);
     });
   });
 });

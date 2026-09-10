@@ -56,7 +56,7 @@ export function buildCitationEvent(
 
   if (!citationTargets || citationTargets.length === 0) {
     // No targets → we surface sources but honestly can't assert a citation.
-    return { cited: false, sourcesCited, sentiment: null, accuracy: null };
+    return { cited: false, citedByName: false, citedByDomain: false, sourcesCited, sentiment: null, accuracy: null };
   }
 
   const domainTargets = citationTargets.filter((t) => t.includes('.')).map(normalizeDomain).filter(Boolean);
@@ -68,7 +68,18 @@ export function buildCitationEvent(
   const lowerText = answerText.toLowerCase();
   const citedByName = nameTargets.some((name) => lowerText.includes(name));
 
-  return { cited: citedByDomain || citedByName, sourcesCited, sentiment: null, accuracy: null };
+  // Both halves are reported separately as well as together. `cited` alone
+  // cannot distinguish "the model said your name" from "the model linked your
+  // site", and on an engine that does not browse only the first is ever
+  // possible — so a single boolean silently changes meaning with the engine.
+  return {
+    cited: citedByDomain || citedByName,
+    citedByName,
+    citedByDomain,
+    sourcesCited,
+    sentiment: null,
+    accuracy: null,
+  };
 }
 
 /** Run `fn` n times (n-sampling, A2.6). Sequential to stay within provider rate limits. */
