@@ -52,7 +52,7 @@ import {
   type SerpQuery,
   type PromptQuery,
 } from '@engine/connectors';
-import { durationMs, isEntityKind, isEntityRole, type Action, type Entity, type Finding, type PlanTier, type DeployTarget } from '@engine/core';
+import { durationMs, isEntityKind, isEntityRole, type Action, type Entity, type Finding, type FindingSource, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
 import { createDb, type Db } from './db.js';
 import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_PAGES_DEFAULT,
@@ -121,7 +121,13 @@ import {
   saveActionReview,
   findingIdsWithActions,
 } from './repositories/actions.js';
-import { findingBelongsToProject, getFindingInProject, listFindingsByProject, upsertFindings } from './repositories/findings.js';
+import {
+  findingBelongsToProject,
+  getFindingInProject,
+  listFindingsByProject,
+  resolveFindingsAbsentFrom,
+  upsertFindings,
+} from './repositories/findings.js';
 import { recordAuditRun, latestAuditRun, type AuditRunCoverage } from './repositories/auditRuns.js';
 import { entityJsonLdProperties, entitySchemaType } from './repositories/entityJsonLd.js';
 import { proposeForFinding, PROPOSE_BATCH_CAP, type ProposeSkip } from './repositories/propose.js';
@@ -1591,6 +1597,14 @@ app.get('/projects/:projectId/search-traffic', async (c) => {
  * (pure, in @engine/diagnosis) is integration-testable and the crawl transport
  * stays swappable.
  */
+/**
+ * The finding sources `POST /audit` evaluates, and therefore the only ones it
+ * may retract. B1 technical and B2 content both run below; the B3 entity audit
+ * and the local audit run from their own routes, so a page-level audit saying
+ * nothing about them is not evidence that their findings are fixed.
+ */
+const AUDITED_SOURCES = ['technical', 'content'] as const satisfies readonly FindingSource[];
+
 app.post('/projects/:projectId/audit', async (c) => {
   const raw = await readJson(c);
   if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
@@ -1648,6 +1662,29 @@ app.post('/projects/:projectId/audit', async (c) => {
   const contentResult = runContentAudit(pages, { entities: entityCoverageFacts });
 
   const findings = await upsertFindings(db, [...result.findings, ...contentResult.findings]);
+  // Retract what this run no longer reports. Until now the inventory was
+  // append-only: `upsertFindings` refreshed a finding it saw again and nothing
+  // could say a finding had stopped being true, so a problem observed once was
+  // permanent. Five findings computed from a CloudFront 403 page on 2026-09-10
+  // could not be cleared by any number of clean crawls.
+  //
+  // The two scoping arguments are the whole safety of this. `AUDITED_SOURCES`
+  // is what *this route* evaluates — B1 technical and B2 content — and not the
+  // B3 entity or local audits, which run elsewhere and whose findings this run
+  // has no standing to declare fixed. The URL set is the pages actually looked
+  // at, so a crawl that stopped at `maxPages` retracts nothing about the pages
+  // it never reached.
+  //
+  // Redirect hops count as examined. A finding recorded against an apex URL
+  // that now redirects to `www` was re-checked when the crawler followed that
+  // hop, and without this it could never be retracted — its URL would never
+  // appear in a crawl result again.
+  const reexaminedUrls = [...new Set(pages.flatMap((p) => [p.url, ...(p.redirectChain ?? [])]))];
+  const resolvedCount = await resolveFindingsAbsentFrom(db, projectId, {
+    urls: reexaminedUrls,
+    sources: AUDITED_SOURCES,
+    seenFingerprints: [...result.findings, ...contentResult.findings].map((f) => f.id),
+  });
   // Persist the fix-relevant slice of each page (M2.3 #3): /audit used to
   // discard the pages after scoring, leaving a later "generate a fix" call
   // with no title/body to build a diff from. Storing them here is what lets
@@ -1680,6 +1717,10 @@ app.post('/projects/:projectId/audit', async (c) => {
     findings,
     run,
     proposedActions,
+    // How many previously-open findings this run retracted. Reported because
+    // "nothing is wrong any more" and "we did not look" produce the same empty
+    // `findings` list, and only this number tells them apart.
+    resolvedCount,
     content: { pageScores: contentResult.pageScores, pagesWithoutContent: contentResult.pagesWithoutContent },
   });
 });
