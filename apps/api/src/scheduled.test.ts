@@ -17,8 +17,10 @@ import { RANK_POLL_CRON } from './repositories/rankPoll.js';
 const ENCRYPTION_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 
 // A database that cannot be reached. Reaching it at all is the thing under
-// test: the pre-migration gate returned before any query.
-const UNREACHABLE = 'postgres://never.connected.invalid/db';
+// test: the pre-migration gate returned before any query. A dead loopback port
+// rather than an unresolvable host, because the latter relied on DNS failing
+// quickly and on CI it did not.
+const UNREACHABLE = 'postgres://127.0.0.1:1/db';
 
 function logs() {
   const lines: string[] = [];
@@ -57,7 +59,7 @@ describe('scheduled sync gate', () => {
     // migration 0019 this returned early on the env check and never asked.
     await expect(
       worker.scheduled(event, { DATABASE_URL: UNREACHABLE, ENCRYPTION_KEY } as never, ctx),
-    ).rejects.toThrow(/never\.connected\.invalid/);
+    ).rejects.toThrow(/ECONNREFUSED 127\.0\.0\.1:1/);
   });
 
   it('needs no query when the client is configured in the environment', async () => {
@@ -75,7 +77,7 @@ describe('scheduled sync gate', () => {
         } as never,
         ctx,
       ),
-    ).rejects.toThrow(/never\.connected\.invalid/);
+    ).rejects.toThrow(/ECONNREFUSED 127\.0\.0\.1:1/);
     expect(lines.join('\n')).not.toContain('scheduled sync skipped');
   });
 });
