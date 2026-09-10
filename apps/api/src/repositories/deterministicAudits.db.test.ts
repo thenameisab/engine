@@ -163,22 +163,23 @@ describe.skipIf(!url)('deterministic audits (Postgres)', () => {
     expect(run).toMatchObject({ kind: 'entity', trigger: 'crawl' });
   });
 
-  it('runs a due audit on the nightly pass, then finds nothing due on the next', async () => {
+  it('runs a due audit on the nightly pass and records it as scheduled', async () => {
+    // Every assertion here is about *this project*, never about the pass's
+    // global summary. `runScheduledDeterministicAudits` walks the whole
+    // database, so any other suite's fixtures — or a row left behind by
+    // someone exercising the API by hand — change what it attempts. An earlier
+    // version asserted on the summary and flaked twice for reasons that had
+    // nothing to do with the behaviour under test. That the second half
+    // ("nothing is due afterwards") holds is proven by the 20-hour window test
+    // above, without needing a second global pass to prove it.
     await addCitationEvent();
+    expect(kindsFor(await listDueAudits(db))).toEqual(['offsite']);
 
-    const first = await runScheduledDeterministicAudits(db);
-    expect(first.failed).toEqual([]);
+    const summary = await runScheduledDeterministicAudits(db);
+    expect(summary.failed.filter((f) => f.projectId === projectId)).toEqual([]);
+
     expect(await latestDeterministicAuditRun(db, projectId, 'offsite')).toMatchObject({ trigger: 'schedule' });
-
     // Running twice in one night would double every audit's work for nothing.
-    //
-    // Asserted against *this project's* due list, not the pass's global
-    // summary: the pass is project-agnostic, so any other project in the
-    // database with work of its own would make a global `attempted === 0`
-    // assertion fail for a reason that has nothing to do with what is being
-    // tested. It did exactly that on a scratch branch carrying real data.
-    expect(kindsFor(await listDueAudits(db))).toEqual([]);
-    await runScheduledDeterministicAudits(db);
     expect(kindsFor(await listDueAudits(db))).toEqual([]);
   });
 });
