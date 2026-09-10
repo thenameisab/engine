@@ -407,6 +407,19 @@ export function addCompetitor(selfEntityId: string, competitorEntityId: string):
     body: JSON.stringify({ competitorEntityId }),
   });
 }
+/**
+ * Add a competitor by their website — the one thing a customer knows about a
+ * rival. Creates the competitor entity if this is the first time it is named.
+ */
+export function addCompetitorByDomain(
+  selfEntityId: string,
+  domain: string,
+): Promise<{ id: string; entityId: string; canonicalName: string; domain: string }> {
+  return request(`/projects/${requireProjectId()}/entities/${selfEntityId}/competitors`, {
+    method: 'POST',
+    body: JSON.stringify({ domain }),
+  });
+}
 export function removeCompetitor(selfEntityId: string, competitorSetId: string): Promise<unknown> {
   return request(`/projects/${requireProjectId()}/entities/${selfEntityId}/competitors/${competitorSetId}`, {
     method: 'DELETE',

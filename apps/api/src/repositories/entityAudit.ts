@@ -38,7 +38,9 @@ export interface EntityAuditRunResult extends EntityAuditResult {
 
 /** Run + persist a project's entity-graph audit. */
 export async function runProjectEntityAudit(db: Db, projectId: string): Promise<EntityAuditRunResult> {
-  const entities = await listEntitiesByProject(db, projectId);
+  // Self only: this audit emits findings the customer is expected to act on,
+  // and a competitor's weak schema is not theirs to fix.
+  const entities = await listEntitiesByProject(db, projectId, 'self');
   const result = runEntityAudit(entities.map(toFacts));
 
   if (result.findings.length > 0) await upsertFindings(db, result.findings);

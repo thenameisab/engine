@@ -32,7 +32,10 @@ export async function assembleSurfaceScores(
   baseMix: ChannelMix,
   sinceDays = 30,
 ): Promise<{ surfaces: SurfaceScores; mix: ChannelMix; keywordsTracked: number; citationSamples: number }> {
-  const entities = await listEntitiesByProject(db, projectId);
+  // Self only. This walks every entity and sums their positions and citations
+  // into one score; a competitor row here would fold a rival's performance
+  // into the customer's own number, silently and plausibly.
+  const entities = await listEntitiesByProject(db, projectId, 'self');
 
   const organicRows: OrganicKeywordRow[] = [];
   const citationRows: CitationEventRow[] = [];

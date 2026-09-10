@@ -63,6 +63,19 @@ describe('resolveSerpKey', () => {
     expect(resolved).toBe('platform-key');
   });
 
+  it('falls back when the sealed credential cannot be opened, not 500s the poll', async () => {
+    // The state every stored connection is left in by an ENCRYPTION_KEY
+    // rotation. This used to throw out of resolveSerpKey and fail the whole
+    // rank poll, so on rotation day every customer with their own Serper key
+    // lost rank tracking instead of quietly falling back to ours.
+    const { row } = await connectedRow('client-key');
+    const otherKeyring = await loadKeyring(btoa(String.fromCharCode(...new Uint8Array(32).fill(9))));
+    const resolved = await resolveSerpKey(dbReturning([row]), ACCOUNT, otherKeyring, {
+      SERPER_API_KEY: 'platform-key',
+    });
+    expect(resolved).toBe('platform-key');
+  });
+
   it('returns null when neither key exists, so the route can say so', async () => {
     const keyring = await loadKeyring(KEY);
     expect(await resolveSerpKey(dbReturning([]), ACCOUNT, keyring, {})).toBeNull();

@@ -14,6 +14,7 @@
 import { createSerpConnector, type SerpQuery } from '@engine/connectors';
 import { loadKeyring, type Keyring } from '@engine/integrations';
 import { insertSerpPositions } from './rankPositions.js';
+import { recordCompetitorStandings } from './competitor.js';
 import { resolveSerpKey } from './serpKey.js';
 import type { Db } from '../db.js';
 
@@ -149,6 +150,18 @@ export async function runScheduledRankPoll(
       }
       const result = await connector.fetch(toQuery(row));
       await insertSerpPositions(db, row.entity_id, [result], row.domain);
+      // The same response, already paid for, also says where this entity's
+      // competitors stand. Reading them costs no extra lookup, and it is the
+      // only thing that gives a competitor added by domain any facts to be
+      // compared on. A failure here must not lose the customer's own row,
+      // which is already written.
+      try {
+        await recordCompetitorStandings(db, row.project_id, row.entity_id, [result]);
+      } catch (error) {
+        console.warn(
+          `competitor standings not recorded for ${row.project_id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       summary.polled++;
     } catch (error) {
       summary.failed.push({

@@ -1,9 +1,10 @@
 import { el } from '../dom.js';
 import { auditLastRunLine } from '../format.js';
+import { readableError } from '../errors.js';
 import {
   fetchEntities,
   fetchCompetitors,
-  addCompetitor,
+  addCompetitorByDomain,
   removeCompetitor,
   fetchCompetitorGaps,
   runCompetitorAudit,
@@ -103,13 +104,22 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load entities: ${loadError}`])]));
     return root;
   }
-  if (entities.length < 2) {
-    root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, ['Track at least two entities to compare — competitors are entities too.'])]));
+  // The old wall here was "track at least two entities to compare", which no
+  // customer could ever clear: every entity they have is one of their own
+  // brands, and nothing in the product created a second one. One brand is now
+  // enough — the competitor arrives by domain.
+  if (entities.length === 0) {
+    root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, ['Add a brand for this site first, then name the competitors to compare it against.'])]));
     return root;
   }
 
   const selfSelect = el('select', { class: 'ci-select' }, entities.map((e) => el('option', { value: e.id }, [e.canonicalName]))) as HTMLSelectElement;
-  const compSelect = el('select', { class: 'ci-select' }, []) as HTMLSelectElement;
+  const domainInput = el('input', {
+    class: 'ci-input',
+    type: 'text',
+    placeholder: 'competitor.com',
+    'aria-label': "A competitor's website",
+  }) as HTMLInputElement;
   const addBtn = el('button', { class: 'btn ghost' }, ['Add competitor']);
   const runBtn = el('button', { class: 'btn' }, ['Run analysis']);
   const chips = el('div', { class: 'ci-chips' });
@@ -120,17 +130,12 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     return selfSelect.value;
   }
 
-  function refreshCompOptions(competitors: CompetitorRef[]): void {
-    const taken = new Set([selfId(), ...competitors.map((c) => c.entityId)]);
-    const opts = entities.filter((e) => !taken.has(e.id));
-    compSelect.replaceChildren(...opts.map((e) => el('option', { value: e.id }, [e.canonicalName])));
-    addBtn.toggleAttribute('disabled', opts.length === 0);
-  }
+
 
   function renderChips(competitors: CompetitorRef[]): void {
     chips.replaceChildren(
       ...(competitors.length === 0
-        ? [el('span', { class: 'muted' }, ['No competitors yet.'])]
+        ? [el('span', { class: 'muted' }, ['No competitors yet. Type a rival’s website above.'])]
         : competitors.map((c) => {
             const x = el('button', { class: 'ci-chip-x', title: 'Remove' }, ['×']);
             x.addEventListener('click', async () => {
@@ -164,7 +169,6 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     } catch (err) {
       ctx.toast(`Could not load competitors: ${(err as Error).message}`);
     }
-    refreshCompOptions(competitors);
     renderChips(competitors);
     try {
       const { gaps, lastRun } = await fetchCompetitorGaps(selfId());
@@ -177,14 +181,27 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
 
   selfSelect.addEventListener('change', loadSet);
 
-  addBtn.addEventListener('click', async () => {
-    if (!compSelect.value) return;
+  async function addByDomain(): Promise<void> {
+    const domain = domainInput.value.trim();
+    if (!domain) return;
+    addBtn.setAttribute('disabled', 'true');
     try {
-      await addCompetitor(selfId(), compSelect.value);
+      const added = await addCompetitorByDomain(selfId(), domain);
+      domainInput.value = '';
       await loadSet();
+      // Named, not silent: the name is a guess from the domain and the
+      // customer will read it on every gap row.
+      ctx.toast(`Added ${added.canonicalName} · gaps appear after the next rank check`);
     } catch (err) {
-      ctx.toast(`Add failed: ${(err as Error).message}`);
+      ctx.toast(readableError(err));
+    } finally {
+      addBtn.removeAttribute('disabled');
     }
+  }
+
+  addBtn.addEventListener('click', () => void addByDomain());
+  domainInput.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') void addByDomain();
   });
 
   runBtn.addEventListener('click', async () => {
@@ -207,7 +224,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     lastRunLine,
     el('div', { class: 'ci-controls' }, [
       el('label', { class: 'ci-lbl' }, ['You', selfSelect]),
-      el('label', { class: 'ci-lbl' }, ['Competitor', compSelect]),
+      el('label', { class: 'ci-lbl' }, ["A competitor's website", domainInput]),
       addBtn,
       runBtn,
     ]),

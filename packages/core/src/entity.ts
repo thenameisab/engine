@@ -23,6 +23,19 @@ export interface Entity {
    * asking anyone to approve. See `ENTITY_KINDS`.
    */
   schemaType: string;
+  /**
+   * Whose brand this is. `'self'` is one of the customer's own; `'competitor'`
+   * is a rival, added by domain on the Competitors screen so the gap analysis
+   * has something to compare against.
+   *
+   * Not the same axis as `schemaType`, which says what *sort of thing* the
+   * entity is. A competitor is still an Organization or a Product; the role
+   * says whether the customer's own numbers should include it. Several
+   * readers — the visibility rollup, the entity audit, every brand picker —
+   * must count only `'self'`, and a competitor silently folded into those is
+   * a wrong number rather than a visible error.
+   */
+  role: EntityRole;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,4 +66,15 @@ export const DEFAULT_ENTITY_KIND: EntityKind = 'Organization';
 
 export function isEntityKind(value: unknown): value is EntityKind {
   return typeof value === 'string' && ENTITY_KINDS.some((k) => k.value === value);
+}
+
+/** Whose brand an entity is. See `Entity.role`. */
+export const ENTITY_ROLES = ['self', 'competitor'] as const;
+
+export type EntityRole = (typeof ENTITY_ROLES)[number];
+
+export const DEFAULT_ENTITY_ROLE: EntityRole = 'self';
+
+export function isEntityRole(value: unknown): value is EntityRole {
+  return typeof value === 'string' && (ENTITY_ROLES as readonly string[]).includes(value);
 }
