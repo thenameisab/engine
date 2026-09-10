@@ -74,6 +74,48 @@ describe('crawlSite (real Chromium + a local HTTP server, real robots.txt/sitema
     expect(coverage.maxPages).toBe(10);
   }, 60_000);
 
+  it('follows links on the host that answered, not the host that was asked for', async () => {
+    // tartanhq.com 301s to www.tartanhq.com. The same-origin test read the
+    // seed URL, so every link on the page it got back — all written against
+    // www — was discarded as off-origin and discovery found nothing.
+    // `localhost` and `127.0.0.1` are the same two-origins-one-site shape.
+    const { pages, coverage } = await crawlSite(browser, server.origin + '/moved', {
+      entityId: 'ent_1',
+      maxPages: 10,
+      delayMs: 0,
+    });
+
+    const urls = pages.map((p) => p.url).sort();
+    expect(urls).toEqual([`${server.altOrigin}/`, `${server.altOrigin}/target`]);
+    expect(coverage.linksDiscovered).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('does not crawl the root twice when the seed redirects', async () => {
+    // The root is reached as the seed URL and again as a link to its own final
+    // address. Those are two different strings and one page.
+    const { pages } = await crawlSite(browser, server.origin + '/moved', {
+      entityId: 'ent_1',
+      maxPages: 10,
+      delayMs: 0,
+    });
+    expect(pages.filter((p) => p.url === `${server.altOrigin}/`)).toHaveLength(1);
+  }, 60_000);
+
+  it('discovers a client-rendered page\'s links', async () => {
+    // A crawl seeded at a page that renders itself must still find the rest of
+    // the site — discovery used to re-fetch the page and read it at `load`,
+    // which is the same defect one layer down.
+    const { pages } = await crawlSite(browser, server.origin + '/client-rendered', {
+      entityId: 'ent_1',
+      maxPages: 10,
+      delayMs: 0,
+    });
+    expect(pages.map((p) => p.url).sort()).toEqual([
+      `${server.origin}/client-rendered`,
+      `${server.origin}/target`,
+    ]);
+  }, 60_000);
+
   it('separates a spent budget from a site with nothing left to follow', async () => {
     // "Stopped at the limit" and "crawled everything there was" are different
     // stories, and only one of them means there is more site to check.

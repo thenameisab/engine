@@ -6,6 +6,12 @@ import type { AddressInfo } from 'node:net';
 
 export interface TestServer {
   origin: string;
+  /**
+   * The same server reached under a different host. `localhost` and
+   * `127.0.0.1` are one server and two origins, which is what a real site's
+   * apex-to-`www` redirect looks like to a crawler.
+   */
+  altOrigin: string;
   close: () => Promise<void>;
 }
 
@@ -43,7 +49,8 @@ const PAGES: Record<string, (origin: string) => { status: number; headers?: Reco
         name: 'Test Co',
         url: 'ORIGIN/',
       })}</script>
-    </head><body><h1>Hello</h1><a href="ORIGIN/target">target</a><a href="ORIGIN/forbidden">forbidden</a></body></html>`,
+    </head><body><h1>Hello</h1><a href="/target">target</a><a href="/forbidden">forbidden</a>
+    <a href="mailto:hi@example.com">mail us</a></body></html>`,
   }),
   '/target': () => ({
     status: 200,
@@ -53,6 +60,24 @@ const PAGES: Record<string, (origin: string) => { status: number; headers?: Reco
     </head><body>Target page</body></html>`,
   }),
   '/redirect': () => ({ status: 302, headers: { location: 'ORIGIN/target' } }),
+  // Stands in for tartanhq.com's apex-to-www 301: the host that answers is not
+  // the host that was asked for, and the links on the page it serves are
+  // written against the host that answered.
+  '/moved': () => ({ status: 301, headers: { location: 'ALT_ORIGIN/' } }),
+  // A page whose HTML carries no text and no links until a script runs, which
+  // is what every Framer/React site looks like at `load`.
+  '/client-rendered': () => ({
+    status: 200,
+    body: `<!doctype html><html><head><title>Client rendered</title>
+      <meta name="description" content="Rendered by script." />
+    </head><body><div id="root"></div><script>
+      setTimeout(function () {
+        document.getElementById('root').innerHTML =
+          '<main><h1>Rendered heading</h1><p>Content that only exists after hydration.</p>' +
+          '<a href="/target">target</a></main>';
+      }, 300);
+    </script></body></html>`,
+  }),
   '/noindex': () => ({
     status: 200,
     body: `<!doctype html><html><head><title>Noindex</title>
@@ -77,7 +102,9 @@ export function startTestServer(): Promise<TestServer> {
         res.writeHead(200, { 'content-type': 'text/plain' }).end(ROBOTS_TXT);
         return;
       }
-      const origin = `http://localhost:${(server.address() as AddressInfo).port}`;
+      const { port } = server.address() as AddressInfo;
+      const origin = `http://localhost:${port}`;
+      const altOrigin = `http://127.0.0.1:${port}`;
       if (url.pathname === '/sitemap.xml') {
         res.writeHead(200, { 'content-type': 'application/xml' }).end(sitemapXml(origin));
         return;
@@ -88,17 +115,17 @@ export function startTestServer(): Promise<TestServer> {
         return;
       }
       const { status, headers = {}, body } = handler(origin);
-      const resolvedHeaders = Object.fromEntries(
-        Object.entries(headers).map(([k, v]) => [k, v.replaceAll('ORIGIN', origin)]),
-      );
+      const fill = (v: string) => v.replaceAll('ALT_ORIGIN', altOrigin).replaceAll('ORIGIN', origin);
+      const resolvedHeaders = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, fill(v)]));
       if (body !== undefined) resolvedHeaders['content-type'] = 'text/html; charset=utf-8';
       res.writeHead(status, resolvedHeaders);
-      res.end(body?.replaceAll('ORIGIN', origin) ?? '');
+      res.end(body === undefined ? '' : fill(body));
     });
     server.listen(0, () => {
       const { port } = server.address() as AddressInfo;
       resolve({
         origin: `http://localhost:${port}`,
+        altOrigin: `http://127.0.0.1:${port}`,
         close: () => new Promise((res) => server.close(() => res())),
       });
     });

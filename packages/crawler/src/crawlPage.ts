@@ -3,7 +3,7 @@
  * record that `@engine/diagnosis`'s rule engine consumes. This is the single
  * point where every B1.x sub-check's raw signal gets captured for one page.
  */
-import type { Browser, Response } from 'playwright';
+import type { Browser, Page, Response } from 'playwright';
 import type { CrawledPage } from '@engine/diagnosis';
 import { installVitalsInstrumentation, collectCoreWebVitals } from './vitals.js';
 import { extractStructuredData } from './structuredData.js';
@@ -23,6 +23,22 @@ export interface CrawlPageOptions {
   pageValue?: number;
   /** Navigation timeout, ms. */
   timeoutMs?: number;
+  /**
+   * How long to wait for a client-rendered page to paint after `load`, ms.
+   * See `waitForRenderedContent`.
+   */
+  renderTimeoutMs?: number;
+}
+
+export interface CrawlPageResult {
+  page: CrawledPage;
+  /**
+   * Every absolute `<a href>` on the rendered page, deduplicated and in
+   * document order. Unfiltered on purpose: deciding which of these to follow
+   * is `crawlSite`'s job (same site, allowed by robots, not already seen), and
+   * it needs the rejected ones to explain a crawl that reached one page.
+   */
+  links: string[];
 }
 
 interface DomSignals {
@@ -36,6 +52,7 @@ interface DomSignals {
   bodyText: string;
   bodyHtml: string;
   internalLinkCount: number;
+  linkHrefs: string[];
 }
 
 function extractDomSignals(): DomSignals {
@@ -69,6 +86,14 @@ function extractDomSignals(): DomSignals {
   const anchorEls = Array.from(contentEl?.querySelectorAll('a[href]') ?? []) as HTMLAnchorElement[];
   const internalLinkCount = anchorEls.filter((a) => a.host === location.host).length;
 
+  // Link discovery reads the *whole* document, not just the main content: a
+  // site's navigation and footer are usually where the rest of it is linked
+  // from, and B2's link-density heuristic above deliberately ignores them.
+  // Capped so one page of a link farm cannot flood the crawl queue.
+  const LINK_HREFS_MAX = 2_000;
+  const linkEls = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+  const linkHrefs = [...new Set(linkEls.map((a) => a.href))].slice(0, LINK_HREFS_MAX);
+
   return {
     title: document.title ?? '',
     metaDescription: descEl?.content ?? '',
@@ -80,7 +105,88 @@ function extractDomSignals(): DomSignals {
     bodyText: (contentEl?.textContent ?? '').trim().slice(0, BODY_TEXT_MAX_CHARS),
     bodyHtml: (contentEl?.innerHTML ?? '').slice(0, BODY_HTML_MAX_CHARS),
     internalLinkCount,
+    linkHrefs,
   };
+}
+
+/** Default budget for `waitForRenderedContent`, ms. */
+const DEFAULT_RENDER_TIMEOUT_MS = 10_000;
+
+/** How often `waitForContentToSettle` samples the page, ms. */
+const SETTLE_POLL_MS = 250;
+/** Consecutive identical samples that count as settled. */
+const SETTLE_SAMPLES = 3;
+/** What `contentSignature` returns for a page that has rendered nothing yet. */
+const EMPTY_SIGNATURE = '0:0';
+
+/** A cheap fingerprint of how much the page is currently showing. */
+function contentSignature(): string {
+  const contentEl = document.querySelector('main, article') ?? document.body;
+  return `${(contentEl?.textContent ?? '').length}:${document.querySelectorAll('a[href]').length}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Resolve once the page has stopped changing what it shows.
+ *
+ * The signal that actually matters is "the framework has finished putting
+ * content on the page", and this measures it directly rather than inferring it
+ * from network activity.
+ */
+async function waitForContentToSettle(page: Page, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last = '';
+  let repeats = 0;
+  while (Date.now() < deadline) {
+    await sleep(SETTLE_POLL_MS);
+    let signature: string;
+    try {
+      signature = await page.evaluate(contentSignature);
+    } catch {
+      return; // page navigated or closed under us — read whatever is there
+    }
+    if (signature !== last) {
+      last = signature;
+      repeats = 0;
+      continue;
+    }
+    // A page showing nothing is not a settled page. A framework that has not
+    // started rendering looks identical to one that never will, and only the
+    // network signal or the deadline can tell those apart.
+    if (last === EMPTY_SIGNATURE) continue;
+    if (++repeats >= SETTLE_SAMPLES - 1) return;
+  }
+}
+
+/**
+ * Wait for a client-rendered page to paint before reading its DOM.
+ *
+ * `load` fires once the HTML document and its subresources are in, which on a
+ * client-rendered site is *before* the framework has put anything on the page.
+ * Production's crawl of a Framer-built site stored 515 characters of body text
+ * and zero links for exactly this reason: that site's raw HTML carries no text
+ * and no links at all, so `load` captured a pre-hydration shell and every
+ * content finding was computed over it. Client-side rendering is the common
+ * case, so this is the default and not an option.
+ *
+ * Two signals, whichever comes first, because each is fast where the other is
+ * slow. `networkidle` (no request for 500 ms) settles a conventional page in
+ * well under a second but never fires at all on one that polls or holds a
+ * socket open — measured against tartanhq.com it spent the whole 10-second
+ * budget. Content-settling gets that page in 2–4 seconds but needs three
+ * samples, so it can never beat a page that was ready immediately.
+ *
+ * Neither firing is not an error: a page given the full budget has had far
+ * longer than it needed to render, and reading it then is still right.
+ */
+async function waitForRenderedContent(page: Page, timeoutMs: number): Promise<void> {
+  await Promise.race([
+    page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {}),
+    waitForContentToSettle(page, timeoutMs),
+  ]);
 }
 
 /** Walk Playwright's `redirectedFrom()` chain back to the origin, oldest-first. */
@@ -98,7 +204,7 @@ export async function crawlPage(
   browser: Browser,
   url: string,
   options: CrawlPageOptions,
-): Promise<CrawledPage> {
+): Promise<CrawlPageResult> {
   const page = await browser.newPage({ userAgent: 'EngineBot/1.0 (+https://engine.dev/bot)' });
   await installVitalsInstrumentation(page);
 
@@ -110,6 +216,7 @@ export async function crawlPage(
     if (!response) {
       throw new Error(`No response received for ${url}`);
     }
+    await waitForRenderedContent(page, options.renderTimeoutMs ?? DEFAULT_RENDER_TIMEOUT_MS);
 
     const statusCode = response.status();
     const redirectChain = buildRedirectChain(response);
@@ -134,7 +241,7 @@ export async function crawlPage(
           ? { source: 'robots' }
           : undefined;
 
-    return {
+    const crawled: CrawledPage = {
       url: finalUrl,
       entityId: options.entityId,
       statusCode,
@@ -156,6 +263,7 @@ export async function crawlPage(
       bodyHtml: dom.bodyHtml,
       internalLinkCount: dom.internalLinkCount,
     };
+    return { page: crawled, links: dom.linkHrefs };
   } finally {
     await page.close();
   }
