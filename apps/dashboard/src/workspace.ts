@@ -50,6 +50,8 @@ export interface WorkspaceHandle {
    * defect this whole rail exists to fix, reintroduced at a smaller size.
    */
   chip: HTMLElement;
+  /** The open site's name, or null when none is chosen. Used by the breadcrumb. */
+  siteName(): string | null;
   /** Re-read the client list from the API and repaint both. */
   refresh(): Promise<void>;
   openDrawer(): void;
@@ -235,5 +237,12 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
   }
 
   paint();
-  return { element, header, chip, refresh, openDrawer };
+  return {
+    element,
+    header,
+    chip,
+    siteName: () => openSiteLabel(clients, getAccountId(), getProjectId())?.site ?? null,
+    refresh,
+    openDrawer,
+  };
 }

@@ -10,8 +10,7 @@ import {
   pctChange,
   pagePath,
   providerNextStep,
-  relativeTime,
-} from '../format.js';
+  relativeTime, screenName } from '../format.js';
 import { fetchPulse, fetchSearchTraffic } from '../api.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
 import { readableError } from '../errors.js';
@@ -335,7 +334,7 @@ export async function pulseView(ctx: AppContext): Promise<HTMLElement> {
 
   if (!data) {
     return el('div', {}, [
-      el('div', { class: 'pagehead' }, [el('h1', {}, ['Pulse'])]),
+      el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('home')])]),
       el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load Pulse: ${loadError}`])]),
     ]);
   }
@@ -351,7 +350,7 @@ export async function pulseView(ctx: AppContext): Promise<HTMLElement> {
       ]);
 
   return el('div', { class: 'stack' }, [
-    el('div', { class: 'pagehead' }, [el('h1', {}, ['Pulse']), el('p', {}, [summaryLine(d, searchTraffic)])]),
+    el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('home')]), el('p', {}, [summaryLine(d, searchTraffic)])]),
     d.score ? heroPanel(d) : emptyPanel(),
     google,
   ]);

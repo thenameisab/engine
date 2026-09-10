@@ -1,5 +1,5 @@
 import { el } from '../dom.js';
-import { auditLastRunLine } from '../format.js';
+import { auditLastRunLine, screenName } from '../format.js';
 import { fetchEntities, fetchLocalProfile, fetchLocalVisibility, runLocalAudit, saveLocalProfile, type AuditLastRun } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
@@ -216,7 +216,7 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
   // form with an empty picker above it.
   if (!loadError && entities.length === 0) {
     return el('div', {}, [
-      el('div', { class: 'pagehead' }, [el('h1', {}, ['Local SEO'])]),
+      el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('local')])]),
       el('section', { class: 'panel' }, [
         el('div', { class: 'fq-note' }, ['Add a brand for this site first — a location is a brand in Engine.']),
       ]),
@@ -225,7 +225,7 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Local SEO']),
+      el('h1', {}, [screenName('local')]),
       el('p', {}, ['Is each location’s Google Business Profile complete, its NAP consistent across directories, and its reviews healthy? Score blends GBP completeness, NAP consistency, and review health.']),
       lastRunLine,
       el('div', { class: 'ci-controls' }, [el('label', { class: 'ci-lbl' }, ['Location', select]), runBtn]),

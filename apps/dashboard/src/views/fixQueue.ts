@@ -1,5 +1,5 @@
 import { el } from '../dom.js';
-import { LANE_ORDER, statusLabel, nextAction, diffLines, NOTHING_THERE, verifyLine, type VerifyStatus } from '../format.js';
+import { LANE_ORDER, statusLabel, nextAction, diffLines, NOTHING_THERE, verifyLine, type VerifyStatus, screenName } from '../format.js';
 import { fetchActions, transitionAction, reviewAction, fetchVerifyStatus, requestVerify } from '../api.js';
 import { readableError } from '../errors.js';
 import { openDialog } from '../dialog.js';
@@ -256,7 +256,7 @@ export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Fix Queue']),
+      el('h1', {}, [screenName('fixes')]),
       el('p', {}, ['Every card is a proposed fix for your site. Read what it changes, approve it to deploy, then verify that it landed.']),
     ]),
     container,

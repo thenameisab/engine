@@ -1,5 +1,5 @@
 import { el, clear } from '../dom.js';
-import { hostname, domainRank, normalizeDomain, serpFeatureLabel, rankChange, rankLabel } from '../format.js';
+import { hostname, domainRank, normalizeDomain, serpFeatureLabel, rankChange, rankLabel, screenName } from '../format.js';
 import { rankPoll, fetchTrackedKeywords, fetchSearchTraffic, fetchEntities, trackKeyword, untrackKeyword } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
@@ -278,7 +278,7 @@ export async function serpView(ctx: AppContext): Promise<HTMLElement> {
 
   root.append(
     el('div', { class: 'pagehead' }, [
-      el('h1', {}, ['Rankings']),
+      el('h1', {}, [screenName('rankings')]),
       el('p', { html: 'Where this site stands in Google for the keywords you track, polled on a schedule — and a live check for any keyword, including whether Google is answering with an <b>AI Overview</b>.' }),
     ]),
     trackedWrap,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES } from './format.js';
+import { VISIBILITY_TABS, visibilityTabId } from './views/visibility.js';
 import type { ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
@@ -864,3 +865,53 @@ describe('what the Deployed card says about the live page', () => {
   });
 });
 
+
+describe('screen names', () => {
+  it('names every route the rail offers', () => {
+    for (const id of ['home', 'findings', 'fixes', 'visibility', 'integrations', 'settings']) {
+      expect(screenName(id)).not.toBe(id);
+    }
+  });
+
+  it('names every Visibility tab, so the crumb never shows a slug', () => {
+    for (const tab of VISIBILITY_TABS) {
+      expect(SCREEN_NAMES).toHaveProperty(tab.id);
+      expect(screenName(tab.id)).not.toBe(tab.id);
+    }
+  });
+
+  it('falls through to the id rather than inventing a name', () => {
+    expect(screenName('not-a-route')).toBe('not-a-route');
+  });
+});
+
+describe('breadcrumb', () => {
+  it('reads site then screen', () => {
+    expect(breadcrumb('brightsmile.example', 'Findings')).toBe('brightsmile.example / Findings');
+  });
+
+  it('adds the tab as a third part', () => {
+    expect(breadcrumb('Acme', 'Visibility', 'Rankings')).toBe('Acme / Visibility / Rankings');
+  });
+
+  it('drops the site when none is open, rather than leaving a leading slash', () => {
+    expect(breadcrumb(null, 'Settings')).toBe('Settings');
+  });
+});
+
+describe('visibilityTabId', () => {
+  it('reads the tab out of the hash', () => {
+    expect(visibilityTabId('#/visibility/competitors')).toBe('competitors');
+  });
+
+  it('falls back to the first tab for a bare route or an unknown tab', () => {
+    expect(visibilityTabId('#/visibility')).toBe('rankings');
+    expect(visibilityTabId('#/visibility/nope')).toBe('rankings');
+  });
+});
+
+describe('issueLabel', () => {
+  it('has copy for poor-self-containment, which used to render as its raw type', () => {
+    expect(issueLabel('poor-self-containment')).toBe('Sections do not stand on their own');
+  });
+});

@@ -11,7 +11,7 @@ import {
 } from '../api.js';
 import { modelPicker } from '../modelPicker.js';
 import { readableError } from '../errors.js';
-import { auditLastRunLine } from '../format.js';
+import { auditLastRunLine, screenName } from '../format.js';
 import type { AppContext } from '../context.js';
 import type {
   ApiEntity,
@@ -145,7 +145,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   // claim about data that failed to load.
   const lastRunLine = el('p', { class: 'lastrun' }, [auditLastRunLine(null)]);
   const head = el('div', { class: 'pagehead' }, [
-    el('h1', {}, ['AI answers']),
+    el('h1', {}, [screenName('ai-answers')]),
     el('p', {}, [
       'What AI engines say when someone asks about this brand: how often an answer names you, the prompts that get sampled every week, and a live check you can run now.',
     ]),

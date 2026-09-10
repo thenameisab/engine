@@ -1,5 +1,5 @@
 import { el } from '../dom.js';
-import { auditLastRunLine } from '../format.js';
+import { auditLastRunLine, screenName } from '../format.js';
 import { readableError } from '../errors.js';
 import {
   fetchEntities,
@@ -96,7 +96,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     lastRunLine.textContent = auditLastRunLine(run);
   }
   const head = el('div', { class: 'pagehead' }, [
-    el('h1', {}, ['Competitor intelligence']),
+    el('h1', {}, [screenName('competitors')]),
     el('p', {}, ['Where do competitors beat you — across SEO and GEO — on one entity model? Pick your entity, name its competitors, then close the biggest gaps.']),
   ]);
 
