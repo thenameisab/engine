@@ -1,6 +1,6 @@
 /**
  * B1.1 site-level orchestration: fetch robots.txt + sitemap(s) once, then
- * crawl either an explicit URL list or a same-origin BFS discovery, subject
+ * crawl either an explicit URL list or a same-site BFS discovery, subject
  * to a per-project budget cap and a politeness delay between requests
  * (spec §9 — "crawler politeness ... is mandatory").
  */
@@ -12,7 +12,7 @@ import { crawlPage } from './crawlPage.js';
 
 export interface CrawlSiteOptions {
   entityId: string;
-  /** Explicit URLs to crawl. If omitted, BFS-discovers same-origin links starting at `rootUrl`. */
+  /** Explicit URLs to crawl. If omitted, BFS-discovers same-site links starting at `rootUrl`. */
   seedUrls?: string[];
   /** Hard cap on pages crawled in this run (spec: 100k/project MVP default; enterprise lifts it). */
   maxPages?: number;
@@ -39,7 +39,7 @@ export interface CrawlCoverage {
   robotsFound: boolean;
   /** URLs declared across every sitemap that could be read. 0 means none was. */
   sitemapUrls: number;
-  /** Distinct same-origin links found by following pages. 0 on a seeded crawl. */
+  /** Distinct same-site links found by following pages. 0 on a seeded crawl. */
   linksDiscovered: number;
   /** Pages actually fetched and audited. */
   pagesCrawled: number;
@@ -95,38 +95,45 @@ async function fetchRobotsRulesAndSitemaps(
   return { rules, sitemapUrls, robotsFound };
 }
 
-/** Extract same-origin `<a href>` targets from an already-crawled page's live DOM, respecting robots. */
-async function discoverLinks(
-  browser: Browser,
-  fromUrl: string,
-  rules: RobotsRules,
-): Promise<string[]> {
-  const page = await browser.newPage();
+/**
+ * The host that identifies a site, with any leading `www.` removed.
+ *
+ * Apex and `www` are the same site to everyone except a string comparison.
+ * `tartanhq.com` redirects to `www.tartanhq.com`, so an exact-origin test
+ * rejected every internal link the rendered page carried and discovery found
+ * nothing at all.
+ */
+function siteHostOf(url: string): string {
   try {
-    await page.goto(fromUrl, { waitUntil: 'load', timeout: 30_000 });
-    const hrefs = await page.$$eval('a[href]', (els) => els.map((el) => (el as HTMLAnchorElement).href));
-    const origin = new URL(fromUrl).origin;
-    const seen = new Set<string>();
-    const links: string[] = [];
-    for (const href of hrefs) {
-      let u: URL;
-      try {
-        u = new URL(href);
-      } catch {
-        continue;
-      }
-      if (u.origin !== origin) continue;
-      u.hash = '';
-      const normalized = normalizeUrl(u.toString());
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      if (!isAllowed(rules, '*', u.pathname)) continue;
-      links.push(normalized);
-    }
-    return links;
-  } finally {
-    await page.close();
+    return new URL(url).host.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
   }
+}
+
+/** Which of a page's links belong to this site and may be followed. */
+function sameSiteLinks(hrefs: readonly string[], siteHost: string, rules: RobotsRules): string[] {
+  const seen = new Set<string>();
+  const links: string[] = [];
+  for (const href of hrefs) {
+    let u: URL;
+    try {
+      u = new URL(href);
+    } catch {
+      continue;
+    }
+    // `mailto:`, `tel:` and `javascript:` are links a browser resolves happily
+    // and a crawler cannot fetch.
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+    if (siteHostOf(u.href) !== siteHost) continue;
+    u.hash = '';
+    const normalized = normalizeUrl(u.toString());
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    if (!isAllowed(rules, '*', u.pathname)) continue;
+    links.push(normalized);
+  }
+  return links;
 }
 
 export async function crawlSite(
@@ -136,6 +143,10 @@ export async function crawlSite(
 ): Promise<CrawlSiteResult> {
   const origin = new URL(rootUrl).origin;
   const { rules, sitemapUrls, robotsFound } = await fetchRobotsRulesAndSitemaps(origin);
+  // Provisional: the seed says which site we were *asked* for. The root page's
+  // final URL says which one actually answered, and that is the one every
+  // link on it will be written against. Corrected below, after the first page.
+  let siteHost = siteHostOf(rootUrl);
 
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
@@ -162,7 +173,7 @@ export async function crawlSite(
       continue;
     }
 
-    const page = await crawlPage(browser, url, {
+    const { page, links: hrefs } = await crawlPage(browser, url, {
       entityId: options.entityId,
       robotsRules: rules,
       sitemapUrls,
@@ -170,10 +181,15 @@ export async function crawlSite(
       pageValue: options.pageValue?.(url),
     });
     pages.push(page);
+    // A redirect means the URL we asked for and the URL we got are different
+    // strings. Both are visited now, or the root gets crawled a second time
+    // the moment discovery finds a link to its own final address.
+    visited.add(page.url);
+    if (pages.length === 1) siteHost = siteHostOf(page.url);
 
     if (discover && pages.length >= maxPages) discoveryCutShort = true;
     if (discover && pages.length < maxPages) {
-      const links = await discoverLinks(browser, page.url, rules);
+      const links = sameSiteLinks(hrefs, siteHost, rules);
       for (const link of links) {
         discovered.add(link);
         if (!visited.has(link)) queue.push(link);

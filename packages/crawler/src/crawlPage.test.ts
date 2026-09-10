@@ -22,7 +22,7 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
     const rules = parseRobotsTxt(''); // default-allow; robots access asserted separately below
     const sitemapUrls = new Set([`${server.origin}/`, `${server.origin}/target`]);
 
-    const page = await crawlPage(browser, server.origin + '/', {
+    const { page } = await crawlPage(browser, server.origin + '/', {
       entityId: 'ent_1',
       robotsRules: rules,
       sitemapUrls,
@@ -54,7 +54,7 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
 
   it('follows a real redirect and records the chain', async () => {
     const rules = parseRobotsTxt('');
-    const page = await crawlPage(browser, server.origin + '/redirect', {
+    const { page } = await crawlPage(browser, server.origin + '/redirect', {
       entityId: 'ent_1',
       robotsRules: rules,
       sitemapUrls: new Set(),
@@ -67,7 +67,7 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
 
   it('detects meta-noindex from the real DOM', async () => {
     const rules = parseRobotsTxt('');
-    const page = await crawlPage(browser, server.origin + '/noindex', {
+    const { page } = await crawlPage(browser, server.origin + '/noindex', {
       entityId: 'ent_1',
       robotsRules: rules,
       sitemapUrls: new Set(),
@@ -77,7 +77,7 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
 
   it('reports invalid JSON-LD as an invalid structured-data block', async () => {
     const rules = parseRobotsTxt('');
-    const page = await crawlPage(browser, server.origin + '/broken-schema', {
+    const { page } = await crawlPage(browser, server.origin + '/broken-schema', {
       entityId: 'ent_1',
       robotsRules: rules,
       sitemapUrls: new Set(),
@@ -85,10 +85,44 @@ describe('crawlPage (real Chromium against a local HTTP server)', () => {
     expect(page.structuredData).toEqual([{ type: 'Unknown', valid: false, errors: ['invalid JSON'] }]);
   }, 30_000);
 
+  it('waits for a client-rendered page to paint before reading it', async () => {
+    // The production defect this fixes: the page's HTML has no text and no
+    // links until a script runs, and `load` fires before it does. Reading at
+    // `load` stored a 515-character shell for a real customer's whole site.
+    const rules = parseRobotsTxt('');
+    const { page, links } = await crawlPage(browser, server.origin + '/client-rendered', {
+      entityId: 'ent_1',
+      robotsRules: rules,
+      sitemapUrls: new Set(),
+    });
+
+    expect(page.headings).toEqual([{ level: 1, text: 'Rendered heading' }]);
+    expect(page.bodyText).toContain('Content that only exists after hydration.');
+    expect(page.internalLinkCount).toBe(1);
+    expect(links).toEqual([`${server.origin}/target`]);
+  }, 30_000);
+
+  it('reports every link on the page, navigation and footer included', async () => {
+    // `internalLinkCount` deliberately counts only the main content, so
+    // discovery cannot be built on it — a site's nav is where the rest of it
+    // is linked from.
+    const rules = parseRobotsTxt('');
+    const { links } = await crawlPage(browser, server.origin + '/', {
+      entityId: 'ent_1',
+      robotsRules: rules,
+      sitemapUrls: new Set(),
+    });
+    expect(links).toEqual([
+      `${server.origin}/target`,
+      `${server.origin}/forbidden`,
+      'mailto:hi@example.com',
+    ]);
+  }, 30_000);
+
   it('flags a real robots.txt AI-crawler block for the page path', async () => {
     const robotsTxt = 'User-agent: GPTBot\nDisallow: /\n';
     const rules = parseRobotsTxt(robotsTxt);
-    const page = await crawlPage(browser, server.origin + '/target', {
+    const { page } = await crawlPage(browser, server.origin + '/target', {
       entityId: 'ent_1',
       robotsRules: rules,
       sitemapUrls: new Set(),
