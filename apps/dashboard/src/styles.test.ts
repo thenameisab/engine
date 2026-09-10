@@ -69,6 +69,19 @@ describe('styles.css base rules', () => {
     ]);
   });
 
+  it('keeps the loading skeleton on tokens, delayed, and off under reduced motion', () => {
+    // Every route renders it, so these three are product-wide. The delay is
+    // the one a reader would never miss until it is gone: without it a route
+    // answering from cache flashes grey for one frame.
+    const start = css.indexOf('/* \u2500\u2500 Loading skeletons');
+    expect(start).toBeGreaterThan(-1);
+    const block = css.slice(start);
+    expect(block).toMatch(/\.skel-body \{[^}]*animation: skel-in [0-9]+ms var\(--ease-out\) 140ms both/);
+    expect(block.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? []).toEqual([]);
+    const reduced = block.slice(block.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reduced).toMatch(/\.skel-bar \{[^}]*animation: none/);
+  });
+
   it('defines every token the stylesheet spends', () => {
     // Tokens are declared several to a line, so this cannot anchor to the
     // line start. A use is `var(--x)` and carries no colon, so matching on

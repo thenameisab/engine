@@ -1176,3 +1176,41 @@ select.field { cursor: pointer; }
   .toast { transition: opacity .01s linear; transform: none; }
   .toast.in { transform: none; }
 }
+
+/* ── Loading skeletons ────────────────────────────────────────────────────
+   The placeholder a route shows before its data arrives. `skeleton.ts` builds
+   it out of the screen's own layout classes, so everything below is the fill
+   and the timing; the geometry is already in this sheet.
+
+   Two rules, both about not being noticed. The bars are held back for 140 ms,
+   so a route that answers from a warm cache never flashes grey — a flash is
+   worse than a short pause. And the pulse is opacity on the bars themselves,
+   not a gradient sweeping across them: a sweep needs a highlight lighter than
+   the surface it crosses, and no token is lighter than `--surface-2` in both
+   themes. Opacity reads the same in either. */
+.skel { pointer-events: none; }
+.pagehead > .skel-bar { margin-top: 9px; }
+.skel-body { animation: skel-in 160ms var(--ease-out) 140ms both; }
+.skel-bar {
+  height: 12px; border-radius: var(--r-sm); background: var(--surface-2);
+  /* Every bar is created in one frame, so one timeline: the placeholder
+     breathes as a single object rather than as forty separate ones. */
+  animation: skel-pulse 1.6s var(--ease) infinite;
+}
+.skel-bar.sm { height: 9px; }
+.skel-bar.lg { height: 18px; }
+.skel-bar.xl { height: 30px; }
+.skel-bar.blk { height: 36px; }
+.skel-bar.act { height: 28px; }
+/* The one placeholder with a responsive width, because the button it stands
+   in for has one: `.hm-health-row .btn` goes full width when the row wraps. */
+.hm-health-row > .skel-run { width: 132px; margin-left: auto; }
+@media (max-width: 620px) { .hm-health-row > .skel-run { width: 100%; margin-left: 0; } }
+@keyframes skel-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+/* The pulse is decoration and goes. The delayed fade stays: it is opacity,
+   it moves nothing, and it is the part that keeps a fast route from
+   flickering. */
+@media (prefers-reduced-motion: reduce) {
+  .skel-bar { animation: none; }
+}
