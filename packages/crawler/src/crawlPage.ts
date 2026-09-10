@@ -78,7 +78,7 @@ function extractDomSignals(): DomSignals {
   const headingEls = Array.from(document.querySelectorAll('h1, h2, h3')) as HTMLHeadingElement[];
   // Prefer semantic main content over the whole body (nav/footer chrome adds
   // noise B2's answer-first/self-containment heuristics would misread).
-  const contentEl = document.querySelector('main, article') ?? document.body;
+  const contentEl = (document.querySelector('main, article') ?? document.body) as HTMLElement | null;
 
   // Same-site links in the main content (B2 → C3 sparse-internal-linking).
   // Resolved via each anchor's `.host`, which the browser normalizes against
@@ -102,7 +102,17 @@ function extractDomSignals(): DomSignals {
     hreflang: hreflangEls.map((el) => ({ lang: el.hreflang, href: el.href })),
     jsonLdScripts: jsonLdEls.map((el) => el.textContent ?? ''),
     headings: headingEls.map((el) => ({ level: Number(el.tagName[1]), text: (el.textContent ?? '').trim() })),
-    bodyText: (contentEl?.textContent ?? '').trim().slice(0, BODY_TEXT_MAX_CHARS),
+    // `innerText`, not `textContent`. The two differ on exactly what a crawler
+    // must not store: `textContent` of a <body> includes every <script> and
+    // <noscript> in it, and a site with no <main> lands here. Measured on a
+    // Framer-built customer site on 2026-09-10: `textContent` 34,485 chars
+    // beginning with a GTM iframe, `innerText` 6,960 chars beginning with the
+    // page's first words; the document carried 1.5 MB of inline script, so the
+    // cap below was spent before any prose and all 50 pages stored the same
+    // 20,000 bytes. `innerText` is what a reader sees: it also drops
+    // `display:none` content, which on a responsive site is the duplicate of a
+    // section already counted once.
+    bodyText: (contentEl?.innerText ?? '').trim().slice(0, BODY_TEXT_MAX_CHARS),
     bodyHtml: (contentEl?.innerHTML ?? '').slice(0, BODY_HTML_MAX_CHARS),
     internalLinkCount,
     linkHrefs,
@@ -132,8 +142,14 @@ const EMPTY_SIGNATURE = '0:0';
  * that moment records a site that links nowhere.
  */
 function contentSignature(): string {
-  const contentEl = document.querySelector('main, article') ?? document.body;
-  return `${(contentEl?.textContent ?? '').length}:${document.querySelectorAll('a[href]').length}`;
+  // `innerText`, for the same reason as `extractDomSignals`: a pre-hydration
+  // shell that ships its bundle inline has kilobytes of `textContent` and no
+  // visible text at all. Counted by `textContent`, that shell never reads as
+  // empty, settles a second after `load`, and the page is read before it has
+  // painted anything — the original render-wait defect, hidden by the bytes
+  // of the script that would eventually fix it.
+  const contentEl = (document.querySelector('main, article') ?? document.body) as HTMLElement | null;
+  return `${(contentEl?.innerText ?? '').length}:${document.querySelectorAll('a[href]').length}`;
 }
 
 function sleep(ms: number): Promise<void> {

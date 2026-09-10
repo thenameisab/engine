@@ -78,6 +78,40 @@ const PAGES: Record<string, (origin: string, host: string) => { status: number; 
       }, 300);
     </script></body></html>`,
   }),
+  // The shape of tartanhq.com, a Framer site: no <main> or <article>, and the
+  // body opens with a GTM <noscript> iframe and a large inline <script>. On
+  // 2026-09-10 every one of its 50 crawled pages stored exactly 20,000 bytes
+  // of that script as `body_text`, byte-identical, because `textContent`
+  // includes script and noscript source and the cap was spent before the
+  // first word of prose.
+  '/script-heavy': () => ({
+    status: 200,
+    body: `<!doctype html><html><head><title>Script heavy</title>
+      <meta name="description" content="Mostly script by byte count." />
+    </head><body>
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-TEST"></iframe></noscript>
+    <script>window.__bundle = "${'x'.repeat(25_000)}";</script>
+    <h1>Real heading</h1>
+    <p>Real prose that a reader can see. Published by Test Author on a real date.</p>
+    <a href="/target">target</a>
+    </body></html>`,
+  }),
+  // A client-rendered page whose shell already carries kilobytes of inline
+  // script and paints its content later than the render-wait's quiet window.
+  // Measured by `textContent`, this shell is never "empty", so the wait
+  // settles on the script bytes and reads the page before it renders.
+  '/slow-hydration': () => ({
+    status: 200,
+    body: `<!doctype html><html><head><title>Slow hydration</title>
+      <meta name="description" content="Renders after a pause." />
+    </head><body><div id="root"></div><script>
+      window.__bundle = "${'y'.repeat(5_000)}";
+      setTimeout(function () {
+        document.getElementById('root').innerHTML =
+          '<h1>Late heading</h1><p>Content that arrives two seconds in.</p><a href="/target">target</a>';
+      }, 2000);
+    </script></body></html>`,
+  }),
   '/noindex': () => ({
     status: 200,
     body: `<!doctype html><html><head><title>Noindex</title>
