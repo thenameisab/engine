@@ -11,6 +11,7 @@ import { fetchAccounts, fetchInvitations, inviteToAccount, withdrawInvitation, s
 import { ONBOARDING_INTENT_KEY } from './onboarding.js';
 import type { AppContext } from '../context.js';
 import type { AccountCard, ApiProject } from '../types.js';
+import { readableError } from '../errors.js';
 
 /**
  * `accountId` as well as `projectId`, and the pairing is the fix.
@@ -63,7 +64,7 @@ function invitePanel(a: AccountCard, ctx: AppContext): HTMLElement {
                 ctx.toast(`Invitation to ${inv.email} withdrawn.`);
                 void load();
               } catch (err) {
-                ctx.toast(`Could not withdraw: ${(err as Error).message}`);
+                ctx.toast(`Could not withdraw: ${readableError(err)}`);
               }
             },
           }, ['Withdraw']),
@@ -95,11 +96,13 @@ function invitePanel(a: AccountCard, ctx: AppContext): HTMLElement {
         await inviteToAccount(a.id, address);
         input.value = '';
         ctx.toast(`Invitation sent to ${address}. They sign in with a code to accept.`);
-        void load();
       } catch (err) {
-        ctx.toast(`Could not invite: ${(err as Error).message}`);
+        ctx.toast(`Could not invite: ${readableError(err)}`);
       } finally {
         send.removeAttribute('disabled');
+        // Reload either way: a 502 means the invitation was saved and only the
+        // email failed, and the pending row is how the owner sees that.
+        void load();
       }
     },
   }, ['Invite']);
