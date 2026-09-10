@@ -22,13 +22,30 @@ describe('verifyJwt', () => {
     expect(claims.email).toBe('member@engine.dev');
   });
 
+  /**
+   * The one test in this file that generates an RSA key, and the only one that
+   * needs a timeout.
+   *
+   * RSA-2048 keygen is a probabilistic prime search, so its runtime has a long
+   * tail rather than an average. Measured on an idle developer machine over 12
+   * runs: 16 ms fastest, 55 ms median, **137 ms slowest** — an 8.5x spread with
+   * nothing else competing for the CPU. On a shared CI runner that tail
+   * stretches, and on 2026-09-10 it crossed vitest's 5-second default and
+   * failed the build on `main`, which skipped `migrate`, `deploy-api` and
+   * `deploy` behind it.
+   *
+   * The generous timeout is the fix rather than a smaller modulus, because the
+   * test asserts that RS256 verifies at all — not that it is fast — and 2048
+   * is what a real JWKS uses. Ed25519 keygen is constant-time and needs none
+   * of this, which is why the other tests here carry no timeout.
+   */
   it('verifies RS256 as well as EdDSA, so an upstream alg change still works', async () => {
     const kp = await generateTestKeypair('RS256', 'rsa-key');
     const token = await signTestJwt(kp, sessionClaims(NOW_SEC));
     const claims = await verifyJwt(token, { keys: createStaticJwks(kp.jwks), now });
 
     expect(claims.sub).toBe('user_123');
-  });
+  }, 30_000);
 
   it('rejects a tampered payload — the core guarantee', async () => {
     const kp = await generateTestKeypair();
