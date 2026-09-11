@@ -159,7 +159,7 @@ async function cadenceSection(): Promise<HTMLElement> {
     ]);
   }
   const row = (label: string, value: string, source: string, why: string) =>
-    el('div', { class: 'kw-row' }, [
+    el('div', { class: 'kw-row kw-2' }, [
       el('div', { class: 'kw-main' }, [el('div', { class: 't' }, [label]), el('div', { class: 'm num' }, [why])]),
       el('div', { class: 'num' }, [CADENCE_LABELS[value] ?? value, source === 'override' ? ' · set by Engine' : ` · ${c.tier} plan`]),
     ]);

@@ -360,7 +360,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
       draft.length === 0
         ? el('div', { class: 'fq-note' }, ['No prompts yet. Add one below, or take a suggestion.'])
         : el('div', { class: 'kw-list' }, draft.map((p) =>
-            el('div', { class: 'kw-row' }, [
+            el('div', { class: 'kw-row kw-2' }, [
               el('div', { class: 'kw-main' }, [el('div', { class: 't' }, [p])]),
               el('button', {
                 class: 'frow-act',
