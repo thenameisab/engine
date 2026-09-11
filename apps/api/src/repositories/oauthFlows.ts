@@ -131,10 +131,10 @@ export async function claimFlow(
 /**
  * Delete expired, unclaimed flows.
  *
- * Called from the scheduled handler. Consumed rows are removed too, on a longer
- * lag, so a replay attempt shortly after a legitimate callback still finds the
- * 'already-used' row rather than an empty table — the distinction is worth an
- * hour of retention.
+ * Called from `scheduledOAuthFlowReap` on the nightly cron. Consumed rows are
+ * removed too, on a longer lag, so a replay attempt shortly after a legitimate
+ * callback still finds the 'already-used' row rather than an empty table — the
+ * distinction is worth an hour of retention.
  */
 export async function reapExpiredFlows(db: Db): Promise<number> {
   const rows = await db`

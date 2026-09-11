@@ -440,6 +440,19 @@ a { color: inherit; text-decoration: none; }
 .fmain .t { font-size: var(--t-sm); font-weight: 500; }
 .fmain .m { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .impact-n { font-weight: 600; color: var(--good); font-size: var(--t-sm); }
+/* Brand strength leads the findings list with its score in the slot an issue
+   group gives its severity chip. Same 62px width, so the four component rows
+   below it indent exactly like every other group's pages — but a number, not a
+   severity word, because a standing measure has no place in an ordering by
+   severity. */
+.fscore { font-family: var(--mono); font-size: var(--t-xs); font-weight: 700; flex: none; width: 62px; text-align: center; }
+/* One component's share, on the row. Coloured on the same three bands as the
+   score above it and as the Brand screen's bars, so a signal dragging the
+   blend down is visible without reading the number. */
+.fcomp-v { flex: none; width: 44px; text-align: right; font-weight: 600; font-size: var(--t-sm); }
+.fscore.good, .fcomp-v.good { color: var(--good); }
+.fscore.warn, .fcomp-v.warn { color: var(--watch); }
+.fscore.bad, .fcomp-v.bad { color: var(--risk); }
 
 /* integrations */
 .summary-row { display: flex; gap: 10px; margin-bottom: 16px; }
@@ -449,7 +462,13 @@ a { color: inherit; text-decoration: none; }
 .sstat.configured .sstat-n { color: var(--good); }
 .sstat.missing .sstat-n { color: var(--text-faint); }
 .intg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-@media (max-width: 860px) { .intg-grid { grid-template-columns: 1fr; } .summary-row { flex-wrap: wrap; } }
+/* The tiles are a multi-column grid of small cards, so they collapse at the
+   phone breakpoint. 860px is where the sidebar *goes*, which gives the
+   content column more width, not less — a two-up grid of 380px tiles has no
+   reason to become one 820px tile there. `.summary-row` stays at 860: it is
+   a flex row that wraps, and wrapping early costs nothing. */
+@media (max-width: 560px) { .intg-grid { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .summary-row { flex-wrap: wrap; } }
 .intg { padding: 14px 16px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--border); }
 .intg.configured { border-color: color-mix(in srgb, var(--good) 30%, var(--border)); }
 .intg-top { display: flex; align-items: center; gap: 8px; }
@@ -990,6 +1009,13 @@ select.field { cursor: pointer; }
    controls beside them. Competitors' row no longer labels anything, and the
    three single-control rows that still do put their label above the control,
    so centring is what lines the row up now. */
+/* The row of controls above a screen's results. Whether a control carries a
+   visible label is a decision per control, not per row: Competitors' four name
+   themselves (the select shows the brand, the input placeholders
+   `competitor.com`) and wear `aria-label` instead, while Off-site's and
+   Local's lone selects have nothing else to name them and keep `.ci-lbl`.
+   `align-self: flex-end` is what lets a labelled control sit in the same row
+   as a bare button without a ragged edge. */
 .ci-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .ci-controls .ci-lbl { align-self: flex-end; }
 .ci-lbl { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-2xs); color: var(--text-muted); font-weight: 550; }

@@ -25,6 +25,7 @@ import type {
   ScoreBand,
   ActionStatus,
   SerpOrganic,
+  EntityStrength,
 } from './types.js';
 
 export function clamp(n: number, lo: number, hi: number): number {
@@ -1555,3 +1556,105 @@ export function laneCounts(actions: ActionCard[]): Record<ActionStatus, number> 
   for (const a of actions) counts[a.status] += 1;
   return counts;
 }
+
+/**
+ * A 0–1 score as a whole-number percentage. Entity strength and its four
+ * components are the only 0–1 numbers a customer reads directly, and they are
+ * read on two screens — Findings and Visibility › Brand — so the rounding
+ * lives in one place rather than once per view.
+ */
+export function scorePct(n: number): string {
+  return `${Math.round(clamp(n, 0, 1) * 100)}%`;
+}
+
+/**
+ * How an entity-strength score should read. Separate from `healthBand`, which
+ * bands a 0–100 site health score: these are different numbers on different
+ * scales, and one function pretending otherwise would band 0.62 as "risk".
+ * The vocabulary is the one the Brand screen's CSS already uses.
+ */
+export function strengthBand(score: number): 'good' | 'warn' | 'bad' {
+  return score >= 0.75 ? 'good' : score >= 0.5 ? 'warn' : 'bad';
+}
+
+/** One of the four signals that make up entity strength, as a Findings row. */
+export interface BrandComponentRow {
+  key: 'schema' | 'corroboration' | 'wikidata' | 'sameAsConsistency';
+  label: string;
+  /** What raises it, short enough for a one-line muted row. */
+  hint: string;
+  /** 0–1, averaged across the project's entities. */
+  value: number;
+  band: 'good' | 'warn' | 'bad';
+  /** Its share of the blended score, 0–1. Breaks ties in the ordering. */
+  weight: number;
+}
+
+export interface BrandStrengthSummary {
+  /** The mean of every entity's blended score, 0–1. */
+  score: number;
+  band: 'good' | 'warn' | 'bad';
+  entityCount: number;
+  /** The lowest-scoring entity's name — where to start. */
+  weakest: string;
+  /** The four components, weakest first. */
+  components: BrandComponentRow[];
+}
+
+/**
+ * The share each component carries in the blended score, copied from
+ * `@engine/entity-audit`'s `rules.ts`. Duplicated deliberately: the dashboard
+ * never imports the audit package, and the explanation a customer reads has to
+ * name the weights. A change there without a change here makes the sentence
+ * wrong, so the numbers are asserted in `format.test.ts`.
+ */
+const BRAND_COMPONENTS: { key: BrandComponentRow['key']; label: string; hint: string; weight: number }[] = [
+  { key: 'schema', label: 'On-site entity schema', hint: 'Organization schema on your own pages', weight: 0.3 },
+  { key: 'corroboration', label: 'Cross-web corroboration', hint: 'Other domains that mention you', weight: 0.3 },
+  { key: 'wikidata', label: 'Wikidata mapping', hint: 'A Wikidata entry your schema points at', weight: 0.2 },
+  { key: 'sameAsConsistency', label: 'sameAs consistency', hint: 'Your other profiles, listed the same way', weight: 0.2 },
+];
+
+/**
+ * Brand strength for the Findings list: one score, the four components behind
+ * it, and the entity to start with.
+ *
+ * The mean across entities rather than the worst or the self entity alone. A
+ * project's entities are the things it wants understood, each weighted the
+ * same, and the worst of them would make one thin entity speak for the brand.
+ * The components are averaged the same way, and ordered weakest first, because
+ * the question this answers is which signal to go and fix.
+ *
+ * Null when no entity has been scored. A group that says "0%" about a project
+ * whose entity audit has never run describes a site nobody has looked at.
+ */
+export function brandStrengthSummary(strengths: EntityStrength[]): BrandStrengthSummary | null {
+  if (strengths.length === 0) return null;
+  const mean = (pick: (s: EntityStrength) => number) =>
+    strengths.reduce((sum, s) => sum + pick(s), 0) / strengths.length;
+
+  const score = mean((s) => s.score);
+  const components = BRAND_COMPONENTS.map((c) => {
+    const value = mean((s) => s.components[c.key]);
+    return { key: c.key, label: c.label, hint: c.hint, value, band: strengthBand(value), weight: c.weight };
+  }).sort((a, b) => a.value - b.value || b.weight - a.weight);
+
+  const weakest = strengths.reduce((lo, s) => (s.score < lo.score ? s : lo));
+  return {
+    score,
+    band: strengthBand(score),
+    entityCount: strengths.length,
+    weakest: weakest.canonicalName,
+    components,
+  };
+}
+
+/**
+ * The one sentence under the brand strength group. It names the weights
+ * because a customer who sees schema at 0% and Wikidata at 100% should know
+ * which of the two is worth their afternoon.
+ */
+export const BRAND_STRENGTH_EXPLANATION =
+  'Brand strength is how confidently search and AI can tell who you are. On-site schema and ' +
+  'cross-web corroboration carry 30% each; a Wikidata mapping and consistent sameAs links carry ' +
+  '20% each.';

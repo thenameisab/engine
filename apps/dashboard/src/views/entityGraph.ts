@@ -1,5 +1,5 @@
 import { el } from '../dom.js';
-import { auditLastRunLine, screenName } from '../format.js';
+import { auditLastRunLine, scorePct, screenName, strengthBand } from '../format.js';
 import { fetchEntityStrengths, runEntityAudit, type AuditLastRun } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
@@ -14,21 +14,13 @@ import type { EntityStrength } from '../types.js';
  * entities first: those are the ones search + AI understand least.
  */
 
-function pct(n: number): string {
-  return `${Math.round(n * 100)}%`;
-}
-
-function scoreClass(n: number): string {
-  return n >= 0.75 ? 'good' : n >= 0.5 ? 'warn' : 'bad';
-}
-
 function bar(label: string, value: number): HTMLElement {
   return el('div', { class: 'eg-comp' }, [
     el('span', { class: 'eg-comp-k' }, [label]),
     el('span', { class: 'eg-comp-track' }, [
-      el('span', { class: `eg-comp-fill ${scoreClass(value)}`, style: `width:${Math.round(value * 100)}%` }),
+      el('span', { class: `eg-comp-fill ${strengthBand(value)}`, style: `width:${Math.round(value * 100)}%` }),
     ]),
-    el('span', { class: 'eg-comp-v num' }, [pct(value)]),
+    el('span', { class: 'eg-comp-v num' }, [scorePct(value)]),
   ]);
 }
 
@@ -36,7 +28,7 @@ function strengthCard(s: EntityStrength): HTMLElement {
   return el('section', { class: 'panel eg-card' }, [
     el('header', {}, [
       el('h3', {}, [s.canonicalName]),
-      el('span', { class: `eg-score ${scoreClass(s.score)} num` }, [pct(s.score)]),
+      el('span', { class: `eg-score ${strengthBand(s.score)} num` }, [scorePct(s.score)]),
     ]),
     el('div', { class: 'eg-comps' }, [
       bar('Wikidata mapping', s.components.wikidata),
