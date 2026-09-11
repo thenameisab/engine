@@ -89,7 +89,7 @@ import {
 import { integrationsRoutes } from './routes/integrations.js';
 import { runScheduledSync } from './repositories/googleSync.js';
 import { getAccessToken, ConnectionUnavailableError } from './repositories/integrations.js';
-import { keyringFrom } from './repositories/oauthFlows.js';
+import { keyringFrom, reapExpiredFlows } from './repositories/oauthFlows.js';
 import { resolveSerpKey } from './repositories/serpKey.js';
 import { runScheduledRankPoll, RANK_POLL_CRON } from './repositories/rankPoll.js';
 import {
@@ -3438,6 +3438,25 @@ async function scheduledGoogleSync(env: Env): Promise<void> {
 }
 
 /**
+ * Nightly reap of expired OAuth flows (cron, see `wrangler.toml` `[triggers]`).
+ *
+ * `oauth_flows` gets one short-lived row per connect attempt, and every row
+ * nobody spent — the customer closed the consent screen, or the callback never
+ * came back — stayed in the table forever. Nothing reads a flow after it
+ * expires, so this is housekeeping rather than correctness: it logs its own
+ * failure and returns, because a table that did not get tidied must not cost
+ * the passes after it their night.
+ */
+async function scheduledOAuthFlowReap(env: Env): Promise<void> {
+  try {
+    const deleted = await reapExpiredFlows(createDb(env.DATABASE_URL));
+    console.log(`oauth flow reap: ${deleted} expired flow(s) deleted`);
+  } catch (error) {
+    console.error(`oauth flow reap failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
  * One Worker, three schedules. Cloudflare passes the matched cron expression
  * on the event, which is the only thing that distinguishes them.
  *
@@ -3461,6 +3480,7 @@ async function scheduled(event: ScheduledController, env: Env, _ctx: ExecutionCo
   await scheduledDeterministicAudits(env);
   await scheduledPrMergeCheck(env);
   await scheduledCrawlQueue(env);
+  await scheduledOAuthFlowReap(env);
 }
 
 /**

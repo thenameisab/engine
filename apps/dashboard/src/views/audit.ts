@@ -1,11 +1,12 @@
 import { el } from '../dom.js';
-import { fetchAudit, fetchDeployTarget, fetchLatestAuditRequest, proposeBatch, proposeFix } from '../api.js';
+import { fetchAudit, fetchDeployTarget, fetchEntityStrengths, fetchLatestAuditRequest, proposeBatch, proposeFix } from '../api.js';
 import { askForDeployTarget } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import { runAuditButton } from '../runAuditButton.js';
 import type { AppContext } from '../context.js';
-import { auditRequestStatusLine, crawlCoverageLine, groupFindings, healthBand, issueExplanation, manualFixReason, pagePath, screenName, severityCounts } from '../format.js';
-import type { ApiAuditRequest, AuditData, DeployTarget, FindingGroup, FindingRow } from '../types.js';
+import { BRAND_STRENGTH_EXPLANATION, auditRequestStatusLine, brandStrengthSummary, crawlCoverageLine, groupFindings, healthBand, issueExplanation, manualFixReason, pagePath, scorePct, screenName, severityCounts } from '../format.js';
+import type { BrandStrengthSummary } from '../format.js';
+import type { ApiAuditRequest, AuditData, DeployTarget, EntityStrength, FindingGroup, FindingRow } from '../types.js';
 
 /**
  * The "Propose fix" control for one page. It asks the API to generate the fix
@@ -110,6 +111,65 @@ function groupBlock(g: FindingGroup, hasTarget: boolean, ctx: AppContext, onTarg
     // to do instead, which is the only useful thing left to say.
     ...(manual ? [el('p', { class: 'fgroup-manual' }, [manual])] : []),
     el('div', { class: 'fgroup-acts' }, actions),
+    list,
+  ]);
+}
+
+/**
+ * Brand strength as a Findings group.
+ *
+ * The entity audit runs after every crawl, and its result was visible only to
+ * someone who found the Brand tab. It belongs on this screen because it is
+ * something the audit found about the site — but it is a standing measure
+ * rather than an issue, so it carries its score in the slot where an issue
+ * group carries a severity chip. That keeps the component rows indented like
+ * every other group's pages, and it takes no word from the severity
+ * vocabulary: a measure that is not high, medium or low must not claim a place
+ * in an ordering by severity, so it leads the list once and the issues follow.
+ *
+ * The per-entity breakdown stays on Visibility › Brand. Four averaged signals
+ * answer "which one do I go and fix"; which entity is weakest is a second
+ * question, and the tab that answers it already exists.
+ */
+function brandGroup(b: BrandStrengthSummary): HTMLElement {
+  const entities = b.entityCount === 1 ? '1 entity' : `${b.entityCount} entities`;
+  const signals = `${b.components.length} signals`;
+
+  const list = el('div', { class: 'flist' }, b.components.map((c) =>
+    el('div', { class: 'frow' }, [
+      el('div', { class: 'fmain' }, [
+        el('div', { class: 't' }, [c.label]),
+        el('div', { class: 'm' }, [c.hint]),
+      ]),
+      el('span', { class: `fcomp-v num ${c.band}` }, [scorePct(c.value)]),
+    ]),
+  ));
+  list.hidden = true;
+
+  const toggle = el('button', {
+    class: 'fgroup-toggle',
+    type: 'button',
+    'aria-expanded': 'false',
+  }, [`Show ${signals}`]);
+  toggle.addEventListener('click', () => {
+    list.hidden = !list.hidden;
+    toggle.setAttribute('aria-expanded', String(!list.hidden));
+    toggle.textContent = list.hidden ? `Show ${signals}` : `Hide ${signals}`;
+  });
+
+  return el('div', { class: 'fgroup' }, [
+    el('div', { class: 'fgroup-head' }, [
+      el('span', { class: `fscore num ${b.band}` }, [scorePct(b.score)]),
+      el('div', { class: 'fmain' }, [
+        el('div', { class: 't' }, ['Brand strength']),
+        el('div', { class: 'm' }, [`${entities} scored · weakest ${b.weakest}`]),
+      ]),
+    ]),
+    el('p', { class: 'fgroup-why' }, [BRAND_STRENGTH_EXPLANATION]),
+    el('div', { class: 'fgroup-acts' }, [
+      toggle,
+      el('a', { class: 'more', href: '#/visibility/brand' }, ['Per-entity detail →']),
+    ]),
     list,
   ]);
 }
@@ -243,21 +303,25 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
     let loadError: string | null = null;
     let target: DeployTarget | null = null;
     let latest: ApiAuditRequest | null = null;
+    let strengths: EntityStrength[] = [];
     try {
-      // The target and the request are best-effort: a failure on either only
-      // disables the Propose buttons or hides the status line, it does not
-      // block showing the audit.
-      [data, target, latest] = await Promise.all([
+      // The target, the request and the entity strengths are best-effort: a
+      // failure on one only disables the Propose buttons, hides the status
+      // line or drops the brand group, it does not block showing the audit.
+      let entity: { strengths: EntityStrength[] } | null = null;
+      [data, target, latest, entity] = await Promise.all([
         fetchAudit(),
         fetchDeployTarget().catch(() => null),
         fetchLatestAuditRequest().catch(() => null),
+        fetchEntityStrengths().catch(() => null),
       ]);
+      strengths = entity?.strengths ?? [];
     } catch (err) {
       // Same rule as the Fix Queue: an unreachable API is not an empty audit, and
       // this view will not invent findings to paper over the difference.
       loadError = readableError(err);
     }
-    render(data, loadError, target, latest);
+    render(data, loadError, target, latest, brandStrengthSummary(strengths));
   }
 
   function schedulePoll(latest: ApiAuditRequest | null): void {
@@ -272,7 +336,13 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
 
   const runButton = (latest: ApiAuditRequest | null): HTMLElement => runAuditButton(ctx, latest, load);
 
-  function render(data: AuditData | null, loadError: string | null, target: DeployTarget | null, latest: ApiAuditRequest | null): void {
+  function render(
+    data: AuditData | null,
+    loadError: string | null,
+    target: DeployTarget | null,
+    latest: ApiAuditRequest | null,
+    brand: BrandStrengthSummary | null,
+  ): void {
     schedulePoll(latest);
     const status = auditRequestStatusLine(latest);
     const statusLine = status
@@ -307,13 +377,19 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
           el('h3', {}, ['Findings']),
           el('span', { class: 'more' }, [issueCount(d.findings)]),
         ]),
-        d.findings.length === 0
-          ? el('div', { class: 'emptybox' }, [
-              d.healthScore === null
-                ? 'Run an audit to see what to fix. Findings appear here when it finishes.'
-                : 'No findings. The last audit found nothing to fix.',
-            ])
-          : el('div', { class: 'fgroups' }, groupFindings(d.findings).map((g) => groupBlock(g, hasTarget, ctx, () => void load()))),
+        // Brand strength leads, and an empty issue list still says so beneath
+        // it. A screen that dropped the whole list when there were no issues
+        // would hide the one thing the crawl always produces.
+        el('div', { class: 'fgroups' }, [
+          ...(brand ? [brandGroup(brand)] : []),
+          ...(d.findings.length === 0
+            ? [el('div', { class: 'emptybox' }, [
+                d.healthScore === null
+                  ? 'Run an audit to see what to fix. Findings appear here when it finishes.'
+                  : 'No findings. The last audit found nothing to fix.',
+              ])]
+            : groupFindings(d.findings).map((g) => groupBlock(g, hasTarget, ctx, () => void load()))),
+        ]),
       ]),
     ];
     container.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));

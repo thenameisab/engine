@@ -251,6 +251,15 @@ describe('styles.css base rules', () => {
     expect([...new Set(widths)].sort((a, b) => a - b)).toEqual([560, 860, 1080]);
   });
 
+  it('collapses the integration tiles at the phone width, not where the rail goes', () => {
+    // Pass 5c put `.intg-grid` on 860 by moving each rule to the nearest of the
+    // three. 860 is where the sidebar goes, which gives the content column more
+    // width — so that band rendered one 820px-wide tile where two had fit.
+    // The breakpoint's stated meaning, not the arithmetic, puts it on 560.
+    const block = css.match(/@media \(max-width: (\d+)px\) \{[^}]*\.intg-grid \{[^}]*grid-template-columns: 1fr/);
+    expect(block?.[1]).toBe('560');
+  });
+
   it('lets exactly one field per flex row absorb the slack', () => {
     // `.serp-form-row .field { flex: 1 }` priced a two-letter country select
     // as wide as the domain input beside it. A field now takes its own width

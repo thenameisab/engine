@@ -1777,3 +1777,74 @@ appending a `@media (max-width: 700px)` rule fails it, and only it.
 `.ci-lbl`'s three remaining rows differ in shape from the one this pass
 changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
 5b.
+
+## 2026-09-11 — Brand strength on Findings, and three small items closed
+
+- **Brand strength is a Findings group now.** The entity audit has run after
+  every crawl since the runner's finish route started calling
+  `runEntityAuditAfterCrawl`, but its result was visible only to someone who
+  found Visibility › Brand. `views/audit.ts` builds a `.fgroup` on the row
+  grammar from pass 5a: the blended score, one explanation, and the four
+  signals behind it as `.frow`s, folded away by default. This finishes v1
+  readiness step 4 — the trigger half was already done, this is the surfacing
+  half.
+- **Its score sits where an issue group's severity chip sits, and is a number,
+  not a word.** Brand strength is a standing measure, not an issue, so it takes
+  no word from the severity vocabulary and claims no place in the ordering by
+  severity: it leads the list once and the issues follow. `.fscore` is the same
+  62px slot as `.sev`, measured at 62px in a rendered check, so the four signal
+  rows indent to the same 107px as every other group's pages.
+- **The signals are averaged across entities and ordered weakest first.** The
+  question the group answers is which signal to go and fix; which entity is
+  weakest is a second question, and Visibility › Brand already answers it. The
+  group names the weakest entity and links there. The redesign plan's "remove
+  `entityGraph.ts`" is deliberately not followed — it was written before
+  Visibility had tabs.
+- **The weights are duplicated into the dashboard on purpose.** The explanation
+  a customer reads names 30/30/20/20, and the dashboard never imports
+  `@engine/entity-audit`. `format.test.ts` asserts the four sum to 1 and that
+  the sentence names both numbers, so a change in `rules.ts` without a change
+  here fails rather than making the sentence quietly wrong.
+- **One band function, two screens.** `strengthBand` and `scorePct` moved into
+  `format.ts` and `entityGraph.ts` now calls them, so the Brand screen and the
+  Findings group cannot disagree about whether 0.62 is amber. Kept separate
+  from `healthBand`, which bands a 0–100 site score: one function for both
+  would band 0.62 as "risk".
+- **`brandStrengthSummary([])` is null, not 0%.** A group reading 0% about a
+  project whose entity audit has never run describes a site nobody has looked
+  at as a site with no brand. The strengths fetch is best-effort beside the
+  audit's three existing calls: a failure drops the group, it does not blank
+  the screen.
+- **Pass 5c's `.intg-grid` breakpoint is reverted to 560, by the breakpoint's
+  meaning rather than by arithmetic.** 860 is where the sidebar *goes*, which
+  gives the content column more width — collapsing a two-up grid of 380px
+  tiles into one 820px tile there is backwards. 560 is the phone rule, which
+  is what this is. `.summary-row`'s `flex-wrap` stays at 860; it wraps only
+  when it needs to, so an early wrap costs nothing. Asserted in
+  `styles.test.ts`.
+- **Ledger row 4 is resolved as a decision, not a change.** `.ci-controls`
+  means "the row of controls above a screen's results", and whether a control
+  carries a visible label is a decision per control: Competitors' four name
+  themselves and wear `aria-label`, Off-site's and Local's lone selects have
+  nothing else to name them and keep `.ci-lbl`. `align-self: flex-end` is what
+  lets the two shapes share a row without a ragged edge. Written onto the rule
+  in `styles.css`. Also a correction to the old row: it counted three
+  `.ci-controls` rows and there are two — `localProfile.ts:112`'s `.ci-lbl` is
+  a form label inside `.intg-section`, not a control row at all.
+- **Two Tier 2 leftovers closed.** `packages/connectors/src/google/oauth.ts`
+  and its test are deleted with the `export *` line that carried them; every
+  real caller resolves to `packages/integrations/src/oauth2.ts`, checked name
+  by name for all seven exports. `reapExpiredFlows` is called from a new
+  `scheduledOAuthFlowReap` on the nightly chain, so `oauth_flows` stops growing
+  forever; it logs its own failure rather than costing the passes after it
+  their night. Its doc comment said "called from the scheduled handler", which
+  was false when it was written and is true now.
+- **`NIGHTLY_AUDIT_KINDS` is gone.** One occurrence in the tree, its own
+  declaration. The fact it carried — three kinds on the clock, entity on the
+  crawl — moved onto `listDueAudits`, whose SQL is the only place the three
+  names exist.
+- Verified: `npx turbo typecheck test lint build --force` 68/68. Dashboard
+  tests 194, up from 186. API 438, unchanged. Connectors 124, down from 149,
+  which is the 25 tests of the deleted duplicate. The group was rendered in
+  Chromium against the real stylesheet in both themes, and the 62px score slot
+  and 107px row indent were measured rather than assumed.

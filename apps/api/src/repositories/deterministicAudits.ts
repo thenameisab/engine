@@ -26,9 +26,6 @@ import type { Db } from '../db.js';
 export type DeterministicAuditKind = 'entity' | 'offsite' | 'competitor' | 'local';
 export type DeterministicAuditTrigger = 'crawl' | 'schedule' | 'manual';
 
-/** The three kinds the nightly pass owns. `entity` is driven by the crawl. */
-export const NIGHTLY_AUDIT_KINDS: readonly DeterministicAuditKind[] = ['offsite', 'competitor', 'local'];
-
 /**
  * A cap on audits per nightly run. None of these spends a vendor credit, so
  * the cap is about the Worker's own wall clock, not money: a scheduled handler
@@ -101,6 +98,12 @@ export async function latestDeterministicAuditRun(
 
 /**
  * Everything the nightly pass should run, least recently audited first.
+ *
+ * Three kinds: off-site, competitor and local. `entity` is absent on purpose —
+ * a crawl is the moment an entity's facts change, so it runs from the runner's
+ * finish route (`runEntityAuditAfterCrawl`) and not on a clock. The three names
+ * are in the SQL below and nowhere else; a `NIGHTLY_AUDIT_KINDS` constant that
+ * declared them separately was read by nothing and is gone.
  *
  * Each kind selects only the entities it can say something about, because an
  * audit with no input is not a clean result — it is no result, and recording

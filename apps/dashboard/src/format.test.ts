@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, accountVocabulary, showsClientColumn, chooseAccountNote, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, accountVocabulary, showsClientColumn, chooseAccountNote, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist, strengthBand, scorePct, brandStrengthSummary, BRAND_STRENGTH_EXPLANATION } from './format.js';
 import { VISIBILITY_TABS, visibilityTabId, visibleVisibilityTabs } from './views/visibility.js';
 import { firstSentence } from './views/home.js';
-import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
+import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, EntityStrength, FindingRow } from './types.js';
 
 describe('bandPositions', () => {
   it('centers a symmetric band with the tick between the edges', () => {
@@ -1297,5 +1297,77 @@ describe('operatorChecklist', () => {
     const rows = operatorChecklist({ readiness: null, google: null, github: null, users: null, queue: null });
     expect(rows).toHaveLength(9);
     expect(rows.every((r) => r.next !== null)).toBe(true);
+  });
+});
+
+describe('brand strength as a Findings group', () => {
+  const entity = (
+    canonicalName: string,
+    components: EntityStrength['components'],
+  ): EntityStrength => ({
+    entityId: canonicalName,
+    canonicalName,
+    // The same 30/30/20/20 blend `@engine/entity-audit` applies, so a fixture
+    // cannot claim a score its components would not produce.
+    score:
+      0.3 * components.schema +
+      0.3 * components.corroboration +
+      0.2 * components.wikidata +
+      0.2 * components.sameAsConsistency,
+    components,
+    corroboratingDomains: 0,
+  });
+
+  const strong = entity('Acme', { wikidata: 1, schema: 1, sameAsConsistency: 1, corroboration: 1 });
+  const weak = entity('Acme Labs', { wikidata: 0, schema: 0, sameAsConsistency: 0.5, corroboration: 0.2 });
+
+  it('says nothing at all when no entity has been scored', () => {
+    // A group reading "0%" would describe a site nobody has looked at as a
+    // site with no brand, which is a different and much worse claim.
+    expect(brandStrengthSummary([])).toBeNull();
+  });
+
+  it('averages across entities rather than letting the worst one speak', () => {
+    const b = brandStrengthSummary([strong, weak])!;
+    expect(b.entityCount).toBe(2);
+    expect(b.score).toBeCloseTo((strong.score + weak.score) / 2, 10);
+    expect(b.score).toBeGreaterThan(weak.score);
+  });
+
+  it('names the weakest entity, which is where an owner starts', () => {
+    expect(brandStrengthSummary([strong, weak])!.weakest).toBe('Acme Labs');
+    expect(brandStrengthSummary([weak, strong])!.weakest).toBe('Acme Labs');
+  });
+
+  it('orders the four signals weakest first, breaking a tie on weight', () => {
+    const b = brandStrengthSummary([weak])!;
+    expect(b.components.map((c) => c.key)).toEqual(['schema', 'wikidata', 'corroboration', 'sameAsConsistency']);
+    // wikidata and schema are both 0; schema leads because it carries 30%.
+    expect(b.components[0].weight).toBeGreaterThan(b.components[1].weight);
+  });
+
+  it('keeps the weights the explanation names adding up to the whole score', () => {
+    // The weights are copied from `@engine/entity-audit`. If they change there
+    // without changing here, the sentence a customer reads becomes wrong.
+    const b = brandStrengthSummary([strong])!;
+    expect(b.components.reduce((sum, c) => sum + c.weight, 0)).toBeCloseTo(1, 10);
+    expect(BRAND_STRENGTH_EXPLANATION).toContain('30%');
+    expect(BRAND_STRENGTH_EXPLANATION).toContain('20%');
+  });
+
+  it('bands a score the same way on Findings and on the Brand screen', () => {
+    expect(strengthBand(0.75)).toBe('good');
+    expect(strengthBand(0.74)).toBe('warn');
+    expect(strengthBand(0.5)).toBe('warn');
+    expect(strengthBand(0.49)).toBe('bad');
+    expect(brandStrengthSummary([weak])!.band).toBe('bad');
+    expect(brandStrengthSummary([strong])!.band).toBe('good');
+  });
+
+  it('reads a 0-1 score as a whole percentage, clamped', () => {
+    expect(scorePct(0.625)).toBe('63%');
+    expect(scorePct(0)).toBe('0%');
+    expect(scorePct(1)).toBe('100%');
+    expect(scorePct(1.4)).toBe('100%');
   });
 });
