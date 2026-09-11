@@ -417,6 +417,14 @@ export const INTEGRATIONS: IntegrationDef[] = [
         required: true,
         example: 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
       },
+      {
+        name: 'GITHUB_WEBHOOK_SECRET',
+        description:
+          "Shared secret on the App's webhook, so POST /webhooks/github can tell a real delivery from anyone who knows the URL. Optional: without it merged pull requests are found by the nightly pass instead, which is slower but never wrong.",
+        secret: true,
+        required: false,
+        example: 'a long random string',
+      },
     ],
     notes:
       'Request shapes (branch create, file write, PR open) are fully unit-tested against GitHub\'s documented REST API with a mocked fetch — no live token needed for that. Going live needs a real GitHub App/PAT scoped to a customer repo.',

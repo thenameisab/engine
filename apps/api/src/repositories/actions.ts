@@ -152,6 +152,40 @@ export async function listDeployedPrActions(db: Db, limit = 100): Promise<Pendin
   return pending;
 }
 
+/**
+ * The deployed PR fix a webhook delivery is about, or null.
+ *
+ * Filters in SQL on the repository, then matches the number in TypeScript for
+ * the same reason `listDeployedPrActions` does: the number lives in an audit
+ * entry inside a jsonb array, and the newest entry wins because a retried
+ * deploy opens a second pull request. A jsonb path query could express that,
+ * but not "the last matching element", so the walk stays where it is readable.
+ *
+ * The repository filter is what keeps this cheap: a delivery names one repo,
+ * and a workspace's deployed PR fixes across every other customer are not read.
+ */
+export async function findDeployedPrAction(db: Db, repo: string, prNumber: number): Promise<PendingPr | null> {
+  const rows = await db<{ id: string; project_id: string; target: DeployTarget; audit_log: AuditEntry[] }[]>`
+    select a.id, e.project_id, a.target, a.audit_log
+    from actions a
+    join findings f on f.id = a.finding_id
+    join entities e on e.id = f.entity_id
+    where a.status = 'deployed'
+      and a.target->>'kind' = 'github-pr'
+      and a.target->>'repo' = ${repo}
+    order by a.updated_at desc
+  `;
+  for (const row of rows) {
+    if (row.target.kind !== 'github-pr') continue;
+    const entry = [...row.audit_log]
+      .reverse()
+      .find((e) => typeof (e.detail as { prNumber?: unknown } | undefined)?.prNumber === 'number');
+    if ((entry?.detail as { prNumber?: number } | undefined)?.prNumber !== prNumber) continue;
+    return { actionId: row.id, projectId: row.project_id, repo: row.target.repo, prNumber };
+  }
+  return null;
+}
+
 export async function getAction(db: Db, id: string): Promise<Action | null> {
   const rows = await db<ActionRow[]>`
     select id, finding_id, type, target, diff, status, audit_log, reviewed_at, reviewed_by

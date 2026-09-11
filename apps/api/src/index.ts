@@ -18,7 +18,7 @@ import {
   defaultEnv,
   type ActionContext,
 } from '@engine/actions';
-import { verifyHtmlDeploy, verifyRobotsDeploy, verifyGbpDeploy, deployChangesTheLivePage, exportActionAsPr, getPullRequestState, getGbpAccessToken, deployGbpAction, type PullRequestState } from '@engine/deploy';
+import { verifyHtmlDeploy, verifyRobotsDeploy, verifyGbpDeploy, deployChangesTheLivePage, exportActionAsPr, getPullRequestState, verifyGithubSignature, mergedPullRequestFrom, getGbpAccessToken, deployGbpAction, type PullRequestState } from '@engine/deploy';
 import {
   verifyStripeSignature,
   mapStripeSubscriptionEvent,
@@ -143,6 +143,7 @@ import {
   saveActionReview,
   findingIdsWithActions,
   listDeployedPrActions,
+  findDeployedPrAction,
 } from './repositories/actions.js';
 import {
   findingBelongsToProject,
@@ -235,6 +236,13 @@ interface Env extends AuthEnv, DispatchEnv, EmailEnv {
   /** C4.5 GitHub PR export — token for the 'github-pr' DeployTarget's real API calls. */
   GITHUB_TOKEN?: string;
   /**
+   * Shared secret on Engine's GitHub App webhook, so `POST /webhooks/github`
+   * can tell a real delivery from anyone who knows the URL. Unset means the
+   * endpoint refuses every delivery and merges are found by the nightly pass
+   * instead, which is slower but never wrong.
+   */
+  GITHUB_WEBHOOK_SECRET?: string;
+  /**
    * C5 GBP automation, **legacy single-tenant fallback**. One owner's consent
    * for the whole deployment — correct while nothing was multi-tenant, wrong
    * once two customers have Business Profiles, because the second customer's
@@ -296,6 +304,10 @@ app.use('*', (c, next) => {
  *  - `GET /health` — a liveness probe, reveals nothing.
  *  - `POST /billing/webhook` — called by Stripe, which cannot hold a JWT. It
  *    has its own stronger gate: HMAC signature verification (@engine/billing).
+ *  - `POST /webhooks/github` — called by Engine's GitHub App when a pull
+ *    request merges, and equally unable to hold a JWT. Same stronger gate:
+ *    HMAC-SHA256 over the raw body against `GITHUB_WEBHOOK_SECRET`, and with
+ *    that secret unset it refuses every delivery rather than trusting one.
  *  - `GET /oauth/google/callback` — a browser redirect target from Google. It
  *    carries no Authorization header and cannot; the **signed `state`** is what
  *    authenticates it, naming the account and user we minted it for
@@ -2883,6 +2895,68 @@ app.post('/billing/webhook', async (c) => {
   const db = createDb(c.env.DATABASE_URL);
   const subscription = await upsertSubscription(db, mapped.accountId, mapped.update);
   return c.json({ received: true, applied: true, subscription });
+});
+
+/**
+ * GitHub tells us a pull request merged, so a fix is verified in seconds
+ * instead of by the next morning.
+ *
+ * `scheduledPrMergeCheck` already finds merges by polling every open PR once a
+ * night. That is correct and slow: a customer who merges at 09:00 sees
+ * "Verified" the next day. This is the fast path, and the pass stays as the
+ * one that cannot be missed — a delivery can fail, arrive while the API is
+ * down, or never be configured at all.
+ *
+ * Unauthenticated by necessity and gated by signature instead, the same shape
+ * as `/billing/webhook`: GitHub cannot hold a JWT. Without
+ * `GITHUB_WEBHOOK_SECRET` the endpoint refuses everything rather than trusting
+ * an unsigned body — an open endpoint that enqueues work on a caller's word is
+ * worse than no endpoint.
+ *
+ * Answers 200 to deliveries it has no interest in, which is most of them.
+ * GitHub retries a non-2xx and disables an endpoint that keeps failing, so
+ * refusing an `opened` event would eventually cost us the merges too.
+ */
+app.post('/webhooks/github', async (c) => {
+  const { GITHUB_WEBHOOK_SECRET } = c.env;
+  if (!GITHUB_WEBHOOK_SECRET) {
+    console.warn('GitHub webhook delivery refused: GITHUB_WEBHOOK_SECRET is not set');
+    return c.json({ error: 'github webhook is not configured' }, 500);
+  }
+
+  const payload = await c.req.text();
+  const signed = await verifyGithubSignature(payload, c.req.header('x-hub-signature-256'), GITHUB_WEBHOOK_SECRET);
+  if (!signed) return c.json({ error: 'invalid signature' }, 400);
+
+  let event: unknown;
+  try {
+    event = JSON.parse(payload);
+  } catch {
+    return c.json({ error: 'body is not valid JSON' }, 400);
+  }
+
+  const merged = mergedPullRequestFrom(event);
+  if (!merged) return c.json({ received: true, applied: false });
+
+  const db = createDb(c.env.DATABASE_URL);
+  // A merge we have no deployed fix for: someone else's pull request in a
+  // repository the App is installed on. Nothing to do, and not a failure.
+  const pending = await findDeployedPrAction(db, merged.repo, merged.number);
+  if (!pending) return c.json({ received: true, applied: false });
+
+  const action = await getAction(db, pending.actionId);
+  if (!action) return c.json({ received: true, applied: false });
+
+  // `createVerifyRequest` returns null when one is already live for this
+  // action, so a redelivered merge — or a merge the nightly pass got to first —
+  // is checked once.
+  await enqueueVerify(db, pending.projectId, action, 'service:github-webhook');
+  // The runner's own schedule is fifteen minutes; one dispatch means the
+  // customer sees "Verified" on this visit.
+  const dispatch = await dispatchCrawlWorkflow(c.env);
+  if (!dispatch.dispatched) console.warn(`verify queued without dispatch: ${dispatch.reason}`);
+
+  return c.json({ received: true, applied: true, actionId: pending.actionId });
 });
 
 /**

@@ -162,6 +162,22 @@ a { color: inherit; text-decoration: none; }
 .loading, .errbox { font-family: var(--mono); font-size: var(--t-xs); color: var(--text-faint); padding: 40px 4px; }
 .errbox { color: var(--risk); }
 
+/* `el.hidden` means hidden, whatever a class says.
+ *
+ * The browser's own `[hidden] { display: none }` lives in the UA stylesheet,
+ * which loses to any author rule — so a class that sets `display` leaves a
+ * `hidden` element on screen. The stylesheet patched this twice per class
+ * (`.fstack`, then `.dt-gh`) and missed `.intg-planned-grid`, which shipped the
+ * planned-integrations disclosure open: the toggle said "Show 3 planned
+ * integrations" above three tiles that were already showing.
+ *
+ * `!important` on purpose. `hidden` is a fact about the element, not a style
+ * preference, and it has to beat a class rule that appears later in the file —
+ * which plain specificity cannot do. Set visibility with `el.hidden`, never by
+ * assigning `style.display`. `styles.test.ts` keeps the per-class patches from
+ * coming back. */
+[hidden] { display: none !important; }
+
 .pagehead { margin: 2px 0 20px; }
 .pagehead h1 { font-size: var(--t-xl); font-weight: 600; letter-spacing: -.01em; }
 .pagehead p { color: var(--text-muted); font-size: var(--t-sm); margin-top: 3px; }
@@ -185,6 +201,10 @@ a { color: inherit; text-decoration: none; }
 @media (hover: hover) and (pointer: fine) { .fgroup-toggle:hover { color: var(--text); } }
 .fgroup-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 .dt-form { margin-top: 10px; min-width: min(420px, 80vw); }
+/* The GitHub install state, above the repository fields it gates. Hidden with
+   `el.hidden` when another kind is selected; the global `[hidden]` rule makes
+   that beat this `display`. */
+.dt-gh { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 2px; }
 
 /* What the machine found on the live page, on a Deployed card. */
 .verify { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -531,8 +551,6 @@ textarea.review-editor { width: 100%; font-family: var(--font); font-size: var(-
 .fhint { font-size: var(--t-2xs); color: var(--text-faint); }
 .form-actions { margin-top: 14px; }
 .fstack { display: flex; flex-direction: column; gap: 8px; }
-/* A class with display beats the UA's [hidden] rule; make hidden win. */
-.fstack[hidden] { display: none; }
 select.field { appearance: auto; cursor: pointer; }
 .form-error { margin-top: 8px; font-size: var(--t-xs); color: var(--risk); padding: 8px 10px; border-radius: var(--r-sm); border: 1px solid color-mix(in srgb, var(--risk) 30%, transparent); background: color-mix(in srgb, var(--risk) 8%, transparent); }
 /* A choice of a few named options, as cards rather than a select. Three

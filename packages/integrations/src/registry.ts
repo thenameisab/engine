@@ -224,7 +224,7 @@ export const PROVIDERS: IntegrationProvider[] = [
     resourceScope: 'project',
     writes: true,
     setupSteps: [
-      'Register a GitHub App with Contents and Pull requests write permissions, and paste its App ID and private key into Settings.',
+      'Register a GitHub App with Contents and Pull requests write permissions, and paste its App ID and private key into the Platform screen.',
     ],
     docsUrl: 'https://docs.github.com/en/apps/creating-github-apps',
   },
