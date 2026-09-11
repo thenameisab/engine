@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import type { PromptQuery } from './llmEngine.js';
 import { OpenAIConnector } from './llmOpenAI.js';
 import { GeminiConnector, parseGeminiResponse } from './llmGemini.js';
+import { createConversationalLlmConnector, DRIVER_MIN_CONTEXT_TOKENS } from './factory.js';
+import { llmModelsWithContext } from './llmModels.js';
 
 const query: PromptQuery = {
   prompt: 'What are the best running shoes?',
@@ -103,5 +105,42 @@ describe('GeminiConnector', () => {
     });
     await connector.poll(query, 1);
     expect(JSON.parse((fetchImpl.mock.calls[0]![1] as RequestInit).body as string).tools).toBeUndefined();
+  });
+});
+
+describe('createConversationalLlmConnector', () => {
+  it('is null when no key is wired, so a deployment without Sarvam has no Driver', () => {
+    expect(createConversationalLlmConnector({})).toBeNull();
+  });
+
+  it('is null when nothing on the account clears the context the surface asked for', () => {
+    expect(createConversationalLlmConnector({ SARVAM_API_KEY: 'k' }, 1_000_000)).toBeNull();
+  });
+
+  it('takes the largest model that clears the requirement, ignoring SARVAM_MODEL', () => {
+    // Not the customer's pick and not the deployment default — that override
+    // names the citation poll's instrument, which is the 32K conversational
+    // model. A model too small for a twenty-tool catalogue does not answer
+    // more briefly, it fails part-way through a conversation.
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] })));
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const c = createConversationalLlmConnector({ SARVAM_API_KEY: 'k', SARVAM_MODEL: 'sarvam-105b-conversations' })!;
+      expect(c.engine).toBe('sarvam');
+      return c.converse([{ role: 'user', content: 'q' }]).then(() => {
+        const body = JSON.parse(String((fetchImpl.mock.calls[0]![1] as RequestInit).body));
+        expect(body.model).toBe('sarvam-105b');
+        expect(body.max_tokens).toBe(16000);
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('llmModelsWithContext', () => {
+  it('keeps only the models big enough, largest first', () => {
+    expect(llmModelsWithContext(DRIVER_MIN_CONTEXT_TOKENS).map((m) => m.id)).toEqual(['sarvam-105b']);
+    expect(llmModelsWithContext(0).map((m) => m.contextTokens)).toEqual([128_000, 32_000]);
   });
 });

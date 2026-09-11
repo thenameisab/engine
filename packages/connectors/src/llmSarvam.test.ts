@@ -217,3 +217,189 @@ describe('SarvamConnector reports its model', () => {
     expect((await connector.poll(query, 1)).model).toBe('sarvam-105b');
   });
 });
+
+/** The tool catalogue a conversation turn is given in these tests. */
+const TOOLS = [
+  {
+    name: 'site_health',
+    description: "The site's health score and its finding counts",
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'top_queries',
+    description: 'The queries that bring people to the site',
+    parameters: { type: 'object', properties: { period: { type: 'string' } } },
+  },
+];
+
+function sentBody(fetchImpl: { mock: { calls: unknown[][] } }, call = 0): Record<string, unknown> {
+  return JSON.parse(String((fetchImpl.mock.calls[call]![1] as RequestInit).body));
+}
+
+describe('SarvamConnector.converse', () => {
+  it('sends the message list in the four roles, the catalogue, and the choice', async () => {
+    const fetchImpl = vi.fn(async () => response({ choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    await connector.converse(
+      [
+        { role: 'system', content: 'be brief' },
+        { role: 'user', content: 'how is the site?' },
+        { role: 'assistant', content: null, toolCalls: [{ id: 'call_1', name: 'site_health', arguments: '{}' }] },
+        { role: 'tool', toolCallId: 'call_1', content: '{"health":72}' },
+      ],
+      { tools: TOOLS, toolChoice: 'auto', reasoningEffort: 'high' },
+    );
+
+    const body = sentBody(fetchImpl);
+    expect(body.messages).toEqual([
+      { role: 'system', content: 'be brief' },
+      { role: 'user', content: 'how is the site?' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'site_health', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'call_1', content: '{"health":72}' },
+    ]);
+    expect((body.tools as { function: { name: string } }[]).map((t) => t.function.name)).toEqual([
+      'site_health',
+      'top_queries',
+    ]);
+    expect(body.tool_choice).toBe('auto');
+    expect(body.reasoning_effort).toBe('high');
+  });
+
+  it('sends no tools, no choice and no effort when none were asked for', async () => {
+    // A plain answer must go on the wire exactly as it did before tool calling
+    // existed: the citation poll and the "try a prompt" surface both use this
+    // path, and an empty `tools: []` is a different request.
+    const fetchImpl = vi.fn(async () => response({ choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await connector.converse([{ role: 'user', content: 'hi' }]);
+    const body = sentBody(fetchImpl);
+    expect(body).not.toHaveProperty('tools');
+    expect(body).not.toHaveProperty('tool_choice');
+    expect(body).not.toHaveProperty('reasoning_effort');
+    expect(body).not.toHaveProperty('stream');
+  });
+
+  it('reads a turn that asked for two tools and wrote no text', async () => {
+    const fetchImpl = vi.fn(async () =>
+      response({
+        choices: [
+          {
+            finish_reason: 'tool_calls',
+            message: {
+              content: null,
+              tool_calls: [
+                { id: 'a', function: { name: 'site_health', arguments: '{}' } },
+                { id: 'b', function: { name: 'top_queries', arguments: '{"period":"28d"}' } },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const turn = await connector.converse([{ role: 'user', content: 'how is the site?' }], { tools: TOOLS });
+
+    expect(turn.text).toBe('');
+    expect(turn.finishReason).toBe('tool_calls');
+    expect(turn.toolCalls).toEqual([
+      { id: 'a', name: 'site_health', arguments: '{}' },
+      { id: 'b', name: 'top_queries', arguments: '{"period":"28d"}' },
+    ]);
+  });
+
+  it('hands a truncated turn back rather than throwing on one', async () => {
+    // The opposite of `sample`, deliberately. A citation sample refuses a turn
+    // cut off mid-thought because recording it would understate the brand's
+    // visibility; an agent loop may want to retry it with a larger budget. The
+    // transport is not the layer that should decide.
+    const fetchImpl = vi.fn(async () =>
+      response({ choices: [{ finish_reason: 'length', message: { content: null, reasoning_content: 'thinking…' } }] }),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const turn = await connector.converse([{ role: 'user', content: 'q' }]);
+    expect(turn).toMatchObject({ text: '', reasoning: 'thinking…', finishReason: 'length', toolCalls: [] });
+  });
+
+  it('clamps a caller who asks for more tokens than the model allows', async () => {
+    // Exceeding the model's ceiling is a 400 from the vendor, not a shorter
+    // answer, so the caller's number is a maximum request and not a promise.
+    const fetchImpl = vi.fn(async () => response({ choices: [{ message: { content: 'ok' } }] }));
+    const connector = new SarvamConnector({
+      apiKey: 'k',
+      maxTokens: 8192,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await connector.converse([{ role: 'user', content: 'q' }], { maxTokens: 99999 });
+    expect(sentBody(fetchImpl).max_tokens).toBe(8192);
+  });
+});
+
+function toolDelta(calls: unknown[], finish?: string) {
+  return { choices: [{ delta: { tool_calls: calls }, finish_reason: finish ?? null }] };
+}
+
+async function drainTurn(iter: AsyncIterable<unknown>) {
+  const chunks: unknown[] = [];
+  for await (const c of iter) chunks.push(c);
+  return chunks;
+}
+
+describe('SarvamConnector.streamConverse', () => {
+  it('announces each tool as its name arrives and hands over the complete calls at the end', async () => {
+    // Arguments arrive a few characters at a time and are useless until whole,
+    // but the name arrives first — and the name is what a screen can show
+    // while the round runs.
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([
+        delta({ reasoning_content: 'which tool…' }),
+        toolDelta([{ index: 0, id: 'a', function: { name: 'top_queries', arguments: '{"per' } }]),
+        toolDelta([{ index: 0, function: { arguments: 'iod":"28d"}' } }]),
+        toolDelta([{ index: 1, id: 'b', function: { name: 'site_health', arguments: '{}' } }], 'tool_calls'),
+      ]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(await drainTurn(connector.streamConverse([{ role: 'user', content: 'q' }], { tools: TOOLS }))).toEqual([
+      { type: 'thinking', delta: 'which tool…' },
+      { type: 'tool_call_start', id: 'a', name: 'top_queries' },
+      { type: 'tool_call_start', id: 'b', name: 'site_health' },
+      { type: 'tool_call', call: { id: 'a', name: 'top_queries', arguments: '{"period":"28d"}' } },
+      { type: 'tool_call', call: { id: 'b', name: 'site_health', arguments: '{}' } },
+    ]);
+  });
+
+  it('sets stream and carries the catalogue on the streamed request too', async () => {
+    const fetchImpl = vi.fn(async () => streamResponse([delta({ content: 'hi' }, 'stop')]));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await drainTurn(connector.streamConverse([{ role: 'user', content: 'q' }], { tools: TOOLS, toolChoice: { name: 'site_health' } }));
+    const body = sentBody(fetchImpl);
+    expect(body.stream).toBe(true);
+    expect(body.tool_choice).toEqual({ type: 'function', function: { name: 'site_health' } });
+  });
+
+  it('does not call a turn that asked for a tool truncated, even with no answer text', async () => {
+    // A model that spent its budget deciding to call a tool did produce a
+    // result. Throwing here would discard a usable round.
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([toolDelta([{ index: 0, id: 'a', function: { name: 'site_health', arguments: '{}' } }], 'length')]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(await drainTurn(connector.streamConverse([{ role: 'user', content: 'q' }], { tools: TOOLS }))).toEqual([
+      { type: 'tool_call_start', id: 'a', name: 'site_health' },
+      { type: 'tool_call', call: { id: 'a', name: 'site_health', arguments: '{}' } },
+    ]);
+  });
+
+  it('still refuses a turn that produced nothing at all and ran out of budget', async () => {
+    const fetchImpl = vi.fn(async () => streamResponse([delta({ reasoning_content: 'still thinking' }, 'length')]));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(drainTurn(connector.streamConverse([{ role: 'user', content: 'q' }]))).rejects.toThrow(
+      /truncated at 16000 tokens/,
+    );
+  });
+});

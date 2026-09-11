@@ -7,11 +7,12 @@
 import type { SerpConnector } from './serp.js';
 import type { LlmEngineConnector } from './llmEngine.js';
 import type { LlmStreamingConnector } from './llmStream.js';
+import type { LlmConversationalConnector } from './llmTools.js';
 import { SerperConnector } from './serpSerper.js';
 import { OpenAIConnector } from './llmOpenAI.js';
 import { GeminiConnector } from './llmGemini.js';
 import { SarvamConnector } from './llmSarvam.js';
-import { llmModelChoice } from './llmModels.js';
+import { llmModelChoice, llmModelsWithContext } from './llmModels.js';
 
 type EnvRecord = Record<string, string | undefined>;
 
@@ -83,4 +84,35 @@ export function createStreamingLlmConnector(env: EnvRecord, model?: string): Llm
     });
   }
   return null;
+}
+
+/**
+ * The smallest context window a Driver turn is expected to fit in.
+ *
+ * A system prompt, a twenty-tool catalogue, several turns of history and
+ * several tool results in one request. 32K does not hold that reliably, so the
+ * requirement is stated here and the model is chosen against it — see driver
+ * scoping §2 and §9a decision 5.
+ */
+export const DRIVER_MIN_CONTEXT_TOKENS = 128_000;
+
+/**
+ * The engine used for a tool-calling conversation, or null if none is wired.
+ *
+ * A third factory beside the other two because it answers a third question.
+ * `createLlmConnectors` returns every configured engine, because a visibility
+ * measurement is only meaningful across engines. `createStreamingLlmConnector`
+ * returns the customer's picked model for a one-shot answer. This one is not
+ * the customer's choice at all: the surface states the context it needs and
+ * takes the largest model that clears it, because a model too small for the
+ * catalogue does not fail with a shorter answer, it fails mid-conversation.
+ */
+export function createConversationalLlmConnector(
+  env: EnvRecord,
+  minContextTokens = DRIVER_MIN_CONTEXT_TOKENS,
+): LlmConversationalConnector | null {
+  if (!env.SARVAM_API_KEY) return null;
+  const choice = llmModelsWithContext(minContextTokens).find((m) => m.engine === 'sarvam');
+  if (!choice) return null;
+  return new SarvamConnector({ apiKey: env.SARVAM_API_KEY, model: choice.id, maxTokens: choice.maxTokens });
 }
