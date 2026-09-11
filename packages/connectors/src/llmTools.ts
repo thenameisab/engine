@@ -147,6 +147,16 @@ export type LlmTurnChunk =
 
 export interface LlmConversationalConnector {
   engine: string;
+  /**
+   * The model id this connector talks to.
+   *
+   * Exposed because the caller stores it against the answer: `driver_messages`
+   * records which model produced each assistant turn, and a thread read back
+   * six months later has to say that rather than "whatever the factory picks
+   * today". The factory chooses the model, so the caller cannot name it
+   * without asking the connector it was handed.
+   */
+  model: string;
   /** One turn, complete. Throws on transport or vendor failure. */
   converse(messages: LlmMessage[], opts?: LlmConversationOptions): Promise<LlmTurn>;
   /** One turn, as it arrives. Throws on transport or vendor failure. */

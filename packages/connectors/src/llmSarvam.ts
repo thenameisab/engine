@@ -99,7 +99,7 @@ export class SarvamConnector
 {
   readonly engine = 'sarvam' as const;
   private readonly apiKey: string;
-  private readonly model: string;
+  readonly model: string;
   private readonly maxTokens: number;
   private readonly fetchImpl: typeof fetch;
   private readonly rawSink: NonNullable<SarvamConnectorOptions['rawSink']>;
