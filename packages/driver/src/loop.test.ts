@@ -29,6 +29,7 @@ function scriptedConnector(turns: Partial<LlmTurn>[]): LlmConversationalConnecto
   let i = 0;
   return {
     engine: 'test',
+    model: 'test-model',
     calls,
     async converse(messages, opts = {}) {
       // Structured-clone the transcript: the loop mutates its own array, and a

@@ -18,12 +18,22 @@ const env = {
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 
 function post(path: string, body: unknown): Promise<Response> {
+  return send('POST', path, body);
+}
+
+function send(method: string, path: string, body?: unknown): Promise<Response> {
   return app.request(
     path,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    {
+      method,
+      headers: { 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
     env,
   );
 }
+
+const THREAD = '22222222-2222-4222-8222-222222222222';
 
 describe('POST /projects/:projectId/driver/ask', () => {
   it('rejects a malformed project id before touching the database', async () => {
@@ -60,6 +70,12 @@ describe('POST /projects/:projectId/driver/ask', () => {
     expect((await res.json()).field).toBe('question');
   });
 
+  it('rejects a malformed thread id before touching the database', async () => {
+    const res = await post(`/projects/${PROJECT}/driver/ask`, { question: 'and then?', threadId: 'nope' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('threadId');
+  });
+
   it('offers no way to name a project in the body', async () => {
     // Scope comes from the path, after the access check. A body field that
     // reached the tool context would be a cross-tenant read, so the route
@@ -71,5 +87,51 @@ describe('POST /projects/:projectId/driver/ask', () => {
     });
     expect(res.status).toBe(400);
     expect((await res.json()).field).toBe('projectId');
+  });
+});
+
+describe('driver thread routes', () => {
+  it('rejects a malformed project id on the thread list', async () => {
+    const res = await send('GET', '/projects/not-a-uuid/driver/threads');
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('projectId');
+  });
+
+  it('rejects a malformed thread id on every route that names one', async () => {
+    const cases: [string, string, unknown?][] = [
+      ['GET', `/projects/${PROJECT}/driver/threads/nope`],
+      ['PATCH', `/projects/${PROJECT}/driver/threads/nope`, { visibility: 'organisation' }],
+      ['POST', `/projects/${PROJECT}/driver/threads/nope/shares`, { userId: 'u1' }],
+      ['DELETE', `/projects/${PROJECT}/driver/threads/nope/shares/u1`],
+    ];
+    for (const [method, path, body] of cases) {
+      const res = await send(method, path, body);
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect((await res.json()).field).toBe('threadId');
+    }
+  });
+
+  it('refuses a visibility outside the three states', async () => {
+    const res = await send('PATCH', `/projects/${PROJECT}/driver/threads/${THREAD}`, { visibility: 'public' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('visibility');
+  });
+
+  it('refuses a patch that changes nothing', async () => {
+    const res = await send('PATCH', `/projects/${PROJECT}/driver/threads/${THREAD}`, {});
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('nothing to change');
+  });
+
+  it('refuses a blank title rather than storing one', async () => {
+    const res = await send('PATCH', `/projects/${PROJECT}/driver/threads/${THREAD}`, { title: '   ' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('title');
+  });
+
+  it('requires someone to share with', async () => {
+    const res = await send('POST', `/projects/${PROJECT}/driver/threads/${THREAD}/shares`, {});
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('userId');
   });
 });

@@ -52,7 +52,6 @@ import {
   DEFAULT_LLM_MODEL_ID,
   type SerpQuery,
   type PromptQuery,
-  type LlmMessage,
 } from '@engine/connectors';
 import { durationMs, isEntityKind, isEntityRole, type AccountKind, type Action, type Entity, type Finding, type FindingSource, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
@@ -171,6 +170,16 @@ import { insertCitationEvents, citedShareByEngine } from './repositories/citatio
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
 import { brandTerms, searchSummary, trafficSummary, type SyncState } from './repositories/googleMetrics.js';
 import { askDriver } from './driver/ask.js';
+import {
+  listReadableThreads,
+  listThreadShares,
+  readableThread,
+  shareThread,
+  threadTranscript,
+  unshareThread,
+  updateThread,
+  type ThreadVisibility,
+} from './repositories/driverThreads.js';
 import { listAssignments, listConnections, connectedProvidersByAccount } from './repositories/integrations.js';
 import { getProject,
   upsertUser,
@@ -900,9 +909,11 @@ app.get('/projects/:projectId/ai/models', async (c) => {
  * the fallback when no model key is configured or the vendor fails, and a
  * fallback answer presented as a Driver answer would be a silent downgrade.
  *
- * `history` is accepted but not yet persisted — conversation state is migration
- * 0036 in step 4. Until then a caller that wants a follow-up sends back the
- * turns it already has.
+ * Earlier turns come from `driver_messages`, never from the request body. The
+ * body used to carry a `history` array that went straight into the transcript,
+ * which let a caller forge an assistant turn and have the model treat it as
+ * something it had itself said. `threadId` replaces it: the caller names the
+ * conversation, the server decides what is in it.
  */
 app.post('/projects/:projectId/driver/ask', async (c) => {
   const projectId = c.req.param('projectId');
@@ -911,23 +922,41 @@ app.post('/projects/:projectId/driver/ask', async (c) => {
 
   const raw = await readJson(c);
   if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
-  const body = raw as { question?: unknown; history?: unknown };
+  const body = raw as { question?: unknown; threadId?: unknown };
 
   const question = typeof body.question === 'string' ? body.question.trim() : '';
   if (!question) return c.json({ error: 'question is required', field: 'question' }, 400);
 
+  const threadId = typeof body.threadId === 'string' ? body.threadId : undefined;
+  if (threadId) {
+    const invalidThread = checkUuidParam(threadId, 'threadId');
+    if (invalidThread) return c.json({ error: invalidThread.message, field: invalidThread.field }, 400);
+  }
+
   const db = createDb(c.env.DATABASE_URL);
-  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
   if (accessError) return c.json(accessError.body, accessError.status);
+
+  // Continuing a thread is a read of it, so it goes through the same check as
+  // opening one. 404 rather than 403: whether a thread exists is itself the
+  // thing being protected.
+  if (threadId && !(await readableThread(db, projectId, threadId, user.id))) {
+    return c.json({ error: 'thread not found', threadId }, 404);
+  }
 
   const answer = await askDriver(db, c.env as unknown as Record<string, string | undefined>, projectId, {
     question,
-    ...(Array.isArray(body.history) ? { history: body.history as LlmMessage[] } : {}),
+    // A service token has no `users` row to own a thread, so its turns are not
+    // stored and it gets the single-turn behaviour it has always had.
+    ...(user.isService ? {} : { userId: user.id }),
+    ...(threadId ? { threadId } : {}),
   });
 
   return c.json({
     source: answer.source,
     answer: answer.text,
+    ...(answer.threadId ? { threadId: answer.threadId } : {}),
     ...(answer.modelEngine ? { engine: answer.modelEngine } : {}),
     ...(answer.fellBackBecause ? { fellBackBecause: answer.fellBackBecause } : {}),
     // The audit trail §4.4 requires: which tools ran, with what arguments, and
@@ -942,6 +971,196 @@ app.post('/projects/:projectId/driver/ask', async (c) => {
         }
       : {}),
   });
+});
+
+/**
+ * Driver threads: the conversation, and who may read it.
+ *
+ * Every route here does the same two checks in the same order —
+ * `projectAccessError` for the project, then `readableThread` for the thread.
+ * The two overlap on purpose: `readableThread`'s `organisation` branch joins
+ * `account_members` itself rather than inferring membership from having got
+ * this far, so it stays true to its name if it is ever called from somewhere
+ * that forgot the project guard.
+ *
+ * A thread the caller may not read answers 404, not 403. Whether a colleague
+ * has a conversation about this project is itself private; 403 would confirm it.
+ *
+ * There is no UI for any of this yet — §9a decision 4's sharing controls land
+ * with the Driver screen in step 5. The routes ship now because the schema is
+ * only real if something can reach it, and because the read check has to exist
+ * before the first thread does, not after.
+ */
+
+/** Which threads this person can open, most recently active first. */
+app.get('/projects/:projectId/driver/threads', async (c) => {
+  const projectId = c.req.param('projectId');
+  const invalidId = checkUuidParam(projectId, 'projectId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const threads = await listReadableThreads(db, projectId, user.id);
+  return c.json({ threads });
+});
+
+/**
+ * One thread, whole: every message, every tool call, every result.
+ *
+ * This is §4.4's audit answer. A customer who asks "where did that number come
+ * from" three days later is asking for the call and the rows it returned, and
+ * the prose is the one part of this response that cannot answer them.
+ */
+app.get('/projects/:projectId/driver/threads/:threadId', async (c) => {
+  const projectId = c.req.param('projectId');
+  const threadId = c.req.param('threadId');
+  for (const [value, field] of [[projectId, 'projectId'], [threadId, 'threadId']] as const) {
+    const invalid = checkUuidParam(value, field);
+    if (invalid) return c.json({ error: invalid.message, field: invalid.field }, 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const thread = await readableThread(db, projectId, threadId, user.id);
+  if (!thread) return c.json({ error: 'thread not found', threadId }, 404);
+
+  const [messages, shares] = await Promise.all([
+    threadTranscript(db, threadId),
+    // Only the author needs to see who it is shared with; a reader seeing the
+    // list learns who else is in the room, which is the author's to disclose.
+    thread.createdBy === user.id ? listThreadShares(db, threadId) : Promise.resolve([]),
+  ]);
+
+  return c.json({ thread, messages, ...(thread.createdBy === user.id ? { shares } : {}) });
+});
+
+const THREAD_VISIBILITIES: readonly ThreadVisibility[] = ['private', 'named', 'organisation'];
+
+/** Rename a thread, or change who can read it. Author only. */
+app.patch('/projects/:projectId/driver/threads/:threadId', async (c) => {
+  const projectId = c.req.param('projectId');
+  const threadId = c.req.param('threadId');
+  for (const [value, field] of [[projectId, 'projectId'], [threadId, 'threadId']] as const) {
+    const invalid = checkUuidParam(value, field);
+    if (invalid) return c.json({ error: invalid.message, field: invalid.field }, 400);
+  }
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { title?: unknown; visibility?: unknown };
+
+  const patch: { title?: string; visibility?: ThreadVisibility } = {};
+  if (body.title !== undefined) {
+    if (typeof body.title !== 'string' || body.title.trim() === '') {
+      return c.json({ error: 'title must be a non-empty string', field: 'title' }, 400);
+    }
+    patch.title = body.title.trim().slice(0, 200);
+  }
+  if (body.visibility !== undefined) {
+    if (!THREAD_VISIBILITIES.includes(body.visibility as ThreadVisibility)) {
+      return c.json(
+        { error: `visibility must be one of ${THREAD_VISIBILITIES.join(', ')}`, field: 'visibility' },
+        400,
+      );
+    }
+    patch.visibility = body.visibility as ThreadVisibility;
+  }
+  if (patch.title === undefined && patch.visibility === undefined) {
+    return c.json({ error: 'nothing to change: send title, visibility, or both' }, 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  // Read first, so someone who cannot see the thread gets the same 404 they
+  // would get from GET rather than a different answer that reveals it exists.
+  if (!(await readableThread(db, projectId, threadId, user.id))) {
+    return c.json({ error: 'thread not found', threadId }, 404);
+  }
+
+  // Author only. A reader who reached the thread through `organisation` could
+  // otherwise make it private and take someone else's conversation away.
+  const thread = await updateThread(db, threadId, user.id, patch);
+  if (!thread) return c.json({ error: 'only the author can change a thread', threadId }, 403);
+  return c.json({ thread });
+});
+
+/**
+ * Share a private thread with one person in the account.
+ *
+ * Membership is checked here rather than by a constraint: the account is two
+ * joins from this table, and a membership that lapses later should quietly
+ * revoke the read rather than fail a write on an unrelated row.
+ *
+ * Sharing does not by itself change `visibility`. A thread left `private` with
+ * share rows on it grants nothing, which is deliberate — the author sets the
+ * recipients and then opens the door, in either order.
+ */
+app.post('/projects/:projectId/driver/threads/:threadId/shares', async (c) => {
+  const projectId = c.req.param('projectId');
+  const threadId = c.req.param('threadId');
+  for (const [value, field] of [[projectId, 'projectId'], [threadId, 'threadId']] as const) {
+    const invalid = checkUuidParam(value, field);
+    if (invalid) return c.json({ error: invalid.message, field: invalid.field }, 400);
+  }
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { userId?: unknown };
+  const shareWith = typeof body.userId === 'string' ? body.userId.trim() : '';
+  if (!shareWith) return c.json({ error: 'userId is required', field: 'userId' }, 400);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const thread = await readableThread(db, projectId, threadId, user.id);
+  if (!thread) return c.json({ error: 'thread not found', threadId }, 404);
+  if (thread.createdBy !== user.id) {
+    return c.json({ error: 'only the author can share a thread', threadId }, 403);
+  }
+
+  const accountId = await getProjectAccountId(db, projectId);
+  if (!accountId || !(await isAccountMember(db, accountId, shareWith))) {
+    return c.json({ error: 'that person is not a member of this account', field: 'userId' }, 400);
+  }
+
+  await shareThread(db, threadId, shareWith, user.id);
+  return c.json({ shares: await listThreadShares(db, threadId) });
+});
+
+/** Stop sharing with one person. */
+app.delete('/projects/:projectId/driver/threads/:threadId/shares/:userId', async (c) => {
+  const projectId = c.req.param('projectId');
+  const threadId = c.req.param('threadId');
+  for (const [value, field] of [[projectId, 'projectId'], [threadId, 'threadId']] as const) {
+    const invalid = checkUuidParam(value, field);
+    if (invalid) return c.json({ error: invalid.message, field: invalid.field }, 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  const accessError = await projectAccessError(db, projectId, user);
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const thread = await readableThread(db, projectId, threadId, user.id);
+  if (!thread) return c.json({ error: 'thread not found', threadId }, 404);
+  if (thread.createdBy !== user.id) {
+    return c.json({ error: 'only the author can change a thread\'s shares', threadId }, 403);
+  }
+
+  const removed = await unshareThread(db, threadId, c.req.param('userId'));
+  if (!removed) return c.json({ error: 'that person did not have this thread shared with them' }, 404);
+  return c.json({ shares: await listThreadShares(db, threadId) });
 });
 
 app.post('/projects/:projectId/ai/stream', async (c) => {

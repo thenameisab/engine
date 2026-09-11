@@ -2045,3 +2045,63 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
 - Green bar: `turbo typecheck` and `turbo test` 65/65 tasks. Driver **67**, up from 39; connectors
   **157**, up from 152; API **517**, up from 501. No migration — conversation state is 0036 in
   step 4.
+
+## 2026-09-11 — Driver step 4: conversation persistence (feat/driver-persistence)
+- Four §9a decisions taken before any code: sharing schema + enforcement land now and the UI
+  waits for step 5; the per-surface model picker defers to step 5; org tool governance is a
+  full build in its own PR after step 8; streaming stays undecided until the final round is
+  measured on a real Worker, so steps 4 and 5 are built non-streaming.
+- Migration **0036** `driver_conversations`: `driver_threads` (with `visibility` private /
+  named / organisation), `driver_thread_shares`, `driver_messages` (`seq`-ordered, no system
+  message), `driver_tool_calls`. Applied through `pnpm db:migrate` against `engine_test`.
+- New `apps/api/src/repositories/driverThreads.ts`. `readableThread` and `listReadableThreads`
+  are self-contained — the `organisation` branch joins `account_members` rather than trusting
+  the route's `projectAccessError` to have run. A test caught that: the first version let a
+  non-member read an organisation thread when called directly.
+- **`visibility` is the authority, the share table is the recipient list.** The read check
+  consults shares only on the `named` branch, so rows surviving a trip through `organisation`
+  grant nothing. `shareThread` promotes `private` to `named` in the same transaction, so
+  "share with one person" is not a two-step act whose first step silently does nothing.
+- **History is loaded, never sent.** `/driver/ask` takes `threadId` instead of `history`;
+  `AskInput.history` is gone. Route test drives the real route with a forged `history` array
+  in the body and asserts the vendor request carries only the system message and the question.
+- **Stored ≠ replayed.** Everything is persisted for §4.4's audit; only user and final
+  assistant text is replayed. Tool results are §4.7 untrusted content, and replaying them
+  re-injects one poisoned page into every later turn of the thread. Also removes the quadratic
+  token growth. Cost: the model must call a tool again rather than re-read an old result.
+- Replay is capped at `MAX_REPLAYED_MESSAGES = 20` and the window advances to the first `user`
+  row, so it never opens on an answer whose question fell outside it.
+- Five thread routes: list, get (the whole transcript with each call's result attached),
+  patch title/visibility, share, unshare. Author-only on every write. 404 rather than 403 for
+  a thread the caller cannot read — existence is the thing being protected. No UI; that is
+  step 5.
+- `LlmConversationalConnector` gains `model`, so `driver_messages.model_id` records which
+  model produced an answer. `SarvamConnector.model` was already there and private.
+- Green: `turbo typecheck` 43/43, `turbo test --force` 41/41 with `TEST_DATABASE_URL` set.
+  API **547**, up from 517; driver 67; connectors 157. Both new db test files verified to run
+  rather than skip.
+- Two defects found in self-review before commit: the turn's total usage was written onto
+  every assistant message, so summing the column over a thread roughly doubled the real cost
+  (now on the answer alone, with a test that sums it); and the `max(seq)+1` race on concurrent
+  turns is prevented only because the `last_message_at` update takes the thread's row lock
+  first — documented, because moving that update to the end would silently reintroduce it.
+- Found while auditing the ledger, pre-existing and not introduced here: **CI sets no
+  `TEST_DATABASE_URL`**, so all 17 `*.db.test.ts` files skip and report green — 203 tests in
+  `@engine/api` alone, now including step 4's thread read check. Recorded as ledger row 8.
+- `docs/PENDING.md` rewritten: step 4 out of Open, step 5 is next, and the three §9a rows
+  replaced by the decisions taken. Eight open rows, each with the command it was measured by.
+- Code review found a third defect, the worst of the three: `return record(...)` inside a `try`
+  hands back an unsettled promise, so a `persistTurn` rejection escaped both the `catch` and the
+  route, turning a complete grounded answer into a 500. Before this build `askDriver` had no
+  write on its success path, so the failure mode is new. Fixed by catching inside `record` —
+  log and return the answer without a `threadId` — rather than by letting the `catch` see it:
+  that path degrades to the deterministic Copilot, and degrading a good answer because the audit
+  write failed would be a worse answer plus a second write about to fail the same way. Same
+  shape as `upsertUser` at sign-in. `return await` added so the control flow reads as it behaves.
+  Test proxies `db.begin` to throw and asserts the answer survives with no `threadId`.
+- Review confirmed the four security properties hold: history comes only from `driver_messages`,
+  scope is still server-injected, a private thread is unreadable by other members, and a thread
+  id does not resolve through another project's route. It also confirmed the stored transcript
+  can never replay as an assistant `tool_calls` message with no matching `tool` messages.
+- Green after the fix: `turbo typecheck test --force` 65/65. API **548**, driver 67,
+  connectors 157.
