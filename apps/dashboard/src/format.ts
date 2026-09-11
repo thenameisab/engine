@@ -4,6 +4,7 @@
  * the fiddly bits are verifiable in isolation.
  */
 import type {
+  AccountKind,
   IntegrationAssignment,
   ProviderStatus,
   ProviderCatalogEntry, IntegrationConnection,
@@ -1067,6 +1068,65 @@ export function verifyLine(
 /* ── The workspace rail ───────────────────────────────────────────────────── */
 
 /**
+ * Whether the product says "client" at all, and what it says instead.
+ *
+ * An agency's accounts are other people's businesses, so "client" is the word
+ * for them and the layer above sites is real. A company's or an individual's
+ * account is the customer themselves: there is no client, and calling the row
+ * one asks the reader to translate every screen. What they switch between is
+ * sites, and the thing a connection or a report belongs to is their account.
+ *
+ * One account of kind `agency` is enough, because a person who runs an agency
+ * sees clients everywhere even on the account that is their own business.
+ */
+export interface AccountVocabulary {
+  /** True when any account the signed-in user belongs to is an agency. */
+  agency: boolean;
+  /** One account, lowercase, mid-sentence. */
+  one: string;
+  /** More than one account, lowercase, mid-sentence. */
+  many: string;
+  /** One account, capitalised, as a heading or a field label. */
+  One: string;
+  /** More than one account, capitalised. */
+  Many: string;
+}
+
+export function accountVocabulary(kinds: readonly AccountKind[]): AccountVocabulary {
+  const agency = kinds.includes('agency');
+  return agency
+    ? { agency: true, one: 'client', many: 'clients', One: 'Client', Many: 'Clients' }
+    : { agency: false, one: 'account', many: 'accounts', One: 'Account', Many: 'Accounts' };
+}
+
+/**
+ * What a screen says when it needs an account and none is selected.
+ *
+ * The recovery differs because the screens do: an agency picks a client on
+ * the Clients grid, and everyone else has no grid to go to — they pick a
+ * site, and the account it belongs to comes with it.
+ */
+export function chooseAccountNote(v: AccountVocabulary): string {
+  return v.agency
+    ? 'Pick a client from the Clients grid first.'
+    : 'Choose a site from the switcher at the top of the rail first.';
+}
+
+/**
+ * Whether the 56 px column of account squares is worth its width.
+ *
+ * Two cases earn it: an agency, which has a client layer by definition, and
+ * anyone who belongs to more than one account, who has something to switch
+ * between whatever the kinds are. A company with one account has neither, and
+ * the column then shows exactly one square that does nothing — which is the
+ * client layer a non-agency was promised it would never see.
+ */
+export function showsClientColumn(kinds: readonly AccountKind[]): boolean {
+  return kinds.includes('agency') || kinds.length > 1;
+}
+
+
+/**
  * Initials for a client square. Two letters from two words, two from one.
  *
  * The square is 36 px and permanent, so three letters do not fit and one is
@@ -1117,13 +1177,17 @@ export function filterWorkspace(clients: readonly WorkspaceClient[], query: stri
 }
 
 /**
- * Whether the drawer earns a search field. Below this many clients, a search
- * box is one more thing to look at and nothing to look for.
+ * Whether the drawer earns a search field. Below this many rows, a search box
+ * is one more thing to look at and nothing to look for.
+ *
+ * A count rather than the client list, because the drawer no longer always
+ * lists clients: without a client layer it lists sites, and eleven sites under
+ * one account is exactly the case a search field is for.
  */
 export const WORKSPACE_SEARCH_THRESHOLD = 8;
 
-export function needsWorkspaceSearch(clients: readonly WorkspaceClient[]): boolean {
-  return clients.length > WORKSPACE_SEARCH_THRESHOLD;
+export function needsWorkspaceSearch(rows: number): boolean {
+  return rows > WORKSPACE_SEARCH_THRESHOLD;
 }
 
 /**

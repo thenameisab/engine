@@ -1452,3 +1452,66 @@ Recommendation given: **§3.1 alone** (the `kind` gate) if the user wants someth
   trigger.
 - Also gave the user a copy-pasteable prompt for a fresh session. It is deliberately short and
   points at `docs/PENDING.md` rather than restating the work, so it cannot go stale.
+
+## 2026-09-11 (the `kind` gate — ledger item 1)
+
+Branched `feat/account-kind-gate` off `origin/main` at `c6a0730`. Dashboard only:
+the API has returned `accounts.kind` since 0035 and needed no change.
+
+- **One place decides the vocabulary.** `accountVocabulary(kinds)` in `format.ts`
+  returns `client/clients/Client/Clients` when any account is an agency and
+  `account/…` otherwise, plus `showsClientColumn(kinds)` and
+  `chooseAccountNote(v)`. `api.ts` caches the kinds from the `/accounts` response
+  the shell already makes, in memory and in `localStorage`, and exposes
+  `currentAccountVocabulary`, `showsClients` and `isAgencyWorkspace`. The cache
+  exists because two readers cannot wait for a fetch: the first frame decides
+  whether the client column has a grid track, and the `clients` route decides
+  whether to redirect before any view runs. An empty cache reads as one company,
+  so a company never sees a flash of the client layer.
+- **The column.** `.ws-rail` renders for an agency, or for anyone with more than
+  one account. `.app.no-clients` drops the 56px track with it — hiding the column
+  alone would leave the product sitting 56px in from the left. The "+" tile is
+  agency-only, because the Clients grid is where it leads.
+- **The drawer** lists sites flat with no client headers when there is no client
+  layer, is titled "Switch site", and its field searches sites.
+  `needsWorkspaceSearch` now takes a row count rather than the client list,
+  because the rows are no longer always clients.
+- **`#/clients` redirects to Home** when no account is an agency, the same shape
+  as `platform`'s non-admin redirect. The cold case — a bookmark opened in a
+  browser with no cached kinds — awaits `/accounts` rather than guessing, or an
+  agency following its own bookmark would land on Home.
+- **Nineteen strings**, not the sixteen the plan counted: four more turned up in
+  `settings.ts`, `report.ts`, `onboarding.ts` and `deployTargetForm.ts` that the
+  earlier grep missed. Two are now kind-free rather than kind-aware, because the
+  recovery they named worked for neither kind: the 403 in `errors.ts` and
+  `requireProjectId`'s message both pointed at a Clients grid, and now point at
+  the switcher.
+
+### What was deliberately not done
+`views/accounts.ts` keeps its agency wording, including "+ New client". The
+route redirects for every other kind, so gating the button too would be a branch
+nothing can reach. The redirect is the gate; the grid is an agency screen.
+
+### Tests
+- `vocabulary.test.ts` (new): scans every non-test `.ts` under `src/` for prose
+  string literals containing "client", and fails on any not in an allowlist
+  grouped by reason — an OAuth client, or behind `AccountVocabulary.agency`.
+  `${…}` is stripped first, or `view.client.updatedAt` inside a template literal
+  reads as the noun.
+- `format.test.ts`: the noun per kind, the empty-cache default, agency winning
+  over a mixed list, the column rule, and `chooseAccountNote`.
+- `styles.test.ts`: the mobile rule names `.app.no-clients` and
+  `.app.no-clients.rail-collapsed`. A media query adds no specificity, so two
+  and three classes would otherwise keep a sidebar track on a phone.
+
+### The walk, and the bug in the walk
+35 Playwright checks over company, individual, agency and two-company
+workspaces, at 1440 and 390, light and dark, with the API stubbed. One failure
+in the first run was the harness's own: `offsetParent` is null for every
+`position: fixed` element, and the mobile rail is fixed, so "the bottom bar is
+painted" failed on a bar that was painted. Visibility is now a box with area
+plus computed `display`, `visibility` and `opacity` — which still catches the
+`[hidden]` trap from #120, since `display: none` gives a zero rect.
+
+- **Green bar:** `turbo typecheck test lint build --force` 68/68. API 433,
+  deploy 75, dashboard 167 (was 158).

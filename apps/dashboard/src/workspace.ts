@@ -1,5 +1,12 @@
 /**
- * The workspace rail: a permanent column of clients, and the drawer behind it.
+ * The workspace rail: a permanent column of accounts, and the drawer behind it.
+ *
+ * The column and the word "client" are an agency's, not everyone's. A company
+ * with one site has one account, which is itself, so a column holding one
+ * square that does nothing is the client layer a non-agency was told it would
+ * never see. `showsClients()` decides whether the column exists; the drawer
+ * behind the header lists sites flat when there is no client layer to group
+ * them under.
  *
  * Switching client used to be a trip to the Clients grid that ended in a
  * toast — the screen you were on did not change, so the only evidence anything
@@ -18,7 +25,15 @@ import { getUser, signOut, initials } from './auth/session.js';
 import { signOutRemote } from './auth/neonAuth.js';
 import { openDialog } from './dialog.js';
 import { readableError } from './errors.js';
-import { fetchAccounts, getAccountId, setAccountId, getProjectId, setProjectId } from './api.js';
+import {
+  currentAccountVocabulary,
+  fetchAccounts,
+  getAccountId,
+  setAccountId,
+  getProjectId,
+  setProjectId,
+  showsClients,
+} from './api.js';
 import {
   clientInitials,
   filterWorkspace,
@@ -52,6 +67,12 @@ export interface WorkspaceHandle {
   chip: HTMLElement;
   /** The open site's name, or null when none is chosen. Used by the breadcrumb. */
   siteName(): string | null;
+  /**
+   * Whether the column of account squares is rendered. The shell reads it to
+   * drop the 56 px track from the page grid, because an `aside` that is hidden
+   * still holds its column.
+   */
+  showsColumn(): boolean;
   /** Re-read the client list from the API and repaint both. */
   refresh(): Promise<void>;
   openDrawer(): void;
@@ -70,7 +91,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
   const header = el('button', { class: 'ws-header', type: 'button' });
   const chip = el('button', { class: 'ws-chip', type: 'button' });
 
-  const element = el('aside', { class: 'ws-rail', 'aria-label': 'Clients' }, [squares]);
+  const element = el('aside', { class: 'ws-rail' }, [squares]);
 
   function select(clientId: string, siteId: string): void {
     setAccountId(clientId);
@@ -83,13 +104,35 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
 
   /* ── The drawer ─────────────────────────────────────────────────────────── */
 
+  function siteRow(client: WorkspaceClient, s: { id: string; name: string; domain: string }): HTMLElement {
+    const open = s.id === getProjectId();
+    const row = el('button', {
+      class: `ws-site${open ? ' on' : ''}`,
+      type: 'button',
+      ...(open ? { 'aria-current': 'true' } : {}),
+    }, [
+      el('span', { class: 't' }, [s.name]),
+      el('span', { class: 'm' }, [s.domain]),
+    ]);
+    row.addEventListener('click', () => {
+      select(client.id, s.id);
+      handle?.close();
+    });
+    return row;
+  }
+
   function drawerContent(): HTMLElement {
+    const v = currentAccountVocabulary();
     const list = el('div', { class: 'ws-drawer-list' });
+    // Without a client layer there is nothing to group by, so the drawer is a
+    // list of sites and the field searches sites. Saying "clients and sites"
+    // to a company names a thing that is not in the list.
+    const searchLabel = v.agency ? 'Search clients and sites' : 'Search sites';
     const search = el('input', {
       class: 'field',
       type: 'search',
-      placeholder: 'Search clients and sites',
-      'aria-label': 'Search clients and sites',
+      placeholder: searchLabel,
+      'aria-label': searchLabel,
     }) as HTMLInputElement;
 
     function renderList(query: string): void {
@@ -97,8 +140,17 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
       if (shown.length === 0) {
         list.replaceChildren(
           el('div', { class: 'fq-note' }, [
-            query ? `Nothing matches “${query}”.` : 'No clients yet. Add one to get started.',
+            query ? `Nothing matches “${query}”.`
+            : v.agency ? 'No clients yet. Add one to get started.'
+            : 'No sites yet. Add one to get started.',
           ]),
+        );
+        return;
+      }
+      if (!v.agency) {
+        const sites = shown.flatMap((c) => c.sites.map((site) => siteRow(c, site)));
+        list.replaceChildren(
+          ...(sites.length > 0 ? sites : [el('div', { class: 'fq-note' }, ['No sites yet.'])]),
         );
         return;
       }
@@ -114,22 +166,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
             ]),
             ...(c.sites.length === 0
               ? [el('div', { class: 'fq-note' }, ['No sites yet.'])]
-              : c.sites.map((s) => {
-                  const open = s.id === getProjectId();
-                  const row = el('button', {
-                    class: `ws-site${open ? ' on' : ''}`,
-                    type: 'button',
-                    ...(open ? { 'aria-current': 'true' } : {}),
-                  }, [
-                    el('span', { class: 't' }, [s.name]),
-                    el('span', { class: 'm' }, [s.domain]),
-                  ]);
-                  row.addEventListener('click', () => {
-                    select(c.id, s.id);
-                    handle?.close();
-                  });
-                  return row;
-                })),
+              : c.sites.map((s) => siteRow(c, s))),
           ]),
         ),
       );
@@ -138,8 +175,12 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
     search.addEventListener('input', () => renderList(search.value));
     renderList('');
 
+    // The threshold counts the rows the drawer actually shows: clients when
+    // they group the list, sites when they are the list.
+    const rows = v.agency ? clients.length : clients.reduce((n, c) => n + c.sites.length, 0);
+
     return el('div', { class: 'ws-drawer' }, [
-      ...(needsWorkspaceSearch(clients) ? [search] : []),
+      ...(needsWorkspaceSearch(rows) ? [search] : []),
       list,
     ]);
   }
@@ -152,33 +193,51 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
       ctx.toast(loadError);
       return;
     }
-    handle = openDialog({ title: 'Switch client or site', content: drawerContent() });
+    handle = openDialog({
+      title: currentAccountVocabulary().agency ? 'Switch client or site' : 'Switch site',
+      content: drawerContent(),
+    });
   }
 
   /* ── The permanent column ───────────────────────────────────────────────── */
 
   function paint(): void {
+    const v = currentAccountVocabulary();
+    const column = showsClients();
     const activeId = getAccountId();
     const label = openSiteLabel(clients, activeId, getProjectId());
 
+    // Without a client layer the client name is the account's own, derived
+    // from the same domain printed beside it, so naming it is the word
+    // "client" and a repetition in one line.
+    const sub = label ? (v.agency ? `${label.client} · ${label.domain}` : label.domain) : 'No site open';
+    const full = label ? (v.agency ? `${label.client} · ${label.site}` : `${label.site} · ${label.domain}`) : 'Choose a site';
+
     header.replaceChildren(
       label
-        ? el('span', { class: 'ws-header-in' }, [
-            el('b', {}, [label.site]),
-            el('small', {}, [`${label.client} · ${label.domain}`]),
-          ])
-        : el('span', { class: 'ws-header-in' }, [el('b', {}, ['Choose a site']), el('small', {}, ['No site open'])]),
+        ? el('span', { class: 'ws-header-in' }, [el('b', {}, [label.site]), el('small', {}, [sub])])
+        : el('span', { class: 'ws-header-in' }, [el('b', {}, ['Choose a site']), el('small', {}, [sub])]),
       el('span', { class: 'ws-header-chev', html: icon(ICONS.chevron) }),
     );
-    header.title = label ? `${label.client} · ${label.site}` : 'Choose a site';
+    header.title = full;
 
     chip.replaceChildren(
-      el('span', { class: 'ws-sq sm' }, [label ? clientInitials(label.client) : '?']),
+      el('span', { class: 'ws-sq sm' }, [label ? clientInitials(v.agency ? label.client : label.site) : '?']),
       el('span', { class: 'ws-chip-t' }, [label ? label.site : 'Choose a site']),
       el('span', { class: 'ws-header-chev', html: icon(ICONS.chevron) }),
     );
-    chip.title = header.title;
-    chip.setAttribute('aria-label', label ? `${label.client} · ${label.site} — switch` : 'Choose a site');
+    chip.title = full;
+    chip.setAttribute('aria-label', label ? `${full} — switch` : 'Choose a site');
+
+    // The column is an agency's, or anyone's who has more than one account to
+    // switch between. Hidden rather than emptied, so it does not sit as a
+    // 56 px band of background beside the rail.
+    element.hidden = !column;
+    element.setAttribute('aria-label', v.Many);
+    if (!column) {
+      squares.replaceChildren();
+      return;
+    }
 
     const tiles = clients.map((c) => {
       const on = c.id === activeId;
@@ -198,6 +257,8 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
       return sq;
     });
 
+    // Only an agency adds a client: the Clients grid is where that happens and
+    // it redirects to Home for everyone else, so a "+" would lead nowhere.
     const add = el('button', { class: 'ws-sq add', type: 'button', title: 'Add a client', 'aria-label': 'Add a client' }, ['+']);
     add.addEventListener('click', () => ctx.navigate('clients'));
 
@@ -215,7 +276,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
 
     squares.replaceChildren(
       ...tiles,
-      add,
+      ...(v.agency ? [add] : []),
       el('div', { class: 'ws-spacer' }),
       me,
     );
@@ -242,6 +303,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
     header,
     chip,
     siteName: () => openSiteLabel(clients, getAccountId(), getProjectId())?.site ?? null,
+    showsColumn: showsClients,
     refresh,
     openDrawer,
   };

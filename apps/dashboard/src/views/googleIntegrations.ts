@@ -6,6 +6,7 @@ import { readableError } from '../errors.js';
 import { openConsentPopup } from '../consentPopup.js';
 import { integrationTileState, relativeTime, syncStatusLine, type IntegrationTileState } from '../format.js';
 import {
+  currentAccountVocabulary,
   getAccountId,
   setAccountId,
   fetchAccounts,
@@ -321,6 +322,7 @@ function syncButton(
 
 function providerPanel(input: ProviderPanelInput): HTMLElement {
   const { ctx, accountId, entry, connection, assignments, platformReady, isAdmin, reload, clientName, elsewhere } = input;
+  const v = currentAccountVocabulary();
   const live = connection?.status === 'connected';
   const problem = connection ? healthProblem(connection) : null;
   const isApiKey = entry.authKind === 'api_key';
@@ -344,13 +346,13 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     ]);
   }
 
-  // A connection under another of this user's clients is not a failure
+  // A connection under another of this user's accounts is not a failure
   // here. Say where it is connected, and that connections do not carry over.
   const elsewhereNote =
     !live && elsewhere.length > 0
       ? el('div', { class: 'fhint num' }, [
-          `Connected under ${elsewhere.join(' and ')}, not under ${clientName ?? 'this client'}. ` +
-            'Connections belong to one client, so sign in here to use it for this one.',
+          `Connected under ${elsewhere.join(' and ')}, not under ${clientName ?? `this ${v.one}`}. ` +
+            `Connections belong to one ${v.one}, so sign in here to use it for this one.`,
         ])
       : null;
 
@@ -362,7 +364,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
         isAdmin
           // "under Settings" and a button to Settings, both of which stopped
           // being true when the operator panels moved to their own screen.
-          ? `Engine's ${vendor} app is not registered for this workspace yet. Register it once on the Platform screen, and every client can connect from here.`
+          ? `Engine's ${vendor} app is not registered for this workspace yet. Register it once on the Platform screen, and every ${v.one} can connect from here.`
           : `${vendor} is not set up for this workspace yet. Ask your administrator to finish the setup.`,
       ]),
       isAdmin
@@ -627,6 +629,7 @@ function providerTile(entry: ProviderCatalogEntry, state: { label: string; tone:
  * disconnect.
  */
 export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement> {
+  const v = currentAccountVocabulary();
   // The client is the selected project's client, when a project is selected.
   // The stored client id can drift from the project (the branded report and
   // branding links set only the client), and a screen reading connections for
@@ -641,10 +644,15 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
   if (!accountId) {
     return el('section', { class: 'panel' }, [
       el('div', { class: 'fq-note' }, [
-        'Choose a client first. Connections belong to a client, and every site of that client can use them.',
+        `Choose a ${v.one} first. Connections belong to one ${v.one}, and every site of that ${v.one} can use them.`,
       ]),
       el('div', { class: 'intg-center' }, [
-        el('button', { class: 'btn primary', onclick: () => ctx.navigate('clients') }, ['Go to Clients']),
+        // An agency picks a client on the Clients grid, which nobody else can
+        // reach; everyone else picks a site in the switcher, and the account
+        // comes with it.
+        v.agency
+          ? el('button', { class: 'btn primary', onclick: () => ctx.navigate('clients') }, ['Go to Clients'])
+          : el('button', { class: 'btn primary', onclick: () => ctx.navigate('get-started') }, ['Add a site']),
       ]),
     ]);
   }
@@ -767,8 +775,8 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
     host.replaceChildren(
       el('div', { class: 'intg-scope' }, [
         'Connections for ',
-        el('b', {}, [clientName ?? 'the selected client']),
-        '. Every site of this client shares them; another client’s connections do not carry over.',
+        el('b', {}, [clientName ?? `the selected ${v.one}`]),
+        `. Every site of this ${v.one} shares them; another ${v.one}’s connections do not carry over.`,
       ]),
       ...connectable.map(tile),
       ...plannedBlock(),

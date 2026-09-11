@@ -83,8 +83,14 @@ a { color: inherit; text-decoration: none; }
 .spacer { flex: 1; }
 .rail-foot { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: var(--r-sm); }
 
+/* A workspace with no client layer — a company or an individual with one
+   account — renders no column of account squares, so the page grid drops its
+   track rather than leaving 56px of empty background beside the rail. */
+.app.no-clients { grid-template-columns: 224px 1fr; }
+
 /* collapsed rail: icons only */
 .app.rail-collapsed { grid-template-columns: 56px 60px 1fr; }
+.app.no-clients.rail-collapsed { grid-template-columns: 60px 1fr; }
 .rail-collapsed .rail { padding: 14px 8px; }
 .rail-collapsed .navlabel { display: none; }
 .rail-collapsed .navitem { justify-content: center; padding: 8px 0; }
@@ -225,7 +231,10 @@ a { color: inherit; text-decoration: none; }
    rather than being dropped, because hiding half of them would be the same
    defect at a smaller scale. The workspace column joins them as one square. */
 @media (max-width: 860px) {
-  .app, .app.rail-collapsed { grid-template-columns: 1fr; }
+  /* `.app.no-clients` and `.app.no-clients.rail-collapsed` are listed because
+     a media query adds no specificity: two and three classes would otherwise
+     beat `.app` here and keep a sidebar track on a phone. */
+  .app, .app.rail-collapsed, .app.no-clients, .app.no-clients.rail-collapsed { grid-template-columns: 1fr; }
   .ws-rail { display: none; }
   .rail {
     position: fixed; inset: auto 0 0 0; height: auto; z-index: 30;

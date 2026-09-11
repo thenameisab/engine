@@ -59,12 +59,21 @@ import type {
   AccountCadenceRow,
   CadenceOverride,
 } from './types.js';
-import { toAccountCard, toActionCard, toFindingRow, toPulseData } from './format.js';
+import {
+  accountVocabulary,
+  showsClientColumn,
+  toAccountCard,
+  toActionCard,
+  toFindingRow,
+  toPulseData,
+  type AccountVocabulary,
+} from './format.js';
 import { getApiToken } from './auth/neonAuth.js';
 import { getStoredApiToken, signOut } from './auth/session.js';
 
 const PROJECT_KEY = 'engine.projectId';
 const ACCOUNT_KEY = 'engine.accountId';
+const ACCOUNT_KINDS_KEY = 'engine.accountKinds';
 const AI_MODEL_KEY = 'engine.aiModel';
 
 declare global {
@@ -137,7 +146,7 @@ export function getProjectId(): string {
  */
 function requireProjectId(): string {
   const id = getProjectId();
-  if (!id) throw new Error('No project selected. Choose one in Settings, or create one from the Clients grid.');
+  if (!id) throw new Error('No site selected. Choose one from the switcher at the top of the rail, or add one in Set up.');
   return id;
 }
 
@@ -150,6 +159,76 @@ export function getAccountId(): string | null {
 }
 export function setAccountId(id: string): void {
   localStorage.setItem(ACCOUNT_KEY, id);
+}
+
+/* ── What kind of accounts this user has ──────────────────────────────────── */
+
+const ACCOUNT_KINDS: readonly AccountKind[] = ['company', 'agency', 'individual'];
+
+/**
+ * The kinds of every account the signed-in user belongs to, as the last
+ * `/accounts` response gave them.
+ *
+ * Whether the product says "client" is a property of the whole workspace, not
+ * of the screen asking. Two readers cannot wait for a fetch to answer it: the
+ * shell decides on the first frame whether the client column exists, and the
+ * `clients` route decides whether to redirect before any view runs. So the
+ * answer is cached in memory and in storage — the first paint after a reload
+ * uses what was true last visit, and the `/accounts` call the shell already
+ * makes corrects it within the same one.
+ *
+ * An empty list means nothing has been fetched yet and nothing was stored. It
+ * reads as a single company, which is the quiet answer: no client column, no
+ * client vocabulary, and no flash of either for the customer who should never
+ * see them.
+ */
+let accountKinds: AccountKind[] | null = null;
+
+function isAccountKind(v: unknown): v is AccountKind {
+  return typeof v === 'string' && (ACCOUNT_KINDS as readonly string[]).includes(v);
+}
+
+export function knownAccountKinds(): AccountKind[] {
+  if (accountKinds) return accountKinds;
+  try {
+    const raw = localStorage.getItem(ACCOUNT_KINDS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    accountKinds = Array.isArray(parsed) ? parsed.filter(isAccountKind) : [];
+  } catch {
+    // Storage unavailable, or a value written by an older build. Either way
+    // the fetch below replaces it within the visit.
+    accountKinds = [];
+  }
+  return accountKinds;
+}
+
+function rememberAccountKinds(cards: readonly AccountCard[]): void {
+  accountKinds = cards.map((a) => a.kind);
+  try {
+    localStorage.setItem(ACCOUNT_KINDS_KEY, JSON.stringify(accountKinds));
+  } catch {
+    /* storage unavailable — the in-memory copy still holds for this visit */
+  }
+}
+
+/** The nouns this workspace uses for an account. See `accountVocabulary`. */
+export function currentAccountVocabulary(): AccountVocabulary {
+  return accountVocabulary(knownAccountKinds());
+}
+
+/** Whether the workspace column of account squares is rendered at all. */
+export function showsClients(): boolean {
+  return showsClientColumn(knownAccountKinds());
+}
+
+/**
+ * Whether the client layer exists — the one condition on the Clients grid and
+ * on every screen that says "client". Derived from the vocabulary rather than
+ * re-tested here, so there is one definition of what makes a workspace an
+ * agency's.
+ */
+export function isAgencyWorkspace(): boolean {
+  return currentAccountVocabulary().agency;
 }
 
 /**
@@ -586,7 +665,12 @@ export function transitionAction(actionId: string, to: Exclude<ActionStatus, 'pr
  */
 export async function fetchAccounts(): Promise<AccountCard[]> {
   const resp = await request<{ accounts: ApiAccount[] }>('/accounts');
-  return resp.accounts.map(toAccountCard);
+  const cards = resp.accounts.map(toAccountCard);
+  // The one call every screen already makes is also the one place that knows
+  // the kinds, so it is where the cache is filled rather than in a second
+  // request the shell would have to remember to make.
+  rememberAccountKinds(cards);
+  return cards;
 }
 
 export async function createAccountApi(name: string, kind: AccountKind): Promise<AccountCard> {
