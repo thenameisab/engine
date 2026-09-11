@@ -23,6 +23,7 @@
     "@engine/core": "workspace:*",
     "@engine/deploy": "workspace:*",
     "@engine/diagnosis": "workspace:*",
+    "@engine/driver": "workspace:*",
     "@engine/entity-audit": "workspace:*",
     "@engine/integrations": "workspace:*",
     "@engine/keywords": "workspace:*",

@@ -45,6 +45,9 @@
       "path": "../../packages/diagnosis"
     },
     {
+      "path": "../../packages/driver"
+    },
+    {
       "path": "../../packages/entity-audit"
     },
     {

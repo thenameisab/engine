@@ -125,13 +125,13 @@ export interface SearchSummary extends SyncState {
   pagesSynced: boolean;
 }
 
-interface TotalsRow {
+export interface TotalsRow {
   clicks: string | number | null;
   impressions: string | number | null;
   position: string | number | null;
 }
 
-function toTotals(row: TotalsRow | undefined): SearchTotals {
+export function toTotals(row: TotalsRow | undefined): SearchTotals {
   const clicks = Number(row?.clicks ?? 0);
   const impressions = Number(row?.impressions ?? 0);
   return {

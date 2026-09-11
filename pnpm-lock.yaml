@@ -53,6 +53,9 @@ importers:
       '@engine/diagnosis':
         specifier: workspace:*
         version: link:../../packages/diagnosis
+      '@engine/driver':
+        specifier: workspace:*
+        version: link:../../packages/driver
       '@engine/entity-audit':
         specifier: workspace:*
         version: link:../../packages/entity-audit
@@ -308,6 +311,15 @@ importers:
       '@engine/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/driver:
     devDependencies:
       typescript:
         specifier: ^5.7.0

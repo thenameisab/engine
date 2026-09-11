@@ -4,14 +4,13 @@
 `working_log.md` is the history; this is the state. If the two disagree, this file is wrong and
 should be corrected from the source.
 
-Last updated: 2026-09-11, against `feat/driver-tool-calling` at `87dd2f7`. That branch is
-stacked on `feat/brand-strength-findings` (PR #129, open), which is `origin/main` at `7438b1a`
-(#128 merged). **Merge #129 first.** Every row below was re-measured against the tree, not
-carried forward.
+Last updated: 2026-09-11, against `feat/driver-read-tools` at `1af3f82` plus this branch's work.
+`origin/main` is `1af3f82` (#130 merged). Every row below was re-measured against the tree.
 
 Sequence and reasoning: `docs/reviews/2026-09-11-remaining-build-plan.md` and, for Driver,
-`docs/reviews/2026-09-10-driver-scoping.md` §7 and §9a. Read the linked detail before starting
-an item — it is more precise than the one-liners here.
+`docs/reviews/2026-09-10-driver-scoping.md` §7 and §9a, now joined by
+`docs/reviews/2026-09-11-driver-vendor-probe.md` for the loop's bounds. Read the linked detail
+before starting an item — it is more precise than the one-liners here.
 
 ---
 
@@ -19,13 +18,16 @@ an item — it is more precise than the one-liners here.
 
 | # | Item | Size | State | Detail | Blocked by |
 |---|---|---|---|---|---|
-| 1 | **Driver step 3 — `packages/driver`: the agent loop and the read tools.** The loop's four bounds (rounds per turn, calls per round, wall-clock, token budget) need the probe. **The read-tool catalogue does not** — twenty named, project-scoped queries with provenance and the three-state vocabulary are ordinary SQL and can be built and tested now. | L | next | driver scoping §4.1, §4.2 | the loop half only |
-| 2 | **Driver steps 4–11.** Conversation persistence (migration 0036+, with thread visibility and a share table), the response-part protocol and the screen, the remaining read tools, Tier 1 and Tier 2 write tools, injection controls, the bar, evaluation. | L | open | driver scoping §7 + §9a | step 3 |
-| 3 | **`modelPicker.ts` still assumes one model choice across every surface.** `contextTokens` is now declared on the model and `llmModelsWithContext` filters on it, but the picker and the two screens that mount it (`copilot.ts:135`, `offsite.ts:425`) still offer whatever `GET`'s `models` array holds. §9a decision 5 moves the control into Settings, filtered per surface. | M | open | driver scoping §9a decision 5 | — |
-| 4 | **The Google integration guide.** 14 screenshots sit untracked in `docs/guides/img/` with no guide document beside them, and the `working_log.md` entry describing them is uncommitted. **Another session owns this** — recorded because it is state, not because it is unassigned. | S | in progress elsewhere | that log entry; `docs/40-Integrations.md` step 3 describes Google's retired consent-screen wizard | — |
+| 1 | **Driver step 3b — the agent loop.** The read-tool half is done (this branch). What is left is the loop itself: build messages → call the model with the catalogue → execute tool calls server-side → append `tool` results → repeat → emit the answer. The probe has set all four bounds, so nothing here is still a guess. | M | next | driver scoping §4.1; probe §6 for the numbers | — |
+| 2 | **Decide whether Driver streams, and on which Workers plan.** The probe's one open question. The account is on Workers **Free** (10 ms CPU); parsing one turn as SSE measured 5.96 ms against that budget, versus 0.018 ms non-streamed. Either the plan moves to Paid, or the final round is measured on a real Worker before the loop commits to streaming. The laptop measurement is not the edge and the writeup says so. | S | next | probe §2 and §5 | a decision, not code |
+| 3 | **`streamConverse` discards the vendor's `usage` frame.** The probe found token counts arriving in a penultimate SSE frame with `"choices": []`, which `llmStream.ts` drops through its `if (!choice) continue` guard. The loop needs those counts for a token budget, and a second call to get them would double the cost. | S | open | probe §4 | — |
+| 4 | **Driver steps 4–11.** Conversation persistence (migration 0036+, with thread visibility and a share table), the response-part protocol and the screen, Tier 1 and Tier 2 write tools, injection controls hardened, `page_content`, the bar, evaluation. Step 6 — "the remaining read tools" — is now **done ahead of schedule**; the catalogue shipped whole rather than five-at-a-time. | L | open | driver scoping §7 + §9a | steps 3b |
+| 5 | **`modelPicker.ts` still assumes one model choice across every surface.** `contextTokens` is declared on the model and `llmModelsWithContext` filters on it, but the picker and the two screens that mount it (`copilot.ts:135`, `offsite.ts:425`) still offer whatever `GET`'s `models` array holds. §9a decision 5 moves the control into Settings, filtered per surface. **New scope — ask before starting.** | M | open | driver scoping §9a decision 5 | a decision |
+| 6 | **Org-level tool governance, and thread sharing.** The other two §9a "new scope" items. Governance needs an enabled/disabled state on each tool definition plus a Settings surface; sharing needs thread visibility (private / named / organisation) and a share table. `ToolAccess` (`read` \| `write`) is already declared on every definition, which is the half of governance that was free. **New scope — ask before starting.** | M each | open | §9a decisions 2 and 4 | a decision |
+| 7 | **The Google integration guide is written and published, and uncommitted.** A page of the public docs site — `apps/web/content/guides/connecting-google.html` plus **16** screenshots in `content/guides/img/`, rendered to `/docs/guides/connecting-google` by a new `buildGuides()` in `build-docs.mjs`. `docs/guides/` is gone: its screenshots were genericised in place and its text was not, so it was a divergent duplicate. The leak guard passes with **`BANNED` untouched** (47 insertions, 0 deletions). What is left is committing it, and deciding whether guides belong in `NAV` — they are deliberately unlisted today. **Another session owns this.** | S | in progress elsewhere | `docs/40-Integrations.md` steps 2 and 3 still describe the retired consent-screen wizard and imply all six Google APIs can be enabled | — |
 
-**The Driver vendor probe is not in Open** — it is not pending work, it is blocked on a
-credential. See the table below.
+**The Driver vendor probe is no longer waiting on anything** — the key landed and it ran. It has
+moved out of the table below and into Done.
 
 ### What each row was measured against
 
@@ -33,53 +35,78 @@ Recorded so the next audit re-measures rather than trusting this line.
 
 | Row | Measurement |
 |---|---|
-| 1 | `ls packages` returns 19 packages and `driver` is not among them. §4.2's catalogue is twenty tools; §1.4 measured that the Copilot reaches 3 tables of 39, so the queries are new work, not wiring |
-| 2 | Unchanged from the scoping document's §7 table, with §9a's amendments folded in: the migration is 0036+, not 0034+, and it needs thread visibility plus a share table |
-| 3 | `modelPicker` has two call sites, `copilot.ts:135` and `offsite.ts:425`. `index.ts:855` serves `LLM_MODEL_CHOICES` whole, with no per-surface filter. `contextTokens` and `llmModelsWithContext` exist in `llmModels.ts` and are read only by `createConversationalLlmConnector` |
-| 4 | `find docs/guides -type f` returns 14 files, all PNGs under `img/`; there is no `.md` in the directory. `git status --short docs/guides` reports it untracked in full |
+| 1 | `packages/driver/src/` holds `types.ts`, `catalogue.ts`, `envelope.ts`, `validate.ts`, `index.ts` and no loop. `READ_TOOLS` is 19 and `assertRegistryMatchesCatalogue()` passes, so every declared tool runs; nothing calls a model |
+| 2 | `apps/api/working_log.md` and `apps/api/src/email.ts` both state the account stays on Workers Free. Probe §2 measured 5.96 ms SSE against 0.018 ms non-streamed for the same turn |
+| 3 | Probe §4 captured the frame. `packages/connectors/src/llmStream.ts` still has the `if (!choice) continue` guard that drops it |
+| 4 | Unchanged from §7 with §9a folded in, minus step 6. `ls infra/migrations/postgres/ \| tail -1` is `0035_account_kind.sql`, so Driver's first migration is still 0036. `grep -rn "#/driver" apps/dashboard/src` returns nothing |
+| 5 | `modelPicker` has two call sites, `copilot.ts:135` and `offsite.ts:425`. `index.ts:855` serves `LLM_MODEL_CHOICES` whole, with no per-surface filter. Unchanged by this branch |
+| 6 | `ToolAccess` and `ToolTier` are declared in `packages/driver/src/types.ts` and set on all 19 definitions. Nothing reads them yet and no admin surface exists |
+| 7 | `docs/guides` no longer exists. `ls apps/web/content/guides/img/*.png` returns 16 and `connecting-google.html` is the page source. `git diff --stat apps/web/build-docs.mjs` is 47 insertions, 0 deletions. All of it is untracked or unstaged |
 
 ### What changed in this audit
 
-**Driver step 2 is done.** The connector now holds a multi-turn conversation and asks for tools:
-`llmTools.ts` carries the vocabulary and the OpenAI-shaped serialisation, `SarvamConnector` gains
-`converse` and `streamConverse`, and `sample`, `complete` and `stream` go through them instead of
-through four near-identical `fetch` blocks. Connectors tests are 152, up from 124.
+**Driver step 1 is done.** The probe ran against the live vendor — 23 calls, all 200 — through
+`SarvamConnector.converse` and `streamConverse` rather than a parallel reimplementation, so the
+wire format it records is the bytes the connector sends. Three answers: parallel tool calls work
+(four in one turn, streaming and not, and `ToolCallAccumulator`'s `index` assumption is
+confirmed); a worst-case turn fits on subrequests (~25 of 50) but **CPU is the binding limit and
+only when streaming**; and `reasoning_effort` has no measurable effect on latency — `high` was
+faster than `medium` at the median, and completion tokens explain wall clock at r = 0.9996.
 
-**Step 2 was not blocked by step 1, and the ledger said so wrongly by omission.** The previous
-row lumped steps 2–11 together behind the probe. §2 of the scoping document had already checked
-the vendor documentation: `tools`, `tool_choice`, the four message roles and streaming-with-tools
-are supported, and only *parallel* tool calls are undocumented — a question for the loop, not the
-wire format. Steps are now listed by what each actually waits on.
+**Driver step 3's larger half is done, and step 6 with it.** `packages/driver` holds the semantic
+layer — the catalogue, the envelope, argument validation, the result vocabulary — and
+`apps/api/src/driver/` holds the handlers. All nineteen read tools work against a real Postgres.
 
-**Row 3 is new, and it is half of my own doing.** §9a decision 5 has two halves: a model declares
-its context size, and every surface filters on it. The first half shipped in this build because
-`createConversationalLlmConnector` needed it. The second half changes `modelPicker.ts`, a shipped
-surface with two call sites, and belongs with the Settings work rather than with a connector
-change.
+**The catalogue is nineteen, not twenty, and that is the spec.** `page_content` is absent rather
+than present-and-disabled: §9a decision 7 ships it at step 9 behind the poisoned-crawled-page
+test, and a definition the loop can see is one somebody can switch on. `DEFERRED_TOOLS` names it.
 
-**Row 4 is unchanged and now has an owner.** It is another session's work, kept here because this
-file is the state of the tree and the tree has 14 untracked screenshots in it.
+**Row 2 is new and it is the probe's own open question**, raised rather than answered because the
+decision belongs with the loop.
+
+**Row 3 is new and is a defect in already-merged code**, found by the probe rather than by a test.
+
+**Row 6 is new only as a row.** Both items were already in §9a; they are listed here because this
+build declared `ToolAccess` on every tool, which is the cheap half of governance, and the
+expensive half should not look done as a result.
+
+### The architectural decision this build took
+
+**Database access stayed in `apps/api`.** `packages/driver` declares what the tools mean and opens
+no connection. Measured reason: no package in this repo touches the database — 19 of 19 before
+this one, and `packages/db` is the migration runner, not a query layer. Design reason: six of the
+nineteen tools answer questions `googleMetrics.ts` already answers for Pulse, and a second copy of
+"what counts as a brand query", "what is within reach" and "which referrers are AI assistants"
+would be exactly the fabricated metric definition §4.2 exists to prevent. Those definitions are
+imported. The cost is that a definition and its query sit in two directories, and
+`assertRegistryMatchesCatalogue()` runs at module load to make that split fail loudly rather than
+drift. **If this is the wrong call it is a file move, not a rewrite.**
 
 ### What this build leaves behind
 
-`converse` returns a truncated turn instead of throwing on one, which is the opposite of what
-`sample` does. That is deliberate and is the one behavioural asymmetry in the file: a citation
-sample must refuse a turn cut off mid-thought, and an agent loop may retry it with a larger
-budget. `streamConverse` still throws when a turn produced nothing at all, but a turn that spent
-its budget deciding to call a tool now counts as having produced something.
+The handler returns provenance and `registry.ts` then *intersects* it with the tables the
+definition declares, so a handler cannot claim to have read a table the catalogue never named. It
+can still narrow. There is no check that a handler actually queried every table it names — that
+would need query interception, and the honest position is that provenance is a declared contract
+enforced at one end only.
 
-`ToolCallAccumulator` keys argument fragments by the vendor's `index` rather than concatenating
-them in arrival order. That is the only form that survives two interleaved calls, which is
-precisely what the probe is meant to determine — so the probe's answer changes nothing here.
+`competitor_gaps` filters by competitor with `held_by::text ilike '%name%'` over a jsonb column.
+It matches, and it would also match a competitor whose name is a substring of another's. The
+column is `jsonb` with no documented inner shape, so a structural query would be guessing at it;
+this is the honest version of a filter the catalogue's description already calls approximate.
+
+The Google tools read `integration_connections` and `integration_assignments` on every call to
+decide the three-state answer. That is two extra queries per tool call, and with four tool calls
+in a round it is eight. It stayed because correctness of the state matters more than the round
+trip at this stage, and the probe's subrequest measurement (~25 of 50) already counted it.
 
 ## Waiting on something outside the code
 
 | Item | Waiting on |
 |---|---|
-| **The Driver vendor probe** (driver scoping §7 step 1) | A `SARVAM_API_KEY` that can be used locally. `apps/api/.dev.vars` exists and its ten keys do not include it. What the probe still owns: whether parallel tool calls work, whether a worst-case turn fits the Worker's CPU and subrequest limits, and what `reasoning_effort: high` costs in seconds on a twenty-tool catalogue. Those three set the loop's bounds in step 3; the connector no longer waits on any of them, and `reasoningEffort` is now a parameter the probe can be run through |
 | Engine's Google app registration | The user, partly done. `apps/api/.dev.vars` carries `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI`, so a local deployment can run the connect flow. Whether production's `platform_credentials` row is set was not measured from here |
 | `GITHUB_WEBHOOK_SECRET` and the App's webhook URL | Registering Engine's GitHub App, which is only worth doing when a customer wants PR-based deploys. Unset is safe: the endpoint fails closed and the nightly pass finds merges |
-| A live Google connection on production | A customer completing the connect flow. `gsc_*` and `ga` may still be empty, which is why Driver's three-state rule is load bearing |
+| A live Google connection on production | A customer completing the connect flow. `gsc_*` and `ga4_channel_daily` may still be empty — which is now handled rather than merely noted: all six Google tools report `not-connected` with the specific next step, and there are tests for each branch |
 
 ## Deferred, with the trigger that reopens it
 
@@ -92,24 +119,24 @@ From `2026-09-10-action-plan.md` unless noted. These are decisions, not backlog.
 | MCP (roadmap M3.6) | After the product works well |
 | ClickHouse | `gsc_query_daily` ≈ 50M rows, or Pulse rollup p95 > 500 ms |
 | Alerts and notifications | Its own feature, with push and in-app |
-| `getAccessToken` per-connection lock | The first provider that rotates refresh tokens. Harmless for Google — ship-readiness review's own judgment, and the third of that review's Tier 2 items, deliberately not done with the other two |
+| `getAccessToken` per-connection lock | The first provider that rotates refresh tokens. Harmless for Google |
 | Driver calling deploy or rollback | After the Tier 2 confirmation component has been in front of real customers. §9a decision 3 |
-| `page_content` as a tool | Driver step 9. The poisoned-crawled-page test gates it. §9a decision 7 |
-| Parsing tool-call arguments in the connector | Never. The layer that knows the tool's schema is the layer that should decide what a malformed argument means |
-| Promote the Driver doc to `docs/feature-specs/D1-driver.md` | Before Driver step 3, folding §9a into §4 rather than appending |
-| Gate "+ New client" inside `views/accounts.ts` | Never, unless the Clients grid becomes reachable without an agency account. #124 already redirects `#/clients` to Home for every other kind |
+| `page_content` as a tool | Driver step 9. The poisoned-crawled-page test gates it. §9a decision 7. `DEFERRED_TOOLS` in `packages/driver` names it so step 9 has one place to look |
+| A router that narrows the catalogue before the model sees it | The probe measured the 20 tools at **2,974 tokens, 43% of the request** — three times the system prompt. §9a decision 2 said offer all of them if latency allows, and latency does allow. Reopens if rounds start missing the wall-clock budget |
+| Parsing tool-call arguments in the connector | Never. `validate.ts` in `packages/driver` is the layer that knows the schema, and it now exists |
+| Promote the Driver doc to `docs/feature-specs/D1-driver.md` | Still due, and now folding in the probe as well as §9a |
+| Gate "+ New client" inside `views/accounts.ts` | Never, unless the Clients grid becomes reachable without an agency account |
 | Fold `.oprow` and `.serp-row` into the row grammar | A figure appearing in either |
-| Retire `.loading` | A fourth state stops being a distinct fact, or its five call sites go — four in `copilot.ts`, one in `serp.ts` |
-| Fold `.gm-note` into `.notebox` | The Google panels needing a note at body size. Today it is deliberately `--t-2xs` |
-| Per-entity brand detail on Findings | Never, unless the Brand tab goes. The group names the weakest entity and links to the tab that breaks it down |
-| The crawl-coverage half of v1 readiness step 6 | Never — already shipped |
+| Retire `.loading` | A fourth state stops being a distinct fact, or its five call sites go |
+| Fold `.gm-note` into `.notebox` | The Google panels needing a note at body size |
+| Per-entity brand detail on Findings | Never, unless the Brand tab goes |
 
 ## Done since the redesign began
 
 Kept short on purpose; `working_log.md` has the detail. **The redesign is finished, v1 data
-readiness step 4 is finished, and Driver has started.** Redesign steps 1–8 (#105, #107, #108,
-#113–#117, #119, #120, and the `kind` gate in #124), data screens 1, 4, 5 and 7, action-plan
+readiness step 4 is finished, and Driver has reached step 3.** Redesign steps 1–8 (#105, #107,
+#108, #113–#117, #119, #120, and the `kind` gate in #124), data screens 1, 4, 5 and 7, action-plan
 waves 0–3, PR merge verification both ways, v1 readiness step 6 (#125), step 9's three passes —
-5a (#126), 5b (#127), 5c (#128) — brand strength on Findings with the `.intg-grid` breakpoint
-corrected and three small items closed (#129), and Driver step 2, the connector's tool calling
-(this branch).
+5a (#126), 5b (#127), 5c (#128) — brand strength on Findings (#129), Driver step 2, the
+connector's tool calling (#130), and on this branch **Driver step 1 (the vendor probe) and the
+larger half of step 3 — the nineteen-tool read catalogue, which also completes step 6.**
