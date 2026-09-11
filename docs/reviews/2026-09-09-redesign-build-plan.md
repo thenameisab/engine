@@ -2,6 +2,126 @@
 
 Date: 2026-09-09. Source: `docs/reviews/2026-09-09-user-journey-review.md` and the decisions written into its section 7. Baseline: `origin/main` at `16f7a5f` (PRs #80 fix-queue trust, #81 sync token, #82 GitHub App merged after the review).
 
+## 0. Status — audited 2026-09-11
+
+Read from `origin/main` at `91bf455` (#120 merged). Every line below was checked against the
+source, not against the working log.
+
+| Step | State | Evidence |
+|---|---|---|
+| 1 Shell | **done except the kind gate** | Six rail routes in `shell.ts`. `accounts.kind` arrived in 0035, not 0023, and is read in one place only — see "The kind is stored and unused" below |
+| 2 Home v1 | done | `views/home.ts`, health block, top issues, fixes strip, Ask Engine bar |
+| 3 Home v2 | done | Search, Traffic, AI referrals, Rankings, AI answers blocks with per-source state |
+| 4 Findings & verify | done | propose-batch, `ISSUE_EXPLANATIONS`, verify queue kind (0029), the overview strip, and PR merge verification (#119, #120) |
+| 5 Set up | done | One address plus the three-way kind; the answer is now sent and stored (0035) |
+| 6 Invite & Platform | **done, differently** | See "Where step 6 diverged" below |
+| 7 Integrations | done | Three sections; branding gated on `kind`; the GitHub App asked for in the form (#120) |
+| 8 Craft | done | Press states, focus rings, hover behind a media query, the colour triad, the nine-step scale, skeletons |
+| 9 One row grammar | **not done, except two view items** | See "What step 9 still owes" below |
+
+Data screens (§5), in the plan's own order:
+
+| # | Screen | State |
+|---|---|---|
+| 1 | Rankings, with tracking | done — `RANK_POLL_CRON`, tracked keywords, cadence per plan (0034) |
+| 2 | Bing sync | **superseded.** The action plan defers it to customer demand. The honesty line it asked for instead is shipped (`syncsNothingYet` on the tile) |
+| 3 | Entity audit into Findings | **not done.** Still a manual "Run entity audit" button; `runQueue.ts` does not call `entity-audit` after a crawl, and Findings has no brand-strength group. It does live under Visibility › Brand |
+| 4 | AI answers, with prompts | done — prompts editor, `AI_POLL_CRON`, share of voice (0034) |
+| 5 | Competitors by domain | done — `addCompetitorByDomain` |
+| 6 | Local gated by GBP | **not done.** The tab is in `VISIBILITY_TABS` unconditionally, with no connection check |
+| 7 | Ask Engine bar | done by step 2. The model behind it is wave 4 of the action plan; see `2026-09-10-driver-scoping.md` |
+
+### The kind is stored and unused
+
+Step 1's decision 3 was: "Company and Individual never see 'Client', the switcher or the Clients
+grid; an Agency does." Only half of that exists.
+
+0035 stores `accounts.kind`, onboarding sends it, and three readers return it. It is read by
+**one** consumer: the agency-only branding panel on Integrations. Everything else the decision
+named is still unconditional — the workspace rail shows a column of clients to a company with one
+site, `#/clients` is reachable, and sixteen strings across the views say "client" whatever the
+account is ("Pick a client from the Clients grid first", "New client…").
+
+This is the smallest remaining piece of the redesign and the one a single-site customer notices
+first. It is not step 9 work and does not need to wait for it: it is a `kind` check in
+`workspace.ts`, a redirect on the `clients` route, and a vocabulary pass over those sixteen
+strings.
+
+### Where step 6 diverged
+
+The plan's `0025_user_invites`, the token invite routes and the reset routes were never built.
+`0033_email_login` shipped a different and deliberately tokenless design: an invitation names an
+address, and the invitee proves it by signing in with an emailed code, so there is no link to
+copy and no token table to expire. A forgotten password is handled by signing in with a code and
+setting a new one, which is the same path, so `POST /auth/reset-request` has nothing left to do.
+
+Two consequences for anyone reading step 6 as a to-do list. The invite control lives on the
+Clients screen (`views/accounts.ts`, `POST /accounts/:id/invitations`) rather than on the
+Platform users panel, because an invitation grants membership of one account and the platform
+screen is not scoped to one. And the checklist's "users" row reports who can sign in rather than
+offering to invite. Both are the 0033 design, not omissions.
+
+### What step 9 still owes
+
+Steps 6 and 7 ran **before** step 9, which is the one thing this plan explicitly warned against:
+"doing them first means building the rows twice." That is what happened, and the cost is now
+measurable rather than predicted. #119 added two of exactly the primitives step 9
+rewrites: `.oprow` for the operator checklist, a ninth list row, and `.fstrip` for the Findings
+overview, a second stat row alongside `.hm-health-row`. Step 9 now folds in nine rows rather than
+eight and two stat rows rather than one. Neither was avoidable once the order was chosen, and
+recording it is cheaper than pretending the order held.
+
+Still outstanding, all in `styles.css` unless noted:
+
+- **One row grammar.** The table in this step listed eight implementations; there are now nine
+  (`.oprow`). `.kw-row` is still the only mechanism in the sheet that lines numbers up by
+  construction, so it is still the right base.
+- **Seven breakpoints, unchanged** — 560, 620, 640, 720, 760, 860, 1080. The plan wants three,
+  named. (Two other `max-width` values in the sheet, 1180 on `.content` and 110 on one cell, are
+  element widths rather than media queries and are not part of this.)
+- **Six empty states.** `.fq-note` is used 63 times across the views, up from 53, and still
+  prices a one-line message as a centred full-height panel.
+- **`.gm-stats .cell .top { min-height: 0 }`** is still there, so "Engaged sessions" still sits
+  a line below "Sessions" beside it.
+- **`.serp-form-row .field { flex: 1 }`** is still there, so a two-letter country select is as
+  wide as a domain field.
+- **`.ci-blurb`** is not clamped, so the competitor dimension cards are still uneven, and the
+  control row still labels two of four controls.
+
+Done from step 9 already, both in views rather than the stylesheet: the Findings overview strip
+and the planned-integrations disclosure, both in #119. The disclosure shipped broken — a class
+`display` beat `el.hidden` — and was fixed in #120 with one global `[hidden]` rule and three
+`styles.test.ts` guards.
+
+### The shortest list of what is actually left
+
+In the order a customer would notice it, not the plan's order:
+
+1. **Step 9**, the layout pass above. Every screen, and the only step that touches `styles.css`,
+   so it runs alone.
+2. **The `kind` gate** — a single-site company still sees a clients column. Small, independent of
+   step 9.
+3. **Data screen 3**: run the entity audit at the end of a crawl instead of behind a button, and
+   render brand strength as a Findings group. The screen exists under Visibility › Brand; what is
+   missing is that nobody presses the button, so nobody sees it.
+4. **Data screen 6**: gate the Local tab on a Business Profile connection. One check in
+   `VISIBILITY_TABS`.
+5. **Two deployment steps, not code.** `GITHUB_WEBHOOK_SECRET` is not set on production and
+   Engine's GitHub App has no webhook URL, so merged pull requests are still found by the nightly
+   pass rather than in seconds. Both are console actions.
+
+Nothing else from steps 1 to 8 is outstanding. Data screen 2 (Bing) is deferred by the action
+plan, not pending.
+
+### Not in this plan, and still not
+
+Everything in §6 holds: the model behind Ask Engine, billing, the marketing site, MCP, and email
+sending. Two of those moved: email sending is now real for sign-in codes and invitations
+(`Resend`, wave 2), and per-tier polling cadence shipped in 0034, so §6's last two bullets are
+stale as written.
+
+---
+
 ## 1. Decisions this plan is built on
 
 | # | Question | Decision | Effect on the plan |
@@ -199,7 +319,9 @@ Each is its own step after step 8, in this order, one branch at a time. Each has
 
 Steps 1 to 9 are sequential because each edits `shell.ts`, `styles.css` or `format.ts`. The data screens follow 9 and are sequential for the same reason.
 
-Steps 8 and 9 moved ahead of 6 and 7 on 2026-09-10. The order above is what was built: 1, 2, 3, 5 and 8 merged first (PRs #105, #107, #108, #113, #114, #115, #116, #117), with step 4 already substantially in place from the pre-review work. Steps 6 and 7 add an operator checklist and three new Integrations sections, both built from the row, stat and empty-state primitives step 9 rewrites, so running 9 first means building those rows once.
+Steps 8 and 9 moved ahead of 6 and 7 on 2026-09-10. **The diagram above is the intended order, not the built one.** 1, 2, 3, 5 and 8 merged first (PRs #105, #107, #108, #113, #114, #115, #116, #117), with step 4 already substantially in place from the pre-review work. Then 4's remainder, 6 and 7 merged together (#119) and 7's last items with the GitHub webhook (#120). Step 9 has not started.
+
+So the warning in the paragraph this replaces came true: steps 6 and 7 built an operator checklist and three Integrations sections out of the primitives step 9 was meant to rewrite first, and step 9 now has ten row implementations to fold in rather than eight. §0 records what that costs. Nothing needs re-planning — step 9's work is the same work, against two more call sites.
 
 Migrations are numbered in order of merge: 0023 (step 1), 0024 (step 4 if a table is chosen; otherwise none), 0025 (step 6), then one per data screen that needs it. Roadmap effect: steps 1 to 6 complete M1.6 (self-serve onboarding to first insight) and make M1.4's "verified" state real.
 

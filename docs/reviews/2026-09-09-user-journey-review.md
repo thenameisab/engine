@@ -4,6 +4,35 @@ Date: 2026-09-09. Product reviewed: `origin/main` at `b12f8bb` (week 1 of the sh
 
 **Follow-up:** decisions on the eight open questions are recorded inline in section 7 (`>>` notes), and the resulting plan is `docs/reviews/2026-09-09-redesign-build-plan.md`.
 
+> **This is a dated record, not a to-do list.** It describes the product at `b12f8bb` on
+> 2026-09-09 and is deliberately not updated as things ship — the screenshots under
+> `docs/reviews/assets/2026-09-09/` are the before state, and rewriting the prose would destroy
+> the comparison. Read the friction inventory in §3 and the proposal in §5 as the argument for
+> the redesign, not as the current state.
+>
+> **What actually shipped, as of 2026-09-11 (`91bf455`):** eight of the build plan's nine steps.
+> Of the friction this review ranked, most of the top items are gone — the shell is six
+> destinations with a persistent site switcher, Home reads from what Engine already knows plus
+> five integration blocks, "API base URL" and "Project ID" are deleted, setup is one customer
+> screen (Integrations) and one operator screen (`#/platform`), and the Verify button that could
+> never succeed is replaced by a machine check.
+>
+> **Two things this review asked for are still open, and both are worth naming because the
+> plan's step list reads as if they are done:**
+>
+> 1. **The client layer is not hidden** (question 3, and step 1 of the plan: "Company and
+>    Individual never see 'Client', the switcher or the Clients grid"). `accounts.kind` is
+>    stored as of 0035 and is read in exactly **one** place — the agency-only branding panel on
+>    Integrations. The workspace rail still shows a column of clients to a company with one
+>    site, the Clients grid is still reachable, and sixteen strings across the views still say
+>    "client" unconditionally. Storing the kind was the prerequisite, not the feature.
+> 2. **The row, stat and empty-state duplication** from §5.6's interface judgment. That is step
+>    9, the one step not started; §0 of the plan lists what it owes.
+>
+> **Answered differently than proposed:** invitations (question 5). This review assumed a
+> one-time link the admin copies; `0033_email_login` shipped a tokenless design where the invitee
+> proves the address by signing in with an emailed code. §0 of the build plan explains why.
+
 ## How this was reviewed
 
 - The main checkout was being edited live by another session (uncommitted changes in `apps/api`, `apps/dashboard` and `packages/actions`, and an unapplied migration 0022), and its API failed to start. So the walk used a clean `git worktree` of `origin/main`, built with `ENGINE_API_BASE=http://localhost:8790`, served on port 4322, with the API on 8790 and the scratch Postgres on 5433 (21 migrations). Every file and line cited below is from `origin/main`, not from the working tree.
