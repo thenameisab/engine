@@ -31,3 +31,19 @@ export { DEFERRED_TOOLS, READ_TOOLS, READ_TOOLS_BY_NAME } from './catalogue.js';
 export { SYSTEM_PROMPT_RULE, toolErrorEnvelope, toolResultEnvelope } from './envelope.js';
 
 export { assertSchemaIsSupported, validateToolArguments, type ValidationResult } from './validate.js';
+
+export { buildSystemPrompt, type PromptContext } from './prompt.js';
+
+export {
+  DEFAULT_BOUNDS,
+  runTurn,
+  toLlmTools,
+  type LoopBounds,
+  type RoundRecord,
+  type RunTurnOptions,
+  type StopReason,
+  type ToolCallRecord,
+  type ToolRunner,
+  type TurnInput,
+  type TurnResult,
+} from './loop.js';

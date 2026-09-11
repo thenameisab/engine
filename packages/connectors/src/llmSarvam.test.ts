@@ -403,3 +403,63 @@ describe('SarvamConnector.streamConverse', () => {
     );
   });
 });
+
+describe('SarvamConnector reports what a turn cost', () => {
+  it('reads usage off a completed turn', async () => {
+    const fetchImpl = vi.fn(async () =>
+      response({
+        choices: [{ finish_reason: 'stop', message: { content: 'ok' } }],
+        usage: { prompt_tokens: 3958, completion_tokens: 274, total_tokens: 4232 },
+      }),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const turn = await connector.converse([{ role: 'user', content: 'q' }]);
+    expect(turn.usage).toEqual({ promptTokens: 3958, completionTokens: 274, totalTokens: 4232 });
+  });
+
+  it('leaves usage undefined when the vendor reported none, rather than zeroing it', async () => {
+    // A loop budgeting tokens must tell "not reported" from "cost nothing":
+    // only the first means its running total has stopped being trustworthy.
+    const fetchImpl = vi.fn(async () => response({ choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect((await connector.converse([{ role: 'user', content: 'q' }])).usage).toBeUndefined();
+  });
+
+  it('reads the streamed usage frame, which carries no choice', async () => {
+    // The vendor sends this unasked, in its own frame just before [DONE]. It
+    // used to be dropped by the guard that skips choice-less frames.
+    const fetchImpl = vi.fn(async () =>
+      streamResponse([
+        delta({ content: 'hello' }),
+        delta({}, 'stop'),
+        { choices: [], usage: { prompt_tokens: 100, completion_tokens: 7, total_tokens: 107 } },
+      ]),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(await drainTurn(connector.streamConverse([{ role: 'user', content: 'q' }]))).toEqual([
+      { type: 'text', delta: 'hello' },
+      { type: 'usage', usage: { promptTokens: 100, completionTokens: 7, totalTokens: 107 } },
+    ]);
+  });
+
+  it('still skips a choice-less frame that carries no usage', async () => {
+    const fetchImpl = vi.fn(async () => streamResponse([{ choices: [] }, delta({ content: 'hi' }, 'stop')]));
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(await drainTurn(connector.streamConverse([{ role: 'user', content: 'q' }]))).toEqual([
+      { type: 'text', delta: 'hi' },
+    ]);
+  });
+
+  it('derives the total when the vendor sends only the two parts', async () => {
+    const fetchImpl = vi.fn(async () =>
+      response({ choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
+    );
+    const connector = new SarvamConnector({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect((await connector.converse([{ role: 'user', content: 'q' }])).usage?.totalTokens).toBe(15);
+  });
+});

@@ -98,8 +98,24 @@ export interface LlmTurn {
   /** What the model asked to run, in the order it asked. */
   toolCalls: LlmToolCall[];
   finishReason: string | null;
+  /**
+   * What the turn cost, when the vendor reported it.
+   *
+   * Optional because a vendor may omit it, and a missing count has to be
+   * distinguishable from a count of zero: an agent loop that budgets tokens
+   * must know the difference between "this turn was free" and "we do not know
+   * what this turn cost".
+   */
+  usage?: LlmTokenUsage;
   /** The vendor payload, for a raw sink or an audit trail. */
   raw: unknown;
+}
+
+/** What one turn spent, as the vendor reported it. */
+export interface LlmTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 /**
@@ -118,7 +134,16 @@ export type LlmTurnChunk =
   /** The model has started asking for a tool. Arguments are still arriving. */
   | { type: 'tool_call_start'; id: string; name: string }
   /** A complete call, arguments included. Emitted once per call. */
-  | { type: 'tool_call'; call: LlmToolCall };
+  | { type: 'tool_call'; call: LlmToolCall }
+  /**
+   * What the turn cost. Emitted at most once, near the end of the stream.
+   *
+   * The vendor sends this in its own frame with an empty `choices` array, just
+   * before `[DONE]`, without being asked for it. It used to be dropped, which
+   * left an agent loop with no way to budget tokens across rounds except by
+   * making a second non-streaming call for the count.
+   */
+  | { type: 'usage'; usage: LlmTokenUsage };
 
 export interface LlmConversationalConnector {
   engine: string;
@@ -196,6 +221,35 @@ export function readWireToolCalls(calls: WireToolCall[] | undefined): LlmToolCal
       name: c.function!.name!,
       arguments: c.function?.arguments ?? '{}',
     }));
+}
+
+/** The vendor's spelling of a usage block, on both the JSON body and the stream. */
+export interface WireUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+/**
+ * Read a usage block, or `undefined` when the vendor sent none.
+ *
+ * `undefined` rather than a zeroed object on purpose: a loop budgeting tokens
+ * has to tell "the vendor did not say" from "this turn cost nothing", and only
+ * one of those two means it should stop trusting its own running total.
+ */
+export function readWireUsage(usage: WireUsage | null | undefined): LlmTokenUsage | undefined {
+  if (!usage) return undefined;
+  const { prompt_tokens, completion_tokens, total_tokens } = usage;
+  if (prompt_tokens === undefined && completion_tokens === undefined && total_tokens === undefined) {
+    return undefined;
+  }
+  const promptTokens = prompt_tokens ?? 0;
+  const completionTokens = completion_tokens ?? 0;
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens: total_tokens ?? promptTokens + completionTokens,
+  };
 }
 
 /** One `tool_calls` entry inside a streamed delta. */
