@@ -63,6 +63,7 @@ import { checkAuditRequestBody, checkAuditRequestFinishBody, AUDIT_REQUEST_MAX_P
   checkCreateCheckoutBody,
   checkUuidParam,
   checkCreateAccountBody,
+  checkAccountKindBody,
   checkCreateProjectBody,
   checkProjectPatchBody,
   checkBrandingBody,
@@ -186,6 +187,8 @@ import { getProject,
   createAccount,
   isAccountMember,
   getAccountRole,
+  setAccountKind,
+  countAccountsForUser,
   hasUserWithEmail,
   ensureLocalUser,
   getProjectAccountId,
@@ -3370,6 +3373,67 @@ app.post('/accounts/:accountId/projects', async (c) => {
   }
   const project = await createProject(db, accountId, body);
   return c.json({ project }, 201);
+});
+
+/**
+ * What kind of thing this account is: a company, an agency, or one person.
+ *
+ * It is not a label. `kind` unlocks the client layer — the workspace column's
+ * "+", the Clients grid, and report branding all read it — so writing it is an
+ * owner decision, the same argument `getAccountRole` was added for: a `member`
+ * must not be able to change what the whole account can see.
+ *
+ * A platform admin may also write it, because an operator fixing a customer's
+ * workspace should not have to be invited into it first. They act on the
+ * account named in the URL and nothing else; changing several customers at
+ * once is the Platform screen's job, where the target is visible.
+ *
+ * Not a member and not an admin answers 404 rather than 403, matching
+ * `requirePlatformAdmin`: a 403 would confirm the account exists to someone
+ * who cannot see it.
+ */
+app.patch('/accounts/:accountId', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const invalid = checkAccountKindBody(raw);
+  if (invalid) return c.json({ error: `invalid ${invalid.field}: ${invalid.message}`, field: invalid.field }, 400);
+  const { kind } = raw as { kind: AccountKind };
+
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  await upsertUser(db, user);
+
+  const role = await getAccountRole(db, accountId, user.id);
+  const admin = role === null ? await isPlatformAdmin(db, user, c.env) : false;
+  if (role === null && !admin) return c.json({ error: 'not found' }, 404);
+  if (role === 'member') {
+    return c.json({ error: 'only an owner can change the account type' }, 403);
+  }
+
+  // Leaving 'agency' is refused while this person still has other accounts to
+  // lose sight of. Downgrading does not delete them — it hides the only screen
+  // that can reach them, which reads as data loss and is not undoable from the
+  // UI, since the type control itself lives behind the same gate.
+  const current = await getAccount(db, accountId);
+  if (!current) return c.json({ error: 'not found' }, 404);
+  if (current.kind === 'agency' && kind !== 'agency') {
+    const count = await countAccountsForUser(db, user.id);
+    if (count > 1) {
+      return c.json({
+        error: `this agency has ${count} clients. Downgrading would hide all but one, so it is refused while more than one exists.`,
+        field: 'kind',
+        accounts: count,
+      }, 409);
+    }
+  }
+
+  const account = await setAccountKind(db, accountId, kind);
+  if (!account) return c.json({ error: 'not found' }, 404);
+  return c.json({ account });
 });
 
 /**

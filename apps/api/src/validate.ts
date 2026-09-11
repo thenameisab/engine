@@ -583,6 +583,18 @@ export function checkCreateAccountBody(body: unknown): Invalid | null {
   );
 }
 
+/**
+ * The Settings account-type select. Unlike `checkCreateAccountBody`, `kind` is
+ * required: this route exists only to change it, so an absent key is a caller
+ * mistake rather than "leave it alone".
+ */
+export function checkAccountKindBody(body: unknown): Invalid | null {
+  const invalid = checkObject(body, 'body');
+  if (invalid) return invalid;
+  const b = body as Record<string, unknown>;
+  return checkOneOf(b.kind, 'kind', ACCOUNT_KINDS);
+}
+
 export function checkCreateProjectBody(body: unknown): Invalid | null {
   const invalid = checkObject(body, 'body');
   if (invalid) return invalid;

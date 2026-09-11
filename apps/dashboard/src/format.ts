@@ -382,6 +382,21 @@ export const SITE_OWNER_KINDS = [
 export type SiteOwnerKind = (typeof SITE_OWNER_KINDS)[number]['value'];
 
 /**
+ * The same three values as `SITE_OWNER_KINDS`, worded for Settings.
+ *
+ * Kept separate rather than reused because the two ask different questions.
+ * The setup form asks whose *site* this is, so 'agency' reads "an agency's
+ * client". Settings asks what this *workspace* is, where the same value reads
+ * "we are an agency". One list with one set of labels would be wrong on one of
+ * the two screens.
+ */
+export const ACCOUNT_TYPE_OPTIONS = [
+  { value: 'company', label: 'A company — our own sites' },
+  { value: 'agency', label: 'An agency — we manage clients' },
+  { value: 'individual', label: 'One person — my own sites' },
+] as const;
+
+/**
  * A readable name from a domain: the first label, with dashes as spaces and
  * each word capitalised. `acme-dental.co.uk` → `Acme Dental`. It is a
  * starting point the form shows and lets the customer change, not a fact.
@@ -987,6 +1002,7 @@ export function toAccountCard(a: ApiAccount): AccountCard {
     branding: a.branding,
     projects: a.projects,
     connectedProviders: a.connectedProviders ?? [],
+    role: a.role ?? 'member',
   };
 }
 

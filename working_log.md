@@ -2105,3 +2105,44 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
   can never replay as an assistant `tool_calls` message with no matching `tool` messages.
 - Green after the fix: `turbo typecheck test --force` 65/65. API **548**, driver 67,
   connectors 157.
+## 2026-09-11 — Support: "Google gone from Settings" (Devansh + Aditya)
+- Diagnosed, no code change. Admin access is intact: `platformPointer()` in
+  `apps/dashboard/src/views/settings.ts:184` returns `null` for non-admins, and the reporter's
+  screenshot still renders the **Platform** section, so `isAdmin` is true for him.
+- Cause is relocation, not permission: 91b77a2 (2026-09-10 22:32) moved customer setup off
+  Settings onto Integrations; Settings now carries only an "Open Integrations" link.
+- Confirmed `upsertUser` (`apps/api/src/repositories/accounts.ts:52`) does not write
+  `platform_role`, so sign-in cannot demote a row edited directly in Neon.
+
+## 2026-09-11 — Support: "cannot add a new site/workspace, even as admin"
+- Diagnosed, no code change. Platform admin is irrelevant here: every gate on this path reads
+  `accounts.kind`, not `platform_role`.
+- The workspace rail's "+" renders only for an agency — `...(v.agency ? [add] : [])` in
+  `apps/dashboard/src/workspace.ts:279`, with `agency = kinds.includes('agency')`
+  (`apps/dashboard/src/format.ts:1097`). The `clients` route redirects non-agency users to Home.
+- `get-started` is a hidden route (`apps/dashboard/src/shell.ts:67`). Its only entries are the
+  no-project-selected redirect (`shell.ts:335`), the agency-only Clients grid, and an
+  Integrations empty-state button (`googleIntegrations.ts:670`). A company account with one site
+  selected reaches none of them, so the screen exists with nothing linking to it.
+- `accounts.kind` has no setter: the only account PATCH is `/branding` (`index.ts:3258`).
+- **Product gap, not yet fixed:** a company account cannot add a second site from the UI.
+
+
+## 2026-09-11 — Account type, and settings put back where they belong
+- Branched `feat/account-type-and-settings-homes` off `origin/main` (deef5b6). The prior branch's
+  PR #134 was already merged, so it was not reused.
+- **API:** `PATCH /accounts/:accountId` sets `accounts.kind`. Guard is owner **or** platform
+  admin; a member gets 403, a non-member 404 (not 403, matching `requirePlatformAdmin`).
+  Leaving `agency` is refused with 409 while the caller belongs to more than one account.
+- `listAccountsForUser` now returns the caller's `role`, so Settings can render the control
+  read-only for a member instead of offering a change the API would refuse.
+- **Settings** gains Account type, and takes back **Where fixes go** and **Report branding**
+  (agency-only). Integrations keeps only the connections plus a new banner naming the vendors
+  whose app is unregistered, instead of tile-by-tile discovery.
+- "Setup required" became "Needs <vendor> setup": it is a standing provider prerequisite, and as
+  a status chip it contradicted "NOT CONNECTED" and "Connected under <other client>" on one tile.
+- **Root cause of the stray workspace:** onboarding's `chosenAccount()` fell back to
+  `accounts[0]`, which is the *newest* account, and created one whenever the list was empty
+  because the load had failed. Every kind now reads an explicit workspace select.
+- Green: `turbo typecheck test` 65/65 tasks. API 559/559 with `TEST_DATABASE_URL` set, after
+  applying 0036 to the local docker Postgres, which was a migration behind `main`.

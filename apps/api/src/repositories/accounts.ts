@@ -137,6 +137,36 @@ export async function getAccountRole(db: Db, accountId: string, userId: string):
   return rows[0]?.role ?? null;
 }
 
+/**
+ * Change what kind of thing an account is.
+ *
+ * Returns the stored row rather than echoing the requested kind, so the
+ * Settings select re-renders from what the database actually holds.
+ */
+export async function setAccountKind(db: Db, accountId: string, kind: AccountKind): Promise<Account | null> {
+  const [row] = await db<AccountRow[]>`
+    update accounts set kind = ${kind} where id::text = ${accountId}
+    returning id, name, kind, branding, created_at
+  `;
+  return row ? toAccount(row) : null;
+}
+
+/**
+ * How many accounts this user belongs to — the agency downgrade guard.
+ *
+ * An agency's clients are not a parent/child link; they are simply the other
+ * accounts the same person belongs to, which is how `listAccountsForUser` and
+ * the Integrations "connected under another client" note already read them.
+ * So the question "does this agency still have clients?" is a count of
+ * memberships, not a column.
+ */
+export async function countAccountsForUser(db: Db, userId: string): Promise<number> {
+  const [row] = await db<{ n: number }[]>`
+    select count(*)::int as n from account_members where user_id = ${userId}
+  `;
+  return row?.n ?? 0;
+}
+
 /** Resolves a project to its owning account, so a project-scoped route can check membership. */
 export async function getProjectAccountId(db: Db, projectId: string): Promise<string | null> {
   const rows = await db<{ account_id: string }[]>`
@@ -154,15 +184,19 @@ export async function getProjectAccountId(db: Db, projectId: string): Promise<st
 export async function listAccountsForUser(
   db: Db,
   userId: string,
-): Promise<Array<Account & { projects: Project[] }>> {
-  const accountRows = await db<AccountRow[]>`
-    select a.id, a.name, a.kind, a.branding, a.created_at
+): Promise<Array<Account & { projects: Project[]; role: 'owner' | 'member' }>> {
+  // `m.role` rides along because the join is already here. Settings needs it to
+  // render the account-type control read-only for a member instead of offering
+  // a select the API would refuse — the caller's own role on their own account
+  // should not cost a second request.
+  const accountRows = await db<(AccountRow & { role: 'owner' | 'member' })[]>`
+    select a.id, a.name, a.kind, a.branding, a.created_at, m.role
     from accounts a
     join account_members m on m.account_id = a.id
     where m.user_id = ${userId}
     order by a.created_at desc
   `;
-  const accounts = accountRows.map(toAccount);
+  const accounts = accountRows.map((row) => ({ ...toAccount(row), role: row.role }));
 
   const projectRows = accounts.length > 0
     ? await db<ProjectRow[]>`

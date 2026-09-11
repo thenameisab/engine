@@ -392,7 +392,12 @@ export interface ApiAccount {
   projects: ApiProject[];
   /** Provider ids with a live connection under this client. Absent from an older API deploy. */
   connectedProviders?: ProviderId[];
+  /** The caller's own role here. Absent from an API deploy older than this change. */
+  role?: AccountRole;
 }
+
+/** What the caller may do on an account. Only an owner may change its kind. */
+export type AccountRole = 'owner' | 'member';
 
 /** The multi-client grid's view model: one card per account. */
 export interface AccountCard {
@@ -402,6 +407,12 @@ export interface AccountCard {
   branding: ApiAccountBranding;
   projects: ApiProject[];
   connectedProviders: ProviderId[];
+  /**
+   * Defaults to 'member' when the API does not send it. The safe direction: an
+   * older deploy renders the account-type control read-only rather than
+   * offering a change it would refuse.
+   */
+  role: AccountRole;
 }
 
 /** Whether a view is showing live API data or the built-in sample. */

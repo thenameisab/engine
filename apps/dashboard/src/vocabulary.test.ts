@@ -85,10 +85,24 @@ const AGENCY_ONLY = [
   'Switch client or site',
 ];
 
+/**
+ * Settings' account-type control, which is the one place a non-agency is meant
+ * to read the word.
+ *
+ * The rule these lists enforce is that a company is never handed "client" as
+ * *its own* vocabulary. Choosing what kind of account you are is the exception:
+ * the option has to say what an agency is, to someone who is not one yet, or
+ * the choice cannot be made. Defining the term, not adopting it.
+ */
+const ACCOUNT_TYPE_CHOICE = [
+  'An agency — we manage clients',
+  'An agency has clients, each with its own sites and its own connections. A company or one person has sites directly.',
+];
+
 /** A class attribute that happens to contain a space. */
 const CLASS_NAMES = ['panel client-card'];
 
-const ALLOWED = new Set([...OAUTH_CLIENT, ...AGENCY_ONLY, ...CLASS_NAMES]);
+const ALLOWED = new Set([...OAUTH_CLIENT, ...AGENCY_ONLY, ...ACCOUNT_TYPE_CHOICE, ...CLASS_NAMES]);
 
 describe('the word "client"', () => {
   it('appears only where an agency reads it, or where it means an OAuth client', () => {
