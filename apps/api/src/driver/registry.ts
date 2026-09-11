@@ -74,29 +74,45 @@ assertRegistryMatchesCatalogue();
  *    which is a wrong answer rather than a missing one.
  *  - Scope comes from `ctx` and nothing in `rawArguments` can reach it.
  */
+export interface ToolCallOutcome {
+  /** What goes on the `tool` message. Always present, including on failure. */
+  envelope: string;
+  /**
+   * The structured result, absent when the call never produced one.
+   *
+   * The loop only needs the envelope; the response-part protocol needs this.
+   * Returned alongside rather than parsed back out of the envelope, because
+   * the caller already has it here and parsing is only worth doing for
+   * results read back from the database later.
+   */
+  result?: ToolResult;
+}
+
 export async function runToolCall(
   ctx: DriverToolContext,
   name: string,
   rawArguments: string,
-): Promise<string> {
+): Promise<ToolCallOutcome> {
   const definition = READ_TOOLS_BY_NAME.get(name);
   const handler = READ_HANDLERS[name];
 
   if (!definition || !handler) {
-    return toolErrorEnvelope(
-      name,
-      `There is no tool called "${name}". Available tools: ${READ_TOOLS.map((t) => t.name).join(', ')}.`,
-    );
+    return {
+      envelope: toolErrorEnvelope(
+        name,
+        `There is no tool called "${name}". Available tools: ${READ_TOOLS.map((t) => t.name).join(', ')}.`,
+      ),
+    };
   }
 
   const validated = validateToolArguments(definition, rawArguments);
-  if (!validated.ok) return toolErrorEnvelope(name, validated.error);
+  if (!validated.ok) return { envelope: toolErrorEnvelope(name, validated.error) };
 
   let result: ToolResult;
   try {
     result = await handler(ctx, validated.args);
   } catch (error) {
-    return toolErrorEnvelope(name, error instanceof Error ? error.message : String(error));
+    return { envelope: toolErrorEnvelope(name, error instanceof Error ? error.message : String(error)) };
   }
 
   // Provenance is stamped from the definition rather than trusted from the
@@ -104,8 +120,9 @@ export async function runToolCall(
   // said it reads. The handler may narrow the list; it may not extend it.
   const declared = new Set(definition.tables);
   const tables = result.provenance.tables.filter((t) => declared.has(t));
-  return toolResultEnvelope(name, {
+  const stamped: ToolResult = {
     ...result,
     provenance: { ...result.provenance, tables: tables.length > 0 ? tables : definition.tables },
-  });
+  };
+  return { envelope: toolResultEnvelope(name, stamped), result: stamped };
 }

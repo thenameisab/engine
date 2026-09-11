@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { createDb, type Db } from '../db.js';
 import { app } from '../index.js';
 import { threadTranscript } from '../repositories/driverThreads.js';
+import { messagesWithParts } from './parts.js';
 import { askDriver } from './ask.js';
 
 /**
@@ -144,6 +145,47 @@ describe.skipIf(!url)('askDriver (Postgres)', () => {
   }
 
   /* ── the seam ───────────────────────────────────────────────────────────── */
+
+  it('answers with typed parts: the prose, then the evidence under it', async () => {
+    await db`
+      insert into audit_runs (project_id, pages_audited, findings_count, health_score)
+      values (${projectId}, 42, 2, 73)
+    `;
+
+    const { answer } = await ask('how healthy is the site?', [
+      completion({ content: null, tool_calls: [toolCall('site_health')] }),
+      completion({ content: 'Your health score is 73 over 42 pages.' }),
+    ]);
+
+    expect(answer.parts[0]).toEqual({ kind: 'text', markdown: 'Your health score is 73 over 42 pages.' });
+
+    // A crawl with no open findings makes `site_health` a measured `zero`, so
+    // the answer carries both the notice and the figures behind it.
+    expect(answer.parts.map((p) => p.kind)).toContain('notice');
+
+    // §4.6 rule 1: the figure came from the tool result, not from the model.
+    // The prose says 73 because the metric does, and the metric is what the
+    // screen renders.
+    const score = answer.parts.find((p) => p.kind === 'metric' && p.label === 'Health score');
+    expect(score).toMatchObject({ value: 73, unit: 'score' });
+    expect((score as { provenance: { tables: string[] } }).provenance.tables).toContain('audit_runs');
+  });
+
+  it('says what is missing rather than rendering an empty table', async () => {
+    // §4.2 rule 3, which §9a decision 6 makes load bearing: on a new account
+    // most tools return one of the three empty states, so this part writes the
+    // whole first impression.
+    const { answer } = await ask('how is search doing?', [
+      completion({ content: null, tool_calls: [toolCall('search_performance')] }),
+      completion({ content: 'Search Console is not connected yet.' }),
+    ]);
+
+    const notice = answer.parts.find((p) => p.kind === 'notice');
+    expect(notice).toMatchObject({ tool: 'search_performance', state: 'not-connected' });
+    expect((notice as { action: string }).action).toContain('Integrations');
+    // An absence has nothing behind it: prose and the notice, and no figures.
+    expect(answer.parts.map((p) => p.kind)).toEqual(['text', 'notice']);
+  });
 
   it('runs the tool the model asked for and answers from its result', async () => {
     await db`
@@ -323,6 +365,10 @@ describe.skipIf(!url)('askDriver (Postgres)', () => {
     });
 
     it('replays the earlier question and answer on the next turn, and no tool traffic', async () => {
+      await db`
+        insert into audit_runs (project_id, pages_audited, findings_count, health_score)
+        values (${projectId}, 42, 2, 73)
+      `;
       const first = await ask(
         'how healthy is the site?',
         [
@@ -460,6 +506,32 @@ describe.skipIf(!url)('askDriver (Postgres)', () => {
         noise.mockRestore();
         globalThis.fetch = original;
       }
+    });
+
+    it('rebuilds an old thread\'s parts from what it was built on', async () => {
+      // Parts are derived, not stored. A thread opened tomorrow renders
+      // through the same builder as one answered just now, so improving a
+      // render shape improves every answer ever given.
+      await db`
+        insert into audit_runs (project_id, pages_audited, findings_count, health_score)
+        values (${projectId}, 42, 2, 73)
+      `;
+      const first = await ask(
+        'how healthy is the site?',
+        [
+          completion({ content: null, tool_calls: [toolCall('site_health')] }),
+          completion({ content: 'The site scores 73.' }),
+        ],
+        { userId: asker },
+      );
+
+      const stored = messagesWithParts(await threadTranscript(db, first.answer.threadId!));
+      const answer = stored.find((m) => m.role === 'assistant' && m.content);
+
+      expect(answer!.parts![0]).toEqual({ kind: 'text', markdown: 'The site scores 73.' });
+      expect(answer!.parts!.some((p) => p.kind === 'metric')).toBe(true);
+      // The turn that only called tools has nothing to hang evidence on.
+      expect(stored.find((m) => m.role === 'tool')!.parts).toBeUndefined();
     });
 
     it('stores nothing for a caller with no user, and starts no thread', async () => {

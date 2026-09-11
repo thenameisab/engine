@@ -2146,3 +2146,38 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
   because the load had failed. Every kind now reads an explicit workspace select.
 - Green: `turbo typecheck test` 65/65 tasks. API 559/559 with `TEST_DATABASE_URL` set, after
   applying 0036 to the local docker Postgres, which was a migration behind `main`.
+
+## 2026-09-11 — Driver step 5a: the response-part protocol (feat/driver-screen)
+- Step 5 split in two, following the 5a/5b/5c precedent: **5a the protocol, server only;
+  5b the screen.** The split is also conflict avoidance — a second session is editing
+  `apps/dashboard/src/{api,types,format,views/settings}.ts` on `feat/account-type-and-settings-homes`,
+  which is exactly what 5b touches and 5a does not.
+- Working in a separate git worktree at `.worktrees/driver-screen`, HEAD handed back to the
+  other session. `.worktrees/` excluded via `.git/info/exclude`, so neither branch carries it.
+- `packages/driver/src/parts.ts`: the `ResponsePart` union — `text`, `metric`, `table`,
+  `series`, `findings`, `fixes`, and a `notice` kind §4.5 does not list. `action` and
+  `citation` are left undeclared: no producer exists until steps 7 and 8.
+- Each tool declares its render shape as a small declarative spec in
+  `apps/api/src/driver/parts.ts`, all nineteen in one file so "does Driver answer every question
+  in the catalogue sensibly" is a question you can answer by reading one file.
+  `assertRenderCoversCatalogue` runs at module load, same guard as the handler registry.
+- The specs address handler output with dotted strings, which the compiler cannot check. Closed
+  by a db test that seeds **all nineteen tools to `ok`** and fails on any declared path
+  resolving to `undefined`. It found **six wrong paths** — three by reading before I wrote the
+  test, three more that only the live data caught (`traffic_by_channel.sources` should be
+  `channels`, and two snake_case columns that the handler had already folded to camelCase).
+- **`zero` is a measurement, not an absence**, and the first version got this wrong. A non-`ok`
+  state emitted one notice and dropped everything else, so `site_health` on a site scoring 73
+  with no open findings threw the score away. Now `not-connected` and `no-data-yet` render a
+  notice alone; `zero` renders the notice *and* its figures. Found by a test, not by review.
+- `Number(null)` is `0`, so a day with no reading sat on the series axis at zero. Replaced with
+  a strict reader that also accepts the numeric strings postgres.js returns for `numeric`.
+- `parseToolResultEnvelope` added beside the encoder, with a round-trip test and one asserting
+  an injected `</tool_result>` still cannot forge a second envelope. It lets a stored thread
+  rebuild its parts from the envelopes already in `driver_messages` — no migration, and a
+  change to a render shape improves every answer ever given rather than only the next one.
+- `runToolCall` now returns `{ envelope, result }`. The loop still gets only the string.
+- Measured, and it blocks 5b: `request<T>` in `apps/dashboard/src/api.ts` hard-codes an
+  **8-second** abort, against the loop's **45-second** budget. The Driver call cannot go through
+  it unchanged.
+- Green: `turbo typecheck test --force` 65/65. Driver **84**, up from 67; API **553**, up from 548.

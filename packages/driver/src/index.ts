@@ -28,7 +28,28 @@ export {
 
 export { DEFERRED_TOOLS, READ_TOOLS, READ_TOOLS_BY_NAME } from './catalogue.js';
 
-export { SYSTEM_PROMPT_RULE, toolErrorEnvelope, toolResultEnvelope } from './envelope.js';
+export {
+  SYSTEM_PROMPT_RULE,
+  parseToolResultEnvelope,
+  toolErrorEnvelope,
+  toolResultEnvelope,
+} from './envelope.js';
+
+export {
+  assembleAnswer,
+  buildParts,
+  pick,
+  type DataPath,
+  type MetricSpec,
+  type PartBand,
+  type PartCell,
+  type PartColumn,
+  type PartUnit,
+  type ResponsePart,
+  type SeriesSpec,
+  type TableSpec,
+  type ToolRender,
+} from './parts.js';
 
 export { assertSchemaIsSupported, validateToolArguments, type ValidationResult } from './validate.js';
 
