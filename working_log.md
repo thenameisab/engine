@@ -1270,3 +1270,59 @@ centre-aligned strip, and `.pagehead p` matches the coverage lines too.
 - **Not done, and deliberately:** the GitHub webhook (the scheduled pass is the
   fallback the plan allows), the "Install Engine on GitHub" tile flow in step 7,
   and reordering the deploy-target kinds to put WordPress and Cloudflare first.
+
+## 2026-09-11 (the three items #119 deliberately left out)
+`#119` merged as `35de544`. Branched `feat/github-app-and-targets` off the
+updated `origin/main`.
+
+- **`POST /webhooks/github`.** The nightly pass from #119 polls every open PR
+  once a night, so a merge at 09:00 was verified the next morning. The webhook
+  is the fast path; the pass stays, because a delivery can fail or never be
+  configured and a verification that only happens on success is none.
+  HMAC-SHA256 over the raw body against `GITHUB_WEBHOOK_SECRET`, Web Crypto not
+  an SDK. It requires the `sha256=` prefix rather than accepting a bare digest,
+  which would be the older SHA-1 value under the new header name. Unset secret
+  refuses everything. 200 to every delivery it does not care about, because
+  GitHub retries a non-2xx and eventually disables the endpoint.
+  `findDeployedPrAction` filters on the repository in SQL then matches the
+  number from the deploy transition's audit entry — numbers are per repository,
+  so matching the number alone would verify the wrong fix.
+- **The deploy targets are ordered plugin → worker → pull request.** GitHub was
+  first, so a new site defaulted to the one option that cannot finish on its
+  own.
+- **The form asks for the GitHub App at the moment it matters.** Three states,
+  because the two failures have different owners: unregistered is the
+  administrator's (a button to Platform for an admin, "Needs setup by your
+  administrator" otherwise), uninstalled is the customer's ("Install Engine on
+  GitHub"). The install button runs the gallery's own flow —
+  `openConsentPopup` moved into `consentPopup.ts` so a shared module does not
+  import a view. Before this the form saved happily and the first Deploy 503'd.
+- Fixed two pointers #119 left stale: the gallery's "Register it once under
+  Settings" and its button to `#/settings`.
+
+### The bug this uncovered, and worth not re-diagnosing
+**`el.hidden` did nothing on any element whose class sets `display`.** The UA
+stylesheet's `[hidden] { display: none }` loses to every author rule. The
+stylesheet had already patched this per class twice (`.fstack`, then my
+`.dt-gh`) and **missed `.intg-planned-grid`, so the disclosure #119 shipped was
+permanently open** — "Show 3 planned integrations" above three visible tiles.
+My own screenshot showed it and my own walk passed, because the assertion read
+the `hidden` property instead of whether anything was visible.
+
+Replaced with one global `[hidden] { display: none !important }`. `!important`
+is deliberate: `hidden` is a fact about the element, and it has to beat a class
+rule appearing later in the file, which specificity cannot do. `deployTargetForm`
+stops assigning `style.display`, so one mechanism decides visibility. Three
+`styles.test.ts` guards: the rule exists, no per-class patch returns, and no
+file under `src/` assigns `style.display`. **Walk assertions now read
+`offsetParent` and computed display, never `.hidden`** — that change caught the
+same trap in my own new CSS within a minute.
+
+- **Green bar:** `turbo run typecheck test lint build` 68/68. API 433 (was 419),
+  deploy 75 (was 61), dashboard 158 (was 155). Two Playwright walks pass in
+  full: 42 checks from #119 and 28 new ones over the four GitHub states.
+- **Still open, and it is a deployment step rather than code:** nothing has set
+  `GITHUB_WEBHOOK_SECRET` on production, and Engine's GitHub App has no webhook
+  URL configured. Until both, merges are found by the nightly pass. The
+  operator checklist does not list the webhook as its own row; the secret shows
+  under the GitHub entry in Vendor keys as optional.
