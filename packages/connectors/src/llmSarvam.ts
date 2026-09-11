@@ -30,6 +30,7 @@ import { parseSseJson, type LlmStreamChunk, type LlmStreamingConnector } from '.
 import {
   ToolCallAccumulator,
   readWireToolCalls,
+  readWireUsage,
   toWireMessage,
   toWireToolChoice,
   toWireTools,
@@ -40,6 +41,7 @@ import {
   type LlmTurnChunk,
   type WireToolCall,
   type WireToolCallDelta,
+  type WireUsage,
 } from './llmTools.js';
 
 const SARVAM_ENDPOINT = 'https://api.sarvam.ai/v1/chat/completions';
@@ -66,6 +68,8 @@ interface SarvamStreamEvent {
       tool_calls?: WireToolCallDelta[];
     };
   }[];
+  /** Sent unasked in its own frame with an empty `choices`, just before `[DONE]`. */
+  usage?: WireUsage | null;
 }
 
 interface SarvamChatResponse {
@@ -77,6 +81,7 @@ interface SarvamChatResponse {
       tool_calls?: WireToolCall[];
     };
   }[];
+  usage?: WireUsage | null;
 }
 
 export interface SarvamConnectorOptions {
@@ -158,6 +163,7 @@ export class SarvamConnector
       reasoning: choice?.message?.reasoning_content ?? '',
       toolCalls: readWireToolCalls(choice?.message?.tool_calls),
       finishReason: choice?.finish_reason ?? null,
+      usage: readWireUsage(raw.usage),
       raw,
     };
   }
@@ -185,8 +191,15 @@ export class SarvamConnector
     let answered = false;
     let finishReason: string | undefined;
     for await (const event of parseSseJson(resp.body, opts.signal)) {
-      const choice = (event as SarvamStreamEvent).choices?.[0];
-      if (!choice) continue;
+      const frame = event as SarvamStreamEvent;
+      const choice = frame.choices?.[0];
+      if (!choice) {
+        // The usage frame carries no choice. Before this, the guard below
+        // dropped it and the token counts with it.
+        const usage = readWireUsage(frame.usage);
+        if (usage) yield { type: 'usage', usage };
+        continue;
+      }
       if (choice.finish_reason) finishReason = choice.finish_reason;
 
       const thinking = choice.delta?.reasoning_content;

@@ -52,6 +52,7 @@ import {
   DEFAULT_LLM_MODEL_ID,
   type SerpQuery,
   type PromptQuery,
+  type LlmMessage,
 } from '@engine/connectors';
 import { durationMs, isEntityKind, isEntityRole, type AccountKind, type Action, type Entity, type Finding, type FindingSource, type PlanTier, type DeployTarget } from '@engine/core';
 import { classifyIntent, transliterateToDevanagari, generatePromptSeeds } from '@engine/keywords';
@@ -169,6 +170,7 @@ import { insertSerpPositions } from './repositories/rankPositions.js';
 import { insertCitationEvents, citedShareByEngine } from './repositories/citationEvents.js';
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
 import { brandTerms, searchSummary, trafficSummary, type SyncState } from './repositories/googleMetrics.js';
+import { askDriver } from './driver/ask.js';
 import { listAssignments, listConnections, connectedProvidersByAccount } from './repositories/integrations.js';
 import { getProject,
   upsertUser,
@@ -885,6 +887,63 @@ app.get('/projects/:projectId/ai/models', async (c) => {
  * letting a person's "try this prompt" clicks land in the same table would
  * move the band by hand. The scheduled poll owns that table.
  */
+/**
+ * Ask Driver a question about this project.
+ *
+ * The conversational surface's one route for now. It returns a complete answer
+ * rather than a stream: the vendor probe measured SSE parsing as the entire CPU
+ * cost of a turn — 5.96 ms against 0.018 ms for the same turn as a JSON body,
+ * on an account with a 10 ms budget — so whether Driver streams is a decision
+ * that comes with a plan decision, and both belong with the screen in step 5.
+ *
+ * `source` says which engine answered. §4.8 keeps the deterministic Copilot as
+ * the fallback when no model key is configured or the vendor fails, and a
+ * fallback answer presented as a Driver answer would be a silent downgrade.
+ *
+ * `history` is accepted but not yet persisted — conversation state is migration
+ * 0036 in step 4. Until then a caller that wants a follow-up sends back the
+ * turns it already has.
+ */
+app.post('/projects/:projectId/driver/ask', async (c) => {
+  const projectId = c.req.param('projectId');
+  const invalidId = checkUuidParam(projectId, 'projectId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+
+  const raw = await readJson(c);
+  if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
+  const body = raw as { question?: unknown; history?: unknown };
+
+  const question = typeof body.question === 'string' ? body.question.trim() : '';
+  if (!question) return c.json({ error: 'question is required', field: 'question' }, 400);
+
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+
+  const answer = await askDriver(db, c.env as unknown as Record<string, string | undefined>, projectId, {
+    question,
+    ...(Array.isArray(body.history) ? { history: body.history as LlmMessage[] } : {}),
+  });
+
+  return c.json({
+    source: answer.source,
+    answer: answer.text,
+    ...(answer.modelEngine ? { engine: answer.modelEngine } : {}),
+    ...(answer.fellBackBecause ? { fellBackBecause: answer.fellBackBecause } : {}),
+    // The audit trail §4.4 requires: which tools ran, with what arguments, and
+    // what each cost. The results themselves are not echoed — they are large,
+    // and every figure in the prose is already traceable through them.
+    ...(answer.turn
+      ? {
+          stopReason: answer.turn.stopReason,
+          partial: answer.turn.partial,
+          usage: answer.turn.usage,
+          rounds: answer.turn.rounds,
+        }
+      : {}),
+  });
+});
+
 app.post('/projects/:projectId/ai/stream', async (c) => {
   const projectId = c.req.param('projectId');
   const raw = await readJson(c);

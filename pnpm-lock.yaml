@@ -320,6 +320,10 @@ importers:
         version: 2.1.9(@types/node@22.20.1)
 
   packages/driver:
+    dependencies:
+      '@engine/connectors':
+        specifier: workspace:*
+        version: link:../connectors
     devDependencies:
       typescript:
         specifier: ^5.7.0

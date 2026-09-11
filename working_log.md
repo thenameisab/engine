@@ -1991,3 +1991,57 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
 - Verified on the assembled deploy output rather than the source tree: page, all 16 images and `docs.css` all 200; 16/16 images load; no horizontal overflow at 1240px or 375px; the five existing nav routes still 200.
 - **Deleted `docs/guides/`.** Its screenshots had been genericised in place while its text still carried the real redirect URI and the secret-setting commands — a duplicate that disagreed with itself. The internal specifics live in this log; the guide itself is now the published page.
 - Still uncommitted, and still for the same reason: this worktree now also holds another session's untracked `packages/driver/` alongside the modified `packages/connectors/`.
+
+## 2026-09-11 — Driver step 3b: the agent loop
+
+- **`runTurn` in `packages/driver/src/loop.ts`.** Build messages → call the model with the
+  catalogue → run the tools it asked for → append `tool` results → repeat → answer. It takes a
+  connector and a `ToolRunner` and opens no database, so it is unit-tested against a scripted
+  connector with no Postgres at all.
+- **All four bounds come from the probe rather than from judgement.** Rounds per turn 4 (median
+  round 5.2 s against a 45 s turn), calls per round 4 (measured to work, no vendor ceiling found),
+  wall clock 45 s as a turn-wide deadline, and a 96,000-token ceiling on the running total — which
+  will not bind, since the probe projected ~15,000 by round four against a 128K window, and which
+  exists because "will not bind" is the assumption that stops being true unnoticed.
+- **The per-round cap answers every call it does not run.** Capping at four while the assistant
+  message names six leaves two `tool_call` ids unanswered, and the vendor rejects the next request
+  outright. Each capped call gets an error envelope saying why and inviting the model to ask again
+  next round. There is a test asserting the id sets match.
+- **A round's calls run concurrently.** The vendor returns them together and §4.2 tools are
+  independent parameterised reads, so serialising would multiply the round's wall clock for
+  nothing. Tested by counting peak concurrency, not by timing.
+- **Partial answers are a forced round, not a truncation.** On max-rounds or the token ceiling the
+  loop spends one more call with `tool_choice: 'none'`, which forbids further tools and makes the
+  model answer from what it gathered. On the deadline it does *not* — the point of a deadline is
+  not to wait longer — so that path returns empty and says `deadline`. Four distinct stop reasons,
+  and `partial` is true for all but `answered`.
+- **Nothing streams, deliberately.** The probe measured SSE parsing as the entire CPU cost of a
+  turn (5.96 ms against 0.018 ms for the same turn as a JSON body) on an account with 10 ms. A
+  non-streamed round costs ~0.08 ms. Streaming the final answer is worth doing and needs a plan
+  decision; `RoundRecord` carries what a streamed variant would need, so it is a wrapper rather
+  than a rewrite. There is a test asserting the loop never calls `streamConverse`.
+- **`streamConverse` no longer drops the vendor's `usage` frame** — `docs/PENDING.md` row 3, found
+  by the probe. It arrives unasked in a penultimate frame with an empty `choices`, which the
+  `if (!choice) continue` guard skipped. `LlmTurn` gains an optional `usage`, `LlmTurnChunk` gains
+  a `usage` chunk, and `readWireUsage` returns `undefined` rather than a zeroed object when the
+  vendor said nothing — a loop budgeting tokens has to tell "not reported" from "cost nothing".
+- **The system prompt is built, not written.** `buildSystemPrompt` pulls the envelope rule from
+  `envelope.ts` and the tool names from the catalogue, so a prompt describing a delimiter the
+  encoder stopped emitting cannot happen. It carries §4.6's grounding contract, the four-state
+  vocabulary with the reason the three empty ones differ, the tier limits stated as "you cannot",
+  and screen context appended last and labelled so a screen cannot rewrite the rules above it.
+- **`POST /projects/:projectId/driver/ask`**, wired through `apps/api/src/driver/ask.ts`. Scope is
+  built from the path after `projectAccessError` and never from the body — the route has nowhere
+  to put a project id, and a test asserts it stays that way.
+- **§4.8 degradation is wired.** No model key, a vendor failure, or a turn that stopped with
+  nothing to show all fall back to the deterministic four-intent Copilot. The response says
+  `source: 'driver' | 'copilot-fallback'` and why, because a fallback answer presented as a Driver
+  answer is a silent downgrade.
+- **End-to-end db test with the vendor stubbed at `fetch`.** Proves the seam the other two suites
+  cannot: that a tool call reaches the right handler, that it runs under the session's scope, and
+  that the envelope comes back in a shape the next round carries. A model that sends
+  `{"projectId": "<another project>"}` is rejected by argument validation and told so; the other
+  tenant's rows never appear.
+- Green bar: `turbo typecheck` and `turbo test` 65/65 tasks. Driver **67**, up from 39; connectors
+  **157**, up from 152; API **517**, up from 501. No migration — conversation state is 0036 in
+  step 4.
