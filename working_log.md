@@ -1404,5 +1404,29 @@ Two measurements corrected while drafting, both caught by grep rather than shipp
 is **five grid / four flex**, not four/five as first written, and `.fq-note` spans **17** files,
 not 16.
 
-Recommendation given: §3 if the user wants something shipped today, §4 if they want the biggest
-risk retired today.
+**Revised the same session, after the user asked to refer to the existing detailed plans.** That
+exposed a real gap: I had audited three documents and there are **five**. Reading the other two
+changed two items and added one.
+
+- **`2026-09-09-v1-data-readiness-plan.md` step 6 scopes Local far more broadly** than my "filter
+  the tab". Its gate is `gbp` **or manually entered profile facts**, with a form for the facts —
+  gating on the connection alone would hide the screen from the customer the form exists for. Its
+  crawl-coverage half is already done (`crawlCoverageLine`).
+- **Its step 4 scopes the audits, and three of the four are already automatic.**
+  `NIGHTLY_AUDIT_KINDS` is `['offsite','competitor','local']`; entity is deliberately excluded
+  because the plan says the crawl is its trigger, and `runQueue.ts` never makes the call. So the
+  item is one bullet of step 4, not a new step.
+- **`2026-09-08-ship-readiness-review.md` has three live Tier 2 leftovers**, each confirmed
+  against the tree: `packages/connectors/src/google/oauth.ts` is still there and imported by
+  nothing but its own test; `reapExpiredFlows` (`oauthFlows.ts:139`) is called from nowhere, so
+  `oauth_flows` grows forever; and `getAccessToken` still has no per-connection lock, which the
+  review itself judged safe until a rotating provider ships — recorded as a deferral with a
+  trigger rather than as work.
+
+The document now opens with a table of the five plans and what each is still the authority on, and
+a second table mapping every item to the section that specifies it. Stated rule: where this
+document and a detailed one disagree on scope, the detailed one wins — except where something has
+shipped since, which is called out per item.
+
+Recommendation given: **§3.1 alone** (the `kind` gate) if the user wants something shipped today —
+§3.2 no longer fits beside it — or §4 if they want the biggest risk retired.
