@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Connecting Google — Engine docs</title>
+  <meta name="description" content="How to connect Search Console, Analytics 4 and Business Profile to Engine — registering the Google client once, then connecting an account." />
+  <meta property="og:title" content="Connecting Google — Engine docs" />
+  <meta property="og:description" content="How to connect Search Console, Analytics 4 and Business Profile to Engine — registering the Google client once, then connecting an account." />
+  <meta property="og:type" content="article" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../docs.css" />
+  <script>
+    /* Applied before paint so a dark-mode reader never sees a light flash. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('engine-theme');
+        var dark = saved ? saved === 'dark'
+          : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="progress" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="doc-top">
+      <a class="wordmark" href="../../../">Engine<span class="dot"></span></a>
+      <nav class="doc-nav" aria-label="Documentation">
+        <a class="doc-nav-link on" aria-current="page" href="../../">Overview</a>
+        <a class="doc-nav-link" href="../../architecture">Architecture</a>
+        <a class="doc-nav-link" href="../../features">Features</a>
+        <a class="doc-nav-link" href="../../changelog">Changelog</a>
+        <a class="doc-nav-link" href="../../roadmap">Roadmap</a>
+      </nav>
+      <button class="toggle" id="theme" type="button" aria-label="Toggle color theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.2 6.2 0 0 0 10.5 10.5z"/></svg>
+      </button>
+    </header>
+
+    <main class="doc-main">
+<style>
+  /* Scoped to this guide. The docs stylesheet has no figure, callout or step
+     styles, and this is the only page that needs them. Colours come from the
+     site's own variables so light and dark follow the reader's choice. */
+  .g-step { margin: 2.4rem 0; }
+  .g-step-head { display: flex; align-items: baseline; gap: .7rem; margin-bottom: .35rem; }
+  .g-num {
+    flex: none; width: 1.55rem; height: 1.55rem; border-radius: 50%;
+    background: var(--accent); color: var(--bg); font: 600 .78rem/1 var(--sans);
+    display: grid; place-items: center; transform: translateY(.18rem);
+  }
+  .g-step-head h3 { margin: 0; }
+
+  .prose figure { margin: 1.1rem 0 0; }
+  .prose figure img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface);
+  }
+  .prose figcaption { font-size: .85rem; color: var(--faint); margin-top: .5rem; }
+  .g-narrow img { max-width: 28rem; margin-inline: auto; }
+  .prose a.g-zoom { display: block; border: 0; cursor: zoom-in; }
+  .prose a.g-zoom:hover img { border-color: var(--accent); }
+
+  .g-note {
+    border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
+    background: var(--surface-2); border-radius: 0 9px 9px 0;
+    padding: .9rem 1.1rem; margin: 1.2rem 0;
+  }
+  .g-note > :last-child { margin-bottom: 0; }
+  .g-note .g-tag {
+    display: block; font: 700 .7rem/1.4 var(--sans); letter-spacing: .08em;
+    text-transform: uppercase; margin-bottom: .35rem; color: var(--muted);
+  }
+  .g-note.g-warn { border-color: var(--warn); border-left-color: var(--warn); }
+  .g-note.g-warn .g-tag { color: var(--warn); }
+  .g-note.g-good { border-color: var(--good); border-left-color: var(--good); }
+  .g-note.g-good .g-tag { color: var(--good); }
+
+  .g-scroll { overflow-x: auto; }
+  .g-pill {
+    display: inline-block; font: 600 .72rem/1.5 var(--sans); padding: .05rem .5rem;
+    border-radius: 999px; border: 1px solid var(--border-strong); color: var(--muted);
+    white-space: nowrap;
+  }
+</style>
+
+<article class="prose">
+  <p class="kicker">Guide</p>
+  <h1 class="doc-h1">Connecting Google to Engine</h1>
+  <p class="doc-lede">Engine reads Search Console, Analytics 4 and Business Profile
+  from your own Google account. Getting there is two separate jobs: once per
+  deployment, an administrator registers a Google sign-in client; then each
+  customer grants access from inside Engine.</p>
+  <hr class="rule" />
+
+  <div class="g-note">
+    <span class="g-tag">Which half applies to you</span>
+    <p><strong>Part 2 is the one most people need.</strong> If someone has already
+    set Engine up for your team, skip straight to it — connecting your Google
+    account takes about a minute. <strong>Part 1</strong> is for whoever
+    provisions Engine, and is done once for everybody.</p>
+  </div>
+
+  <h2 id="part-1">Part 1 — Register the Google client</h2>
+  <p>Google requires every application that reads a user's data to be registered
+  as a project with a consent screen and a sign-in client. This section walks
+  through it. You need a Google account that can create projects.</p>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">1</span><h3>Create a dedicated project</h3></div>
+    <p>Give Engine a project of its own rather than reusing one that already runs
+    something else. The credential created here is shared by every customer who
+    connects, so it should not sit where an unrelated change can rotate it.</p>
+    <p>Open the Google Cloud console, choose <strong>New project</strong>, name it
+    <code>Engine</code>, and use <strong>Edit</strong> beside the project ID to
+    replace the generated id with something you will recognise later.</p>
+    <figure>
+      <a class="g-zoom" href="img/01-new-project.png" target="_blank" rel="noopener"><img src="img/01-new-project.png" alt="Google Cloud new project form with the name Engine and a readable project ID"></a>
+      <figcaption>The project ID is permanent. The display name is not.</figcaption>
+    </figure>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">2</span><h3>Turn on the Google services</h3></div>
+    <p>Engine calls six Google services. Each has to be switched on for this
+    project, or requests fail later even though the sign-in itself worked — a
+    confusing way to discover a missing toggle.</p>
+    <div class="g-scroll">
+      <table>
+        <thead><tr><th>Service</th><th>Used for</th></tr></thead>
+        <tbody>
+          <tr><td>Google Search Console API</td><td>Clicks, impressions, CTR and position</td></tr>
+          <tr><td>Google Analytics <strong>Data</strong> API</td><td>Sessions and conversions by channel</td></tr>
+          <tr><td>Google Analytics <strong>Admin</strong> API</td><td>Listing your Analytics properties so you can pick one</td></tr>
+          <tr><td>My Business Account Management API</td><td>Finding your Business Profile accounts</td></tr>
+          <tr><td>My Business Business Information API</td><td>Reading location details</td></tr>
+          <tr><td>Google My Business API (v4)</td><td>Reviews and local posts</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Find each one in the console's API library and choose <strong>Enable</strong>.</p>
+    <figure>
+      <a class="g-zoom" href="img/02-enable-api.png" target="_blank" rel="noopener"><img src="img/02-enable-api.png" alt="Search Console API page in the Google Cloud API library with an Enable button"></a>
+      <figcaption>An API library page before enabling.</figcaption>
+    </figure>
+    <div class="g-note g-warn">
+      <span class="g-tag">The Analytics Admin API is easy to skip</span>
+      <p>It returns no analytics figures of its own, so it looks unnecessary. It is
+      the service that lists your Analytics properties — without it, the property
+      picker in Part 2 comes back empty and the connection looks broken when it
+      is not.</p>
+    </div>
+    <p>To confirm one worked, open its details page: <strong>Status: Enabled</strong>,
+    and the action at the top now offers to disable it.</p>
+    <figure>
+      <a class="g-zoom" href="img/03-api-enabled.png" target="_blank" rel="noopener"><img src="img/03-api-enabled.png" alt="Google Search Console API details page showing Status Enabled"></a>
+      <figcaption>The same service after enabling.</figcaption>
+    </figure>
+    <div class="g-note g-warn">
+      <span class="g-tag">Business Profile is gated, and takes weeks</span>
+      <p>On a brand-new project the library page for the <strong>Google My Business
+      API (v4)</strong> does not offer an Enable button at all — it fails to load.
+      New projects are given no Business Profile quota, and that service only
+      becomes available after Google approves a separate <strong>Business Profile
+      API access request</strong>.</p>
+      <p>This affects Business Profile only. Search Console and Analytics 4 work
+      without it. Until approval lands, Business Profile reads fail even with a
+      correct client and a valid sign-in, so start the request well before you
+      need it.</p>
+    </div>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">3</span><h3>Set up the consent screen</h3></div>
+    <p>The consent screen is what your customers read before granting access. In
+    the console this lives under <strong>Google Auth Platform</strong>, which
+    replaced the older single-page consent wizard. Choose <strong>Get started</strong>
+    and give the application a name and a support address.</p>
+    <figure>
+      <a class="g-zoom" href="img/04-app-info.png" target="_blank" rel="noopener"><img src="img/04-app-info.png" alt="Auth Platform configuration wizard step one, application name Engine and a support email"></a>
+      <figcaption>The name here is what appears on the consent screen.</figcaption>
+    </figure>
+    <p>For audience, choose <strong>External</strong>. Internal limits consent to
+    accounts inside your own Google Workspace organisation, and the people
+    connecting Search Console properties are generally outside it.</p>
+    <figure>
+      <a class="g-zoom" href="img/05-audience-external.png" target="_blank" rel="noopener"><img src="img/05-audience-external.png" alt="Auth Platform audience step with External selected"></a>
+      <figcaption><strong>External</strong>, not Internal.</figcaption>
+    </figure>
+    <p>Add an address for Google's notices about the project, then accept the
+    Google API Services User Data Policy on the last step and choose
+    <strong>Create</strong>.</p>
+    <figure>
+      <a class="g-zoom" href="img/06-contact.png" target="_blank" rel="noopener"><img src="img/06-contact.png" alt="Auth Platform contact information step with an email address entered"></a>
+      <figcaption>Google uses these to tell you about changes affecting the project.</figcaption>
+    </figure>
+    <figure>
+      <a class="g-zoom" href="img/07-finish-agree.png" target="_blank" rel="noopener"><img src="img/07-finish-agree.png" alt="Auth Platform finish step with the user data policy agreement checkbox"></a>
+      <figcaption>Accepting the policy commits the organisation that owns the project.</figcaption>
+    </figure>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">4</span><h3>Create the sign-in client</h3></div>
+    <p>Under <strong>Clients</strong>, choose <strong>Create client</strong> and set
+    the application type to <strong>Web application</strong>. Engine completes the
+    sign-in on the server, so the other types do not apply.</p>
+    <figure>
+      <a class="g-zoom" href="img/08-create-client.png" target="_blank" rel="noopener"><img src="img/08-create-client.png" alt="Create OAuth client ID page with the application type list open"></a>
+      <figcaption>Application type decides which fields appear next.</figcaption>
+    </figure>
+    <p>Name the client — this name is only ever shown in the console — and then add
+    the redirect address. It is your Engine API's own address followed by
+    <code>/oauth/google/callback</code>, so it looks like:</p>
+    <pre><code>https://api.example.com/oauth/google/callback</code></pre>
+    <div class="g-note g-warn">
+      <span class="g-tag">Two mistakes to avoid here</span>
+      <p><strong>The wrong field.</strong> This belongs under <em>Authorised
+      redirect URIs</em>, not <em>Authorised JavaScript origins</em>. The two sit
+      next to each other and both say "Add URI". Leave the JavaScript origins
+      field empty.</p>
+      <p><strong>An inexact address.</strong> Google compares it exactly,
+      character for character. A trailing slash, a missing dot, or
+      <code>http</code> where it should be <code>https</code> produces a
+      <code>redirect_uri_mismatch</code> error, which is the most common
+      first-time failure.</p>
+    </div>
+    <figure>
+      <a class="g-zoom" href="img/09-redirect-uri.png" target="_blank" rel="noopener"><img src="img/09-redirect-uri.png" alt="Client form showing Web application type, a client name, empty JavaScript origins and a redirect address filled in"></a>
+      <figcaption>The address under <strong>Authorised redirect URIs</strong>, with JavaScript origins deliberately left empty.</figcaption>
+    </figure>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">5</span><h3>Save the client secret straight away</h3></div>
+    <p>Choosing <strong>Create</strong> shows the client ID and the client secret
+    once.</p>
+    <figure>
+      <a class="g-zoom" href="img/10-client-created.png" target="_blank" rel="noopener"><img src="img/10-client-created.png" alt="Dialog confirming the client was created, showing a placeholder client ID and a masked client secret"></a>
+      <figcaption>Values are masked here. Use <strong>Download JSON</strong> and keep the file wherever you store secrets.</figcaption>
+    </figure>
+    <div class="g-note g-warn">
+      <span class="g-tag">The secret is shown only once</span>
+      <p>After this dialog closes, Google will not display it again. Losing it is
+      recoverable rather than fatal: open the client under <strong>Clients</strong>
+      and add a new secret. The client ID stays the same, so only the secret has
+      to be updated wherever it is stored.</p>
+    </div>
+    <figure>
+      <a class="g-zoom" href="img/12-clients-list.png" target="_blank" rel="noopener"><img src="img/12-clients-list.png" alt="Clients list showing one web application client"></a>
+      <figcaption>The client ID is not a secret and can be read here at any time.</figcaption>
+    </figure>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">6</span><h3>Add the people who will connect</h3></div>
+    <p>All three kinds of access Engine asks for are treated by Google as
+    <strong>sensitive</strong>:</p>
+    <div class="g-scroll">
+      <table>
+        <thead><tr><th>Connection</th><th>What Engine may do</th></tr></thead>
+        <tbody>
+          <tr><td>Search Console</td><td><span class="g-pill">read only</span></td></tr>
+          <tr><td>Analytics 4</td><td><span class="g-pill">read only</span></td></tr>
+          <tr><td>Business Profile</td><td><span class="g-pill">read and write</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Until Google reviews the application, consent works only for addresses you
+    list under <strong>Audience → Test users</strong>, and the list is capped near
+    100 <em>for the whole life of the application</em>. Add every Google account
+    that will connect.</p>
+    <figure>
+      <a class="g-zoom" href="img/11-test-users.png" target="_blank" rel="noopener"><img src="img/11-test-users.png" alt="Audience page showing publishing status Testing, user type External and one test user against a 100 user cap"></a>
+      <figcaption>Publishing status <strong>Testing</strong>, audience External, one of a hundred places used.</figcaption>
+    </figure>
+    <div class="g-note">
+      <span class="g-tag">Business Profile can write, and there is no read-only version</span>
+      <p>Google offers no read-only form of Business Profile access. Connecting it
+      grants Engine the ability to change those listings, which is what publishing
+      an approved local post or a review reply needs. There is no way to take only
+      the reading half.</p>
+    </div>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">7</span><h3>Give Engine the credential</h3></div>
+    <p>Engine reads these as configuration values. Set them wherever your
+    deployment keeps its secrets, never in source control.</p>
+    <div class="g-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>GOOGLE_CLIENT_ID</code></td><td>From the client dialog, or the Clients list afterwards</td></tr>
+          <tr><td><code>GOOGLE_CLIENT_SECRET</code></td><td>From the file you downloaded in step 5</td></tr>
+          <tr><td><code>GOOGLE_REDIRECT_URI</code></td><td>The same redirect address you registered, character for character</td></tr>
+          <tr><td><code>ENCRYPTION_KEY</code></td><td>32 random bytes. Engine seals every stored Google credential with this</td></tr>
+          <tr><td><code>OAUTH_STATE_SECRET</code></td><td>A second, independent random value. Signs the sign-in request so a reply cannot be forged</td></tr>
+          <tr><td><code>DASHBOARD_URL</code></td><td>Where Engine returns the browser after consent</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Once they are in place, the Google tiles in Engine's Integrations screen stop
+    saying setup is required and offer a sign-in button instead. That is the signal
+    Part 1 is finished.</p>
+    <div class="g-note g-warn">
+      <span class="g-tag">Treat ENCRYPTION_KEY as permanent</span>
+      <p>Changing it makes <strong>every existing connection unreadable</strong>.
+      The sealed credentials can no longer be opened, and every customer has to
+      connect again. There is no way to re-seal them under a new key, so this is
+      not a value to rotate casually.</p>
+    </div>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">8</span><h3>Review, before opening it to everyone</h3></div>
+    <p>While the publishing status is <strong>Testing</strong>, Google shows an
+    "unverified app" warning and honours only the test-user list. That is workable
+    for a known group. It does not work for open sign-up.</p>
+    <p>Google's review needs a home page on a domain you own and have verified, a
+    published privacy policy, a written reason for each kind of access you request,
+    and a demonstration video. It commonly takes several weeks, so begin it before
+    you need it. The heavier security assessment applies to the most restricted
+    kinds of access, such as Gmail and Drive, and not to these three.</p>
+  </div>
+
+  <h2 id="part-2">Part 2 — Connect your Google account</h2>
+  <p>This is the part a customer does, and it is short.</p>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">1</span><h3>Open Integrations and choose a site</h3></div>
+    <p>Go to <strong>Integrations</strong> and pick a site first. Connected accounts
+    stay empty until you do, because a connection belongs to the client rather than
+    to a single site.</p>
+    <figure>
+      <a class="g-zoom" href="img/20-integrations-page.png" target="_blank" rel="noopener"><img src="img/20-integrations-page.png" alt="Engine Integrations screen showing a gallery of connection tiles, each marked not connected"></a>
+      <figcaption>Every connection is a tile with one status word. The three Google ones come first.</figcaption>
+    </figure>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">2</span><h3>Choose a tile, then sign in with Google</h3></div>
+    <p>Selecting a tile opens a panel with the single thing that connection needs.
+    For the Google ones, that is a Google sign-in.</p>
+    <figure>
+      <a class="g-zoom" href="img/21-gsc-panel.png" target="_blank" rel="noopener"><img src="img/21-gsc-panel.png" alt="Engine Google Search Console panel with a sign in with Google button"></a>
+      <figcaption>Connecting and disconnecting need the <strong>owner</strong> role. The credential is shared across the client's sites, so one person removing it would stop everyone's data.</figcaption>
+    </figure>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">3</span><h3>Pick the right Google account</h3></div>
+    <p>Engine hands you to Google. Choose the account that can actually see the
+    properties you want, which is not always the one you use to sign in to Engine.</p>
+    <figure class="g-narrow">
+      <a class="g-zoom" href="img/22-account-chooser.png" target="_blank" rel="noopener"><img src="img/22-account-chooser.png" alt="Google account chooser listing one account"></a>
+      <figcaption>Google's own account chooser.</figcaption>
+    </figure>
+    <p>Google then asks you to confirm what you are sharing.</p>
+    <figure class="g-narrow">
+      <a class="g-zoom" href="img/23-consent-screen.png" target="_blank" rel="noopener"><img src="img/23-consent-screen.png" alt="Google consent screen asking to share an email address, with cancel and continue"></a>
+      <figcaption>The first screen covers sign-in. Continuing leads to the screen that grants Search Console access itself.</figcaption>
+    </figure>
+    <div class="g-note">
+      <span class="g-tag">Expect a warning while the app is in review</span>
+      <p>Until Google finishes its review, these screens name the application's
+      web address rather than its display name, and show an <strong>unverified
+      app</strong> warning. That is expected, and it is the same gate described in
+      Part 1, step 8.</p>
+    </div>
+    <p>After you approve, Google returns you to Engine, which stores the credential
+    in sealed form and marks the tile connected.</p>
+  </div>
+
+  <div class="g-step">
+    <div class="g-step-head"><span class="g-num">4</span><h3>Assign a property to a site</h3></div>
+    <p>Signing in does not tell Engine which property belongs to which site. Choose
+    it in the same panel and assign it.</p>
+    <ul>
+      <li><strong>Search Console and Analytics 4</strong> — one property per site.</li>
+      <li><strong>Business Profile</strong> — many locations per site, and each
+      assignment names the brand it writes to.</li>
+    </ul>
+    <div class="g-note g-good">
+      <span class="g-tag">Connect once, assign as often as you like</span>
+      <p>A connection belongs to the client, not the site. An agency signs in once
+      with an account that can see forty clients' properties, then assigns them to
+      the right sites. Connecting again later does not discard those assignments.</p>
+    </div>
+  </div>
+
+  <h2 id="trouble">If something goes wrong</h2>
+  <div class="g-scroll">
+    <table>
+      <thead><tr><th>What you see</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td><code>redirect_uri_mismatch</code></td><td>The address registered with Google and the one Engine is configured with are not identical. Compare them character by character, including <code>https</code> and any trailing slash.</td></tr>
+        <tr><td>Google refuses the account</td><td>That address is not on the test-user list, or the roughly hundred places are used up.</td></tr>
+        <tr><td>Connected, but no properties to pick</td><td>For Analytics, the <strong>Admin</strong> service is not switched on.</td></tr>
+        <tr><td>Connected, but Business Profile reads fail</td><td>The Business Profile access request has not been approved yet. Expected until it is.</td></tr>
+        <tr><td>Everyone suddenly has to reconnect</td><td><code>ENCRYPTION_KEY</code> changed, so the sealed credentials can no longer be opened.</td></tr>
+        <tr><td>The tile still says setup is required</td><td>Part 1, step 7 is incomplete for this deployment.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</article>
+
+    </main>
+
+    <footer>
+      <span>Engine — AI visibility, measured and fixed.</span>
+      <span>© 2026 <span class="sep">·</span> Built for the answer engines.</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById('theme');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var dark = root.getAttribute('data-theme') === 'dark';
+        root.setAttribute('data-theme', dark ? 'light' : 'dark');
+        try { localStorage.setItem('engine-theme', dark ? 'light' : 'dark'); } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>
