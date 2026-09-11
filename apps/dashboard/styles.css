@@ -83,7 +83,7 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); font
 a { color: inherit; text-decoration: none; }
 
 /* layout */
-.app { display: grid; grid-template-columns: 56px 224px 1fr; min-height: 100vh; }
+.app { display: grid; grid-template-columns: 56px 224px 1fr; min-height: 100vh; --shell-left: 280px; }
 .rail { display: flex; flex-direction: column; gap: 3px; padding: 14px 12px; background: var(--bg); border-right: 1px solid var(--border); position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 14px; }
 .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; color: #fff; }
@@ -101,11 +101,11 @@ a { color: inherit; text-decoration: none; }
 /* A workspace with no client layer — a company or an individual with one
    account — renders no column of account squares, so the page grid drops its
    track rather than leaving 56px of empty background beside the rail. */
-.app.no-clients { grid-template-columns: 224px 1fr; }
+.app.no-clients { grid-template-columns: 224px 1fr; --shell-left: 224px; }
 
 /* collapsed rail: icons only */
-.app.rail-collapsed { grid-template-columns: 56px 60px 1fr; }
-.app.no-clients.rail-collapsed { grid-template-columns: 60px 1fr; }
+.app.rail-collapsed { grid-template-columns: 56px 60px 1fr; --shell-left: 116px; }
+.app.no-clients.rail-collapsed { grid-template-columns: 60px 1fr; --shell-left: 60px; }
 .rail-collapsed .rail { padding: 14px 8px; }
 .rail-collapsed .navlabel { display: none; }
 .rail-collapsed .navitem { justify-content: center; padding: 8px 0; }
@@ -263,7 +263,7 @@ a { color: inherit; text-decoration: none; }
   /* `.app.no-clients` and `.app.no-clients.rail-collapsed` are listed because
      a media query adds no specificity: two and three classes would otherwise
      beat `.app` here and keep a sidebar track on a phone. */
-  .app, .app.rail-collapsed, .app.no-clients, .app.no-clients.rail-collapsed { grid-template-columns: 1fr; }
+  .app, .app.rail-collapsed, .app.no-clients, .app.no-clients.rail-collapsed { grid-template-columns: 1fr; --shell-left: 0px; }
   .ws-rail { display: none; }
   .rail {
     position: fixed; inset: auto 0 0 0; height: auto; z-index: 30;
@@ -1359,6 +1359,213 @@ select.field { cursor: pointer; }
    of one vendor disagree and their samples are not comparable. */
 .ai-eng-model { margin-left: 8px; font-size: var(--t-2xs); color: var(--text-faint); font-weight: 500; }
 
+/* ── Ask: the Driver screen, the palette and the floating bar ──────────────
+   Three surfaces for one thing. The screen is where a conversation lives; the
+   ⌘K palette is the shortest way to reach it from anywhere; the floating bar
+   is the shortest way to start one from Home. All three hand the question to
+   the same route, so none of them renders an answer of its own.
+
+   The answer's own blocks are deliberately quiet. A Driver reply is prose
+   followed by whatever the tools returned, and the tools returned figures the
+   product already knows how to draw — the sparkline is Pulse's, the finding
+   group is the Findings screen's component, the fix card is the Fix Queue's.
+   What is new here is only the frame around them. */
+
+.dv-body { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 18px; align-items: start; }
+.dv-rail { position: sticky; top: 72px; }
+.dv-main { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+/* The thread list. A conversation is named by its first question until someone
+   titles it, so a row is two lines and the second is when and who. */
+.dv-threads { display: flex; flex-direction: column; gap: 2px; }
+.dv-thread { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text-muted); cursor: pointer; }
+.dv-thread-t { font-size: var(--t-sm); font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-thread-m { font-size: var(--t-2xs); color: var(--text-faint); }
+.dv-thread.on { background: var(--accent-wash); }
+.dv-thread.on .dv-thread-t { color: var(--accent); font-weight: 550; }
+@media (hover: hover) and (pointer: fine) { .dv-thread:hover { background: var(--surface-2); } }
+.dv-thread-new { border: 1px dashed var(--border-strong); margin-bottom: 6px; }
+.dv-threads-empty { padding: 8px 10px; }
+
+/* The conversation. A question is the reader's own words and sits against the
+   accent; an answer is the product's and sits on the page. */
+.dv-conversation { display: flex; flex-direction: column; gap: 18px; }
+.dv-turn-q { display: flex; justify-content: flex-end; }
+.dv-q { max-width: 76%; padding: 9px 13px; border-radius: var(--r-lg); background: var(--accent-wash); color: var(--text); font-size: var(--t-sm); line-height: 1.5; }
+.dv-answer { display: flex; flex-direction: column; gap: 14px; }
+.dv-text { display: flex; flex-direction: column; gap: 9px; }
+.dv-text p { font-size: var(--t-md); line-height: 1.6; max-width: 72ch; }
+.dv-waiting { padding: 0; }
+.dv-opening { padding: 0; max-width: 66ch; }
+
+/* One tool's result. The border is the only thing saying "this came from one
+   lookup"; inside it the product's own components do the drawing. */
+.dv-block { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.dv-title { font-size: var(--t-sm); font-weight: 600; }
+.dv-block-act { margin-top: -2px; }
+
+.dv-metrics { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+.dv-metric { display: flex; flex-direction: column; gap: 3px; min-width: 96px; }
+.dv-metric-k { font-size: var(--t-xs); font-weight: 500; color: var(--text-muted); }
+.dv-metric-v { font-size: var(--t-xl); font-weight: 600; line-height: 1.1; letter-spacing: -.01em; }
+/* Three numbers, never one. A band flattened to its point reads as a count. */
+.dv-metric-band { font-size: var(--t-2xs); color: var(--text-faint); }
+
+/* The one real table in the product. Everything else that looks like a table
+   is a list of panels, because its columns are fixed and known; a Driver table
+   carries whichever columns the tool that answered declared, between two and
+   five, so it is a table and it scrolls on its own rather than widening the
+   page. */
+.dv-tablewrap { overflow-x: auto; margin: 0 -4px; }
+.dv-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.dv-table th { text-align: left; font-weight: 550; color: var(--text-muted); font-size: var(--t-xs); padding: 4px 10px 7px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.dv-table th.num, .dv-table td.num { text-align: right; }
+.dv-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-table tbody tr:last-child td { border-bottom: none; }
+@media (hover: hover) and (pointer: fine) { .dv-table tbody tr:hover td { background: var(--surface-2); } }
+
+.dv-spark-holder { margin: 0 -4px; }
+.dv-spark-holder .gm-spark { margin: 0; width: 100%; }
+.dv-spark-range { font-size: var(--t-2xs); color: var(--text-faint); }
+
+.dv-findings { border: 1px solid var(--border); border-radius: var(--r); }
+.dv-fixes { display: flex; flex-direction: column; }
+.dv-fix-when { font-size: var(--t-3xs); color: var(--text-faint); margin-left: auto; }
+
+/* Three absences, and the heading is what separates them. "Measured, and the
+   answer is nothing" is a result; "not connected yet" is not. Collapsing the
+   two would tell a customer who has connected nothing that they have no
+   traffic — which on a new account is most of what Driver says. */
+.dv-notice { gap: 6px; }
+.dv-notice-h { font-weight: 600; color: var(--text); }
+.dv-notice-act { color: var(--text-faint); }
+.dv-notice.not-connected { border-color: color-mix(in srgb, var(--watch) 34%, var(--border)); }
+.dv-notice.not-connected .dv-notice-h { color: var(--watch); }
+.dv-notice.error { border-color: color-mix(in srgb, var(--risk) 34%, var(--border)); }
+.dv-notice.error .dv-notice-h { color: var(--risk); }
+.dv-notice-btn { margin-top: 4px; }
+
+/* Where a figure came from, folded. Shown always it would bury six metrics
+   under six lines of table names; unavailable it would leave "are you sure?"
+   with no answer. */
+.dv-prov { display: flex; flex-direction: column; gap: 4px; }
+.dv-prov-toggle { align-self: flex-start; padding: 0; border: none; background: none; color: var(--text-faint); font-family: var(--font); font-size: var(--t-2xs); cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { .dv-prov-toggle:hover { color: var(--text-muted); } }
+.dv-prov-line { font-size: var(--t-2xs); color: var(--text-faint); word-break: break-word; }
+
+.dv-partial { gap: 8px; }
+.dv-partial-act { margin-top: 2px; }
+
+/* The composer. It grows with the question rather than scrolling a one-line
+   window, and it sits at the end of the conversation rather than fixed to the
+   viewport — a fixed bar over a transcript hides the answer that was just
+   given. */
+.dv-composer { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); padding: 10px 12px; }
+.dv-composer-row { display: flex; align-items: flex-end; gap: 8px; }
+.field.dv-input { flex: 1; resize: none; min-height: 38px; line-height: 1.5; background: var(--surface); border-color: transparent; padding: 8px 4px; }
+.field.dv-input:focus { border-color: transparent; }
+.dv-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 999px; }
+.dv-send svg { width: 16px; height: 16px; }
+.dv-status { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-faint); }
+.dv-composer .mp { padding: 0; }
+
+/* Sharing. `visibility` is the authority and the list is the recipients, so
+   the panel states what the current setting actually grants — "people you
+   choose" with nobody chosen grants nothing, and nothing else on screen would
+   ever say so. */
+.dv-share-people { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.dv-share-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.dv-share-who { flex: 1; min-width: 0; font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-share-add { display: flex; gap: 8px; align-items: center; }
+.dv-share-add .field { flex: 1; min-width: 0; }
+.dv-share-add .btn { flex: none; }
+
+/* Settings: which model answers each surface. */
+.dv-models { max-width: 720px; }
+.dv-model-row { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.dv-model-row:last-of-type { border-bottom: none; }
+.dv-model-name { font-size: var(--t-sm); font-weight: 600; margin-bottom: 3px; }
+.dv-model-pick { display: flex; flex-direction: column; gap: 5px; }
+.dv-model-one { display: flex; flex-direction: column; gap: 3px; font-size: var(--t-sm); }
+.mp-one { display: flex; align-items: baseline; gap: 8px; }
+
+/* ── The ⌘K palette ────────────────────────────────────────────────────────
+   The overlay and panel are the Copilot's, kept because the reflex is. What
+   changed is what it holds: a search field over one list of rows, where a row
+   is a place to go, a thing to find, or the question itself handed to Ask. */
+.pal-bar { margin-bottom: 10px; }
+.pal-results { display: flex; flex-direction: column; gap: 1px; max-height: 46vh; overflow-y: auto; }
+.pal-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.pal-row.on { background: var(--accent-wash); }
+.pal-icon { display: grid; place-items: center; color: var(--text-faint); }
+.pal-icon svg { width: 15px; height: 15px; }
+.pal-row.on .pal-icon { color: var(--accent); }
+.pal-label { flex: 1; min-width: 0; font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-hint { font-family: var(--mono); font-size: var(--t-3xs); color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+@media (hover: hover) and (pointer: fine) { .pal-row:hover { background: var(--surface-2); } }
+
+/* The topbar control. It was a label reading "⌘K" with a tooltip, which told
+   someone who knew the shortcut what they knew and everyone else nothing. */
+.palbtn { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 10px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text-faint); cursor: pointer; font-family: var(--font); font-size: var(--t-sm); }
+.palbtn-icon { display: grid; place-items: center; }
+.palbtn-icon svg { width: 15px; height: 15px; }
+.palbtn-label { color: var(--text-muted); }
+@media (hover: hover) and (pointer: fine) { .palbtn:hover { background: var(--surface-2); color: var(--text); } }
+
+/* ── The floating ask bar ──────────────────────────────────────────────────
+   Fixed over the screen that mounts it, centred on the content column. It
+   rises once on mount and then holds still: it is a place to start, not a
+   thing that keeps asking to be noticed. Above the toast host's own bottom
+   inset and below its z-index, so a toast never lands behind it. */
+/* Centred on the content column, not on the viewport. `position: fixed` makes
+   the viewport the containing block, so half the rail's width has to be added
+   back by hand: the midpoint of the region from `--shell-left` to the right
+   edge is `50% + --shell-left / 2`. Without it the bar sat 112px left of the
+   column it belongs to, which reads as a misaligned element rather than as a
+   floating one. `--shell-left` is declared beside each `.app` grid definition,
+   so a change to the rail's width moves the bar with it. */
+/* The screen has to end above the bar, or its last panel scrolls under a bar
+   that never moves and cannot be read. `:has` rather than a class on the view,
+   because the bar is what creates the need and only the screens that mount one
+   should pay the space. */
+.content:has(.askbar) { padding-bottom: 104px; }
+.askbar { position: fixed; left: calc(50% + var(--shell-left, 0px) / 2); bottom: 22px; z-index: 50; width: min(660px, calc(100% - var(--shell-left, 0px) - 40px)); transform: translate(-50%, 14px); opacity: 0; transition: opacity .26s var(--ease-out), transform .26s var(--ease-out); }
+.askbar.in { opacity: 1; transform: translate(-50%, 0); }
+.askbar-box { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow-pop); transition: border-color .16s var(--ease), box-shadow .16s var(--ease); }
+.askbar.focused .askbar-box { border-color: var(--accent); }
+.askbar-icon { display: grid; place-items: center; color: var(--text-faint); flex: none; }
+.askbar-icon svg { width: 17px; height: 17px; }
+.askbar.focused .askbar-icon { color: var(--accent); }
+.askbar-input { flex: 1; min-width: 0; border: none; background: none; outline: none; color: var(--text); font-family: var(--font); font-size: var(--t-sm); padding: 5px 0; }
+.askbar-send { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 999px; border: 1px solid transparent; background: var(--surface-2); color: var(--text-faint); cursor: pointer; transition: background .16s var(--ease), color .16s var(--ease), transform var(--press-ms) var(--ease-out); }
+.askbar-send svg { width: 15px; height: 15px; }
+/* The button arrives when there is something to send. Disabled-by-default
+   beside an empty field reads as broken rather than as waiting. */
+.askbar.has-text .askbar-send { background: var(--accent); color: var(--accent-ink); }
+.askbar-send:active { transform: scale(var(--press)); }
+
+@media (max-width: 860px) {
+  /* The rail is a fixed bottom bar under 860, so the conversation list cannot
+     also be a column. It goes above the conversation and scrolls sideways,
+     which is how a phone lists things it does not have room to stack. */
+  .dv-body { grid-template-columns: 1fr; }
+  .dv-rail { position: static; }
+  .dv-threads { flex-direction: row; overflow-x: auto; gap: 6px; scrollbar-width: none; }
+  .dv-threads::-webkit-scrollbar { display: none; }
+  .dv-thread { flex: none; max-width: 190px; }
+  .dv-thread-new { margin-bottom: 0; }
+  /* Clear of the bottom rail and its safe area. */
+  .askbar { bottom: calc(64px + env(safe-area-inset-bottom)); width: calc(100% - 24px); left: 50%; }
+  /* The bottom rail's own 64px, and the bar sitting on top of it. */
+  .content:has(.askbar) { padding-bottom: calc(132px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 560px) {
+  .dv-model-row { grid-template-columns: 1fr; gap: 8px; }
+  .dv-q { max-width: 88%; }
+  .palbtn-label { display: none; }
+}
+
 /* ── Interactive primitives ───────────────────────────────────────────────
    Last in the file on purpose. These are the rules every control shares, and
    each component below already declares its own `transition`; a shorthand
@@ -1380,15 +1587,20 @@ select.field { cursor: pointer; }
    thing pressed stayed lit as though it were still active. The per-screen
    hovers (table rows, cards) are gated in their own steps. */
 .btn, .card-act, .frow-act, .iconbtn, .navitem, .ws-sq, .ws-header, .ws-chip,
-.ws-site, .tab, .fgroup-toggle, .intg-tile, .signout, .hm-issue, .hm-lane, .hm-sev {
+.ws-site, .tab, .fgroup-toggle, .intg-tile, .signout, .hm-issue, .hm-lane, .hm-sev,
+.palbtn, .pal-row, .dv-thread {
   transition: transform var(--press-ms) var(--ease-out), background .12s var(--ease),
     border-color .12s var(--ease), color .12s var(--ease), border-radius .16s var(--ease);
 }
 .btn:active, .card-act:active, .frow-act:active, .iconbtn:active, .navitem:active,
 .ws-sq:active, .ws-header:active, .ws-chip:active, .ws-site:active, .tab:active,
-.fgroup-toggle:active, .intg-tile:active, .signout:active, .hm-sev:active {
+.fgroup-toggle:active, .intg-tile:active, .signout:active, .hm-sev:active,
+.palbtn:active {
   transform: scale(var(--press));
 }
+/* A full-width row scaled by 3% reads as the page shifting, so these two
+   answer with their surface — the same reason `.hm-issue` does below. */
+.pal-row:active, .dv-thread:active { background: var(--surface-2); }
 /* A full-width row scaled by 3% reads as the page shifting rather than as a
    press, so these answer with their surface instead. */
 .hm-issue:active, .hm-lane:active { background: var(--surface-2); }
@@ -1411,9 +1623,12 @@ select.field { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .btn:active, .card-act:active, .frow-act:active, .iconbtn:active, .navitem:active,
   .ws-sq:active, .ws-header:active, .ws-chip:active, .ws-site:active, .tab:active,
-  .fgroup-toggle:active, .intg-tile:active, .signout:active, .hm-sev:active { transform: none; }
+  .fgroup-toggle:active, .intg-tile:active, .signout:active, .hm-sev:active,
+  .palbtn:active, .askbar-send:active { transform: none; }
   .toast { transition: opacity .01s linear; transform: none; }
   .toast.in { transform: none; }
+  /* The bar's rise is movement, so it arrives in place instead. */
+  .askbar { transition: opacity .01s linear; transform: translate(-50%, 0); }
 }
 
 /* ── Loading skeletons ────────────────────────────────────────────────────

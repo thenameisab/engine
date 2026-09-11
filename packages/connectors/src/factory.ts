@@ -12,7 +12,7 @@ import { SerperConnector } from './serpSerper.js';
 import { OpenAIConnector } from './llmOpenAI.js';
 import { GeminiConnector } from './llmGemini.js';
 import { SarvamConnector } from './llmSarvam.js';
-import { llmModelChoice, llmModelsWithContext } from './llmModels.js';
+import { SURFACE_MIN_CONTEXT, llmModelChoice, llmModelsWithContext } from './llmModels.js';
 
 type EnvRecord = Record<string, string | undefined>;
 
@@ -89,12 +89,17 @@ export function createStreamingLlmConnector(env: EnvRecord, model?: string): Llm
 /**
  * The smallest context window a Driver turn is expected to fit in.
  *
- * A system prompt, a twenty-tool catalogue, several turns of history and
+ * A system prompt, a nineteen-tool catalogue, several turns of history and
  * several tool results in one request. 32K does not hold that reliably, so the
- * requirement is stated here and the model is chosen against it — see driver
+ * requirement is stated and the model is chosen against it — see driver
  * scoping §2 and §9a decision 5.
+ *
+ * Re-exported from `SURFACE_MIN_CONTEXT` rather than declared twice. Settings
+ * now lists, per surface, the models that can run it, and the list a customer
+ * reads has to be the same number the connector enforces — otherwise Settings
+ * offers a model the loop then refuses.
  */
-export const DRIVER_MIN_CONTEXT_TOKENS = 128_000;
+export const DRIVER_MIN_CONTEXT_TOKENS = SURFACE_MIN_CONTEXT.driver;
 
 /**
  * The engine used for a tool-calling conversation, or null if none is wired.
@@ -102,17 +107,26 @@ export const DRIVER_MIN_CONTEXT_TOKENS = 128_000;
  * A third factory beside the other two because it answers a third question.
  * `createLlmConnectors` returns every configured engine, because a visibility
  * measurement is only meaningful across engines. `createStreamingLlmConnector`
- * returns the customer's picked model for a one-shot answer. This one is not
- * the customer's choice at all: the surface states the context it needs and
- * takes the largest model that clears it, because a model too small for the
- * catalogue does not fail with a shorter answer, it fails mid-conversation.
+ * returns the customer's picked model for a one-shot answer. This one takes
+ * the surface's requirement first and the customer's pick second, in that
+ * order and never the other way round: a model too small for the catalogue
+ * does not fail with a shorter answer, it fails mid-conversation.
+ *
+ * `model` is the customer's pick from Settings, and it is honoured only if it
+ * clears `minContextTokens`. §9a decision 5 put the choice in the customer's
+ * hands *within* what the surface can run — which is why the filter is applied
+ * before the pick is consulted rather than after. `SARVAM_MODEL` is still
+ * ignored here: that override names the citation poll's instrument, which is
+ * the 32K conversational model.
  */
 export function createConversationalLlmConnector(
   env: EnvRecord,
   minContextTokens = DRIVER_MIN_CONTEXT_TOKENS,
+  model?: string,
 ): LlmConversationalConnector | null {
   if (!env.SARVAM_API_KEY) return null;
-  const choice = llmModelsWithContext(minContextTokens).find((m) => m.engine === 'sarvam');
+  const eligible = llmModelsWithContext(minContextTokens).filter((m) => m.engine === 'sarvam');
+  const choice = eligible.find((m) => m.id === model) ?? eligible[0];
   if (!choice) return null;
   return new SarvamConnector({ apiKey: env.SARVAM_API_KEY, model: choice.id, maxTokens: choice.maxTokens });
 }

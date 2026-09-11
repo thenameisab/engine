@@ -26,6 +26,13 @@ import type {
   ActionStatus,
   SerpOrganic,
   EntityStrength,
+  AccountMember,
+  DriverAnswer,
+  DriverThread,
+  PartCell,
+  PartUnit,
+  ThreadShare,
+  ThreadVisibility,
 } from './types.js';
 
 export function clamp(n: number, lo: number, hi: number): number {
@@ -785,6 +792,7 @@ export function issueLabel(issueType: string): string {
  * rather than a screen the crumb calls by its slug.
  */
 export const SCREEN_NAMES = {
+  driver: 'Ask',
   home: 'Home',
   findings: 'Findings',
   fixes: 'Fixes',
@@ -1674,3 +1682,244 @@ export const BRAND_STRENGTH_EXPLANATION =
   'Brand strength is how confidently search and AI can tell who you are. On-site schema and ' +
   'cross-web corroboration carry 30% each; a Wikidata mapping and consistent sameAs links carry ' +
   '20% each.';
+
+/* ── Driver ───────────────────────────────────────────────────────────────── */
+
+/**
+ * One cell of a Driver answer, read the way its tool meant it.
+ *
+ * The unit is on the part rather than in this function's caller because the
+ * same integer is a count in one tool and a position in another, and an
+ * average position of 4.7 rounded like a count reads as a rank of five when it
+ * is not. §4.6's figures are retrieval-built; this is the last step before a
+ * built figure reaches a reader, and it must not change what the figure says.
+ *
+ * `null` is "not measured" and renders as an em dash, never as 0. That
+ * distinction is the whole point of the three-state vocabulary, and a zero
+ * where a measurement is missing is the cheapest way to throw it away.
+ */
+export function formatPartCell(value: PartCell, unit: PartUnit): string {
+  if (value === null) return '—';
+  if (unit === 'text') return String(value);
+  if (unit === 'date') {
+    if (typeof value !== 'string') return String(value);
+    const at = Date.parse(value);
+    // A date column can carry a label rather than a date — `integration_status`
+    // puts "Never" in one. Passing it through beats rendering "Invalid Date".
+    return Number.isNaN(at) ? value : new Date(at).toISOString().slice(0, 10);
+  }
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  if (unit === 'position') return fmtPosition(n);
+  // A ctr arrives as a 0..1 ratio from Search Console and as a percentage from
+  // nowhere, so one reading is enough. `fmtRatio` keeps a decimal under 10%,
+  // where the difference between 2% and 2.4% is most of the signal.
+  if (unit === 'percent') return fmtRatio(n);
+  if (unit === 'score') return String(Math.round(n));
+  return fmtInt(n);
+}
+
+/** A band as one line. Three numbers, never one — §4.6 rule 4. */
+export function formatBand(band: { low: number; point: number; high: number }, unit: PartUnit): string {
+  return `${formatPartCell(band.low, unit)}–${formatPartCell(band.high, unit)}`;
+}
+
+/**
+ * What a `notice` part is headed with.
+ *
+ * Three states and three headings, because §4.2 rule 3 is that they are three
+ * different answers. §9a decision 6 ships Driver with no gate on Google data,
+ * so on a new account most tools return one of these and this heading writes
+ * the first impression of the product.
+ *
+ * `zero` says a measurement happened and the answer is nothing. The other two
+ * say no measurement exists. Collapsing them would tell a customer who has
+ * connected nothing that they have no traffic.
+ */
+export type NoticeState = 'zero' | 'not-connected' | 'no-data-yet' | 'error';
+
+export function noticeHeading(state: NoticeState): string {
+  switch (state) {
+    case 'zero':
+      return 'Measured, and the answer is nothing';
+    case 'not-connected':
+      return 'Not connected yet';
+    case 'no-data-yet':
+      return 'Nothing collected yet';
+    default:
+      return 'That lookup failed';
+  }
+}
+
+/**
+ * Where a part's figures came from, in one line.
+ *
+ * §4.6 rule 3: every part carries provenance and the UI can show it without a
+ * round trip. The tables are named as they are in `infra/migrations/postgres/`,
+ * which is deliberate — a customer asking "are you sure?" is asking what was
+ * read, and a prettier noun would answer a different question.
+ */
+export function provenanceLine(p: {
+  tables: string[];
+  period?: { from: string; to: string };
+  sampleCount?: number;
+}): string {
+  const parts = [p.tables.join(', ')];
+  if (p.period) parts.push(`${p.period.from} to ${p.period.to}`);
+  if (p.sampleCount !== undefined) parts.push(`${p.sampleCount} samples`);
+  return parts.join(' · ');
+}
+
+/**
+ * A Driver `findings` part as the rows the Findings screen renders.
+ *
+ * The tool returns the persisted columns; `FindingRow` is what the component
+ * takes. The one field that cannot be derived is `autoFixable`: it depends on
+ * `actionTemplates`, which the `findings` tool does not return, and guessing it
+ * from the issue type alone answers a different question — a template says a
+ * fix exists for this kind of issue, not that Engine holds what it would take
+ * to write one. So it is false here and Driver offers no fix button, which is
+ * also correct for step 5b: the write tools are step 7.
+ */
+export function driverFindingRows(rows: readonly Record<string, unknown>[]): FindingRow[] {
+  return rows.map((r) => {
+    const evidence = r.evidence as { url?: unknown } | null | undefined;
+    const issueType = typeof r.issueType === 'string' ? r.issueType : 'unknown';
+    const severity = Number(r.severity);
+    return {
+      id: typeof r.id === 'string' ? r.id : '',
+      type: issueType,
+      title: issueLabel(issueType),
+      severity: severityBand(Number.isFinite(severity) ? severity : 0),
+      predictedImpact: impactPoints(Number(r.predictedImpact) || 0),
+      autoFixable: false,
+      url: typeof evidence?.url === 'string' ? evidence.url : '',
+    };
+  });
+}
+
+/**
+ * What one row of a `fixes` part says, in the Fix Queue's own words.
+ *
+ * Not an `ActionCard`, and it cannot be one: the `fix_queue` tool returns the
+ * status and what the fix answers, and no diff. The Fix Queue card's whole
+ * middle is the diff — what is on the page now and what would replace it — so
+ * building a real card here would mean a card with its evidence missing. This
+ * says what the tool actually returned and sends the reader to the Fix Queue
+ * for the change itself.
+ */
+export interface DriverFixRow {
+  id: string;
+  kind: string;
+  answers: string;
+  status: string;
+  entity: string;
+  changed: string;
+}
+
+export function driverFixRows(rows: readonly Record<string, unknown>[], now = Date.now()): DriverFixRow[] {
+  return rows.map((r) => ({
+    id: typeof r.id === 'string' ? r.id : '',
+    kind: actionKindLabel(typeof r.type === 'string' ? r.type : ''),
+    answers: issueLabel(typeof r.answersIssue === 'string' ? r.answersIssue : 'unknown'),
+    status: statusLabel((typeof r.status === 'string' ? r.status : 'proposed') as ActionStatus),
+    entity: typeof r.entity === 'string' ? r.entity : '',
+    changed: relativeTime(typeof r.lastChangedAt === 'string' ? r.lastChangedAt : null, now),
+  }));
+}
+
+/**
+ * What a thread is called in the list.
+ *
+ * A thread is titled by nothing today — `POST /ask` stores no title and there
+ * is no summariser. Rather than a list of "Untitled", the first question is the
+ * title until someone sets one, which is how every chat product a customer has
+ * used behaves. The caller passes the first question when it has it; the list
+ * route does not carry one, so it falls back to the date.
+ */
+export function threadTitle(thread: Pick<DriverThread, 'title' | 'createdAt'>, firstQuestion?: string): string {
+  if (thread.title) return thread.title;
+  if (firstQuestion) return firstQuestion.length > 70 ? `${firstQuestion.slice(0, 69)}…` : firstQuestion;
+  const at = Date.parse(thread.createdAt);
+  return Number.isNaN(at) ? 'New conversation' : `Conversation of ${new Date(at).toISOString().slice(0, 10)}`;
+}
+
+/** Who can read a thread, in the customer's words rather than the column's. */
+export const VISIBILITY_LABELS: Record<ThreadVisibility, string> = {
+  private: 'Only you',
+  named: 'People you choose',
+  organisation: 'Everyone on this account',
+};
+
+/**
+ * What sharing with one person does to a thread's visibility.
+ *
+ * `visibility` is the authority and the share table is the recipient list, so a
+ * thread left `private` with share rows on it grants nothing. That is correct
+ * in the API and wrong as a UI: a person who presses Share and sees a name
+ * appear has every reason to think they shared it. So the screen promotes
+ * `private` to `named` with the first share, and says so.
+ *
+ * Returns null when nothing needs to change — `named` is already right, and
+ * `organisation` is wider than `named` and must not be narrowed by adding a
+ * name to it.
+ */
+export function visibilityAfterShare(current: ThreadVisibility): ThreadVisibility | null {
+  return current === 'private' ? 'named' : null;
+}
+
+/** A member, named however the account knows them. */
+export function memberLabel(m: Pick<AccountMember, 'name' | 'email' | 'userId'>): string {
+  return m.name || m.email || m.userId;
+}
+
+/** A share recipient, named the same way, so one person reads the same in both lists. */
+export function shareLabel(s: Pick<ThreadShare, 'name' | 'email' | 'userId'>): string {
+  return s.name || s.email || s.userId;
+}
+
+/**
+ * What the screen says above a partial answer.
+ *
+ * A turn that hits the 45-second deadline before producing text returns no
+ * Driver prose at all: `askDriver` falls back to the deterministic Copilot,
+ * which is narrower, and keeps whatever figures the loop had already gathered.
+ * Without a line saying so the customer sees a thinner answer and no sign that
+ * a fuller one was nearly ready — which the ledger has flagged as a step 5
+ * decision since #133.
+ *
+ * Two fallbacks, and only one of them is worth offering to retry. A deadline is
+ * a turn that ran out of time and would plausibly finish on a second attempt. A
+ * deployment with no model key configured will answer identically forever, and
+ * a "Keep going" button under it is a button that cannot work.
+ */
+export interface PartialAnswerNote {
+  text: string;
+  canContinue: boolean;
+}
+
+export function partialAnswerNote(answer: Pick<DriverAnswer, 'source' | 'fellBackBecause' | 'parts'>): PartialAnswerNote | null {
+  if (answer.source !== 'copilot-fallback') return null;
+  const why = answer.fellBackBecause ?? '';
+  const gathered = answer.parts.filter((p) => p.kind !== 'text').length;
+
+  if (why.startsWith('the turn stopped early')) {
+    const evidence = gathered > 0
+      ? ` The ${gathered === 1 ? 'figure' : 'figures'} it had already gathered ${gathered === 1 ? 'is' : 'are'} below.`
+      : '';
+    return {
+      text: `Driver ran out of time on this question, so the quick engine answered instead.${evidence}`,
+      canContinue: true,
+    };
+  }
+  if (why.startsWith('no conversational model')) {
+    return {
+      text: 'No model is configured on this deployment, so the quick engine answered. It reads your own data and cites every figure; it just cannot follow up.',
+      canContinue: false,
+    };
+  }
+  return {
+    text: `Driver could not answer, so the quick engine did: ${why || 'no reason was recorded'}.`,
+    canContinue: true,
+  };
+}

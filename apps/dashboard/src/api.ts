@@ -25,7 +25,6 @@ import type {
   CitationOpportunity,
   CompetitorGap,
   CompetitorRef,
-  CopilotAnswer,
   CopilotSummary,
   EntityStrength,
   GapType,
@@ -54,6 +53,14 @@ import type {
   GroundedAnswer,
   PromptCitationResult,
   AiModels,
+  AccountMember,
+  DriverAnswer,
+  DriverThread,
+  DriverThreadDetail,
+  LlmModelChoice,
+  ModelSurface,
+  ThreadShare,
+  ThreadVisibility,
   ShareOfVoice,
   EffectiveCadence,
   AccountCadenceRow,
@@ -421,19 +428,6 @@ export function fetchCopilotSummary(entityId: string): Promise<CopilotSummary> {
   return request<{ summary: CopilotSummary }>(
     `/projects/${requireProjectId()}/entities/${entityId}/copilot/summary`,
   ).then((r) => r.summary);
-}
-
-/**
- * M2.4 Copilot GA: ask a natural-language question and get a cited,
- * drill-downable answer. The server does the intent parse + entity-first
- * retrieval; the client just sends the question and renders the citations and
- * the optional Finding -> Action suggestion.
- */
-export function askCopilot(question: string): Promise<{ answer: CopilotAnswer; latencyMs: number }> {
-  return request<{ answer: CopilotAnswer; latencyMs: number }>(`/projects/${requireProjectId()}/copilot/ask`, {
-    method: 'POST',
-    body: JSON.stringify({ question }),
-  });
 }
 
 /**
@@ -1161,27 +1155,59 @@ export function fetchAiModels(): Promise<AiModels> {
 }
 
 /**
- * The model the person last picked, remembered per browser.
+ * The model the person last picked for one surface, remembered per browser.
  *
  * Per viewer rather than per project because it is a preference about waiting,
  * not a property of the brand being measured: one person wants a fast answer
  * while they work and another wants the considered one. Nothing stored depends
  * on it — the scheduled poll has its own fixed model.
+ *
+ * Per surface as of §9a decision 5, which is the sentence that broke the old
+ * single key: "a person who picked the quick model means it on the other
+ * screen too" is true of the two one-shot surfaces and false of Driver, which
+ * cannot run a 32K model at all. So the key carries the surface.
+ *
+ * The legacy key is read as the fallback for `prompt` and `ask` — those two
+ * are the surfaces it was written by, and a person who set it yesterday should
+ * not find it forgotten today. Driver deliberately does not read it: the value
+ * in it may be a model Driver cannot run, and a stale id would be refused by
+ * the route on every question.
  */
-export function getAiModel(): string | null {
+function modelKey(surface: ModelSurface): string {
+  return `${AI_MODEL_KEY}.${surface}`;
+}
+
+export function getAiModel(surface: ModelSurface): string | null {
   try {
-    return localStorage.getItem(AI_MODEL_KEY);
+    return (
+      localStorage.getItem(modelKey(surface))
+      ?? (surface === 'driver' ? null : localStorage.getItem(AI_MODEL_KEY))
+    );
   } catch {
     return null;
   }
 }
 
-export function setAiModel(id: string): void {
+export function setAiModel(surface: ModelSurface, id: string): void {
   try {
-    localStorage.setItem(AI_MODEL_KEY, id);
+    localStorage.setItem(modelKey(surface), id);
   } catch {
     /* a browser with site data blocked still gets the default */
   }
+}
+
+/**
+ * The ids `surface` may offer, from the catalogue the server sent.
+ *
+ * An older deployment sends no `surfaces` map, and a surface with no entry
+ * gets the whole catalogue — which is exactly what every surface did before
+ * the map existed. Returning all of them is therefore the honest default, not
+ * a permissive one.
+ */
+export function modelsFor(catalogue: AiModels | null, surface: ModelSurface): LlmModelChoice[] {
+  const models = catalogue?.models ?? [];
+  const allowed = catalogue?.surfaces?.[surface];
+  return allowed ? models.filter((m) => allowed.includes(m.id)) : models;
 }
 
 /**
@@ -1281,4 +1307,136 @@ export async function streamAi(
   } finally {
     reader.releaseLock();
   }
+}
+
+/* ── Driver ───────────────────────────────────────────────────────────────── */
+
+/**
+ * How long the browser waits for a Driver answer.
+ *
+ * `request` aborts at 8 seconds, which is right for a database read and wrong
+ * by a factor of five here: the loop's own budget is `DEFAULT_BOUNDS.wallClockMs`
+ * = 45,000 ms, measured in the vendor probe against a median round of 5.2 s and
+ * a worst round of 19.1 s. A client that gives up at 8 s would abandon most
+ * four-round turns and report them as failures, and the server would carry on
+ * paying for the model rounds nobody is waiting for.
+ *
+ * The margin is for the round trip either side of the loop — the thread read,
+ * the persist, the network — so the browser's deadline is always the later of
+ * the two and the server's own deadline is what actually stops a turn. A
+ * client that gave up first would turn a partial answer the server was about
+ * to store into a request that never happened.
+ */
+const DRIVER_WALL_CLOCK_MS = 45_000;
+const DRIVER_CLIENT_TIMEOUT_MS = DRIVER_WALL_CLOCK_MS + 10_000;
+
+export interface AskDriverOptions {
+  /** Continue this thread. Absent starts a new one; the answer names the id either way. */
+  threadId?: string;
+  /** The model picked for the Driver surface. Refused by the route if it cannot run Driver. */
+  model?: string;
+  /** Lets a screen drop an answer it is no longer waiting for. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Ask Driver a question.
+ *
+ * Its own fetch rather than `request`, for the timeout above and for nothing
+ * else — the headers, the token and the error shape are all identical, which is
+ * why `authToken` is called rather than re-derived. That re-derivation has been
+ * the cause of two identical bugs, both of them in a function written exactly
+ * like this one for exactly this reason: see the comment on `authToken`.
+ *
+ * The caller's own `signal` and the timeout are both honoured. `AbortSignal.any`
+ * is not used because it is too new to rely on in every browser this ships to;
+ * forwarding one abort to the other is three lines and works everywhere.
+ */
+export async function askDriver(question: string, opts: AskDriverOptions = {}): Promise<DriverAnswer> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error('no API base URL configured');
+  const token = await authToken();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DRIVER_CLIENT_TIMEOUT_MS);
+  const forward = (): void => controller.abort();
+  opts.signal?.addEventListener('abort', forward);
+
+  try {
+    const res = await fetch(`${base}/projects/${requireProjectId()}/driver/ask`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        question,
+        ...(opts.threadId ? { threadId: opts.threadId } : {}),
+        ...(opts.model ? { model: opts.model } : {}),
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      if (res.status === 401 && isExpiredSession(body)) signOut();
+      throw new Error(`${res.status} ${body}`);
+    }
+    return (await res.json()) as DriverAnswer;
+  } finally {
+    clearTimeout(timeout);
+    opts.signal?.removeEventListener('abort', forward);
+  }
+}
+
+/** Every thread in this project this person may open, most recently active first. */
+export function fetchDriverThreads(): Promise<DriverThread[]> {
+  return request<{ threads: DriverThread[] }>(`/projects/${requireProjectId()}/driver/threads`)
+    .then((r) => r.threads);
+}
+
+/**
+ * One thread, whole. `shares` comes back for the author only — a reader seeing
+ * the list would learn who else is in the room, which is the author's to say.
+ */
+export function fetchDriverThread(threadId: string): Promise<DriverThreadDetail> {
+  return request<DriverThreadDetail>(`/projects/${requireProjectId()}/driver/threads/${threadId}`);
+}
+
+/** Rename a thread, change who can read it, or both. Author only, enforced by the route. */
+export function patchDriverThread(
+  threadId: string,
+  patch: { title?: string; visibility?: ThreadVisibility },
+): Promise<DriverThread> {
+  return request<{ thread: DriverThread }>(`/projects/${requireProjectId()}/driver/threads/${threadId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  }).then((r) => r.thread);
+}
+
+/** Share a thread with one person in the account. Returns the whole recipient list. */
+export function shareDriverThread(threadId: string, userId: string): Promise<ThreadShare[]> {
+  return request<{ shares: ThreadShare[] }>(
+    `/projects/${requireProjectId()}/driver/threads/${threadId}/shares`,
+    { method: 'POST', body: JSON.stringify({ userId }) },
+  ).then((r) => r.shares);
+}
+
+/** Stop sharing with one person. Returns what is left. */
+export function unshareDriverThread(threadId: string, userId: string): Promise<ThreadShare[]> {
+  return request<{ shares: ThreadShare[] }>(
+    `/projects/${requireProjectId()}/driver/threads/${threadId}/shares/${userId}`,
+    { method: 'DELETE' },
+  ).then((r) => r.shares);
+}
+
+/**
+ * Who is on the open account, for the sharing picker.
+ *
+ * Sharing takes a `userId`, which is not something a customer knows or could
+ * type. Without this list the share routes have no reachable caller, which is
+ * exactly the state step 4 left them in.
+ */
+export function fetchAccountMembers(accountId = getAccountId()): Promise<AccountMember[]> {
+  if (!accountId) throw new Error('no account selected');
+  return request<{ members: AccountMember[] }>(`/accounts/${accountId}/members`).then((r) => r.members);
 }

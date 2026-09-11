@@ -138,6 +138,37 @@ export async function getAccountRole(db: Db, accountId: string, userId: string):
 }
 
 /**
+ * Who is on this account, so a person can be named rather than typed as a uuid.
+ *
+ * Added for Driver's sharing controls: §9a decision 4 shares a thread with
+ * named people in the organisation, and `POST .../shares` takes a `userId`
+ * that nothing in the product could previously produce. A colleague's id is
+ * not something a customer knows, so the picker needs the list.
+ *
+ * The membership check is the caller's, the same as every other account route.
+ * `email` and `name` are nullable on `users` and stay nullable here — a member
+ * invited by address who has not signed in yet has neither, and inventing a
+ * label for them would put a name on a row that has none.
+ */
+export interface AccountMember {
+  userId: string;
+  email: string | null;
+  name: string | null;
+  role: 'owner' | 'member';
+}
+
+export async function listAccountMembers(db: Db, accountId: string): Promise<AccountMember[]> {
+  const rows = await db<{ user_id: string; email: string | null; name: string | null; role: 'owner' | 'member' }[]>`
+    select m.user_id, u.email, u.name, m.role
+    from account_members m
+    join users u on u.id = m.user_id
+    where m.account_id::text = ${accountId}
+    order by m.role asc, coalesce(u.name, u.email, m.user_id) asc
+  `;
+  return rows.map((r) => ({ userId: r.user_id, email: r.email, name: r.name, role: r.role }));
+}
+
+/**
  * Change what kind of thing an account is.
  *
  * Returns the stored row rather than echoing the requested kind, so the

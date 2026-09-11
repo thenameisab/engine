@@ -12,6 +12,7 @@ import {
   unshareThread,
   updateThread,
 } from './driverThreads.js';
+import { listAccountMembers } from './accounts.js';
 
 /**
  * Driver conversation storage, against a real Postgres.
@@ -360,5 +361,39 @@ describe.skipIf(!url)('driver threads (Postgres)', () => {
     await updateThread(db, id, author, { title: 'just the title' });
     const thread = await readableThread(db, projectId, id, author);
     expect(thread).toMatchObject({ title: 'just the title', visibility: 'named' });
+  });
+
+  /* ── who a thread can be shared with ────────────────────────────────────── */
+
+  it('names the people a thread can be shared with, and nobody outside the account', () => {
+    // Sharing takes a `userId`, which is not something a customer knows or
+    // could type. Until this list existed, the share routes had no reachable
+    // caller at all — which is exactly the state step 4 left them in.
+    return listAccountMembers(db, accountId).then((members) => {
+      const ids = members.map((m) => m.userId).sort();
+      expect(ids).toEqual([author, colleague].sort());
+      expect(ids).not.toContain(outsider);
+    });
+  });
+
+  it('carries the address a person was invited by, so they can be named', async () => {
+    const members = await listAccountMembers(db, accountId);
+    expect(members.find((m) => m.userId === author)!.email).toBe(`${author}@example.com`);
+  });
+
+  it('shares with a member and takes it back, which is the pair the UI needs', async () => {
+    // The screen's Share and Remove, end to end. `shareThread` alone grants
+    // nothing on a private thread — `visibility` is the authority — which is
+    // why the screen promotes `private` to `named` with the first share.
+    const id = await threadOwnedByAuthor('named');
+    expect(await readableThread(db, projectId, id, colleague)).toBeNull();
+
+    await shareThread(db, id, colleague, author);
+    expect(await readableThread(db, projectId, id, colleague)).not.toBeNull();
+    expect((await listThreadShares(db, id)).map((sh) => sh.userId)).toEqual([colleague]);
+
+    expect(await unshareThread(db, id, colleague)).toBe(true);
+    expect(await readableThread(db, projectId, id, colleague)).toBeNull();
+    expect(await listThreadShares(db, id)).toEqual([]);
   });
 });

@@ -2,8 +2,9 @@ import { el } from './dom.js';
 import { icon, ICONS } from './icons.js';
 import { getUser, signOut, initials } from './auth/session.js';
 import { signOutRemote } from './auth/neonAuth.js';
-import { mountCopilot } from './copilot.js';
+import { mountPalette, paletteButton } from './palette.js';
 import type { AppContext, View } from './context.js';
+import { driverView } from './views/driver.js';
 import { homeView } from './views/home.js';
 import { fixQueueView } from './views/fixQueue.js';
 import { auditView } from './views/audit.js';
@@ -27,7 +28,7 @@ interface Route {
 }
 
 /**
- * Six destinations, from eleven.
+ * Seven destinations, from eleven.
  *
  * The old rail listed the product's screens: Pulse, Rankings, Fix Queue,
  * Findings, Entity Graph, Competitors, AI answers, Local SEO, Integrations,
@@ -35,15 +36,23 @@ interface Route {
  * two, and of which "Clients" meant nothing at all to a customer who is not an
  * agency. Reading the rail told you how Engine is built, not what you can do.
  *
- * These six are the questions instead: what is wrong, what is being fixed, who
- * is finding us, what is connected, and how it is set up. The five that went
- * are tabs inside Visibility; Clients is reached from the workspace column,
- * which is where a client is switched anyway.
+ * Six of these are the questions instead: what is wrong, what is being fixed,
+ * who is finding us, what is connected, and how it is set up. The five that
+ * went are tabs inside Visibility; Clients is reached from the workspace
+ * column, which is where a client is switched anyway.
+ *
+ * **Ask is the seventh, and it is first.** It is not a seventh question — it is
+ * the place to ask a question the other six did not anticipate, which is why it
+ * sits above them rather than among them. `platform` stays hidden below for the
+ * opposite reason, and the two do not contradict: a rail item invisible to
+ * almost everyone is worse than a hash an operator learns once, and Ask is for
+ * every customer.
  *
  * Labels come from `SCREEN_NAMES`, so the rail, the breadcrumb and the page's
  * h1 cannot drift apart.
  */
 const ROUTES: Route[] = [
+  { id: 'driver', iconMarkup: ICONS.ask, view: driverView },
   { id: 'home', iconMarkup: ICONS.pulse, view: homeView },
   { id: 'findings', iconMarkup: ICONS.doc, view: auditView },
   { id: 'fixes', iconMarkup: ICONS.kanban, view: fixQueueView },
@@ -91,7 +100,7 @@ const ROUTE_ALIASES: Record<string, string> = {
  * sends the user to Set up instead, which offers existing sites or creates
  * one.
  */
-const PROJECT_ROUTES = new Set(['home', 'findings', 'fixes', 'visibility']);
+const PROJECT_ROUTES = new Set(['driver', 'home', 'findings', 'fixes', 'visibility']);
 
 const ALL_ROUTES = [...ROUTES, ...HIDDEN_ROUTES];
 
@@ -288,7 +297,7 @@ export function mountShell(root: HTMLElement): void {
     workspace.chip,
     el('div', { class: 'crumb', id: 'crumb' }, [screenName('home')]),
     el('div', { class: 'grow' }),
-    el('span', { class: 'kbdhint', title: 'Open the Copilot' }, ['⌘K']),
+    paletteButton(),
     themeBtn,
   ]);
 
@@ -301,7 +310,7 @@ export function mountShell(root: HTMLElement): void {
   // the auth screen is never mounted and the root is empty. Symmetric with
   // `mountAuthScreen`, which has always cleared the root.
   root.replaceChildren(appEl, toastHost);
-  mountCopilot(root);
+  mountPalette(root, ctx);
 
   let startCollapsed = false;
   try {

@@ -301,6 +301,66 @@ describe('styles.css base rules', () => {
     expect(rule![1]).toMatch(/min-height: 3em/);
   });
 
+  /* ── Ask ─────────────────────────────────────────────────────────────── */
+
+  it('gives the three empty states three different looks, not one', () => {
+    // §4.2 rule 3 in CSS. `zero` is a measurement and keeps the plain box;
+    // `not-connected` is the one a customer can act on and is tinted with the
+    // warning colour, and an error with the risk colour. A single `.dv-notice`
+    // rule would put "you have no traffic" and "nothing is connected" in the
+    // same box, which on a new account is most of what Driver says.
+    expect(css).toMatch(/^\.dv-notice\.not-connected \{/m);
+    expect(css).toMatch(/^\.dv-notice\.error \{/m);
+    expect(css).not.toMatch(/^\.dv-notice\.zero \{/m);
+  });
+
+  it('scrolls a wide answer inside itself rather than widening the page', () => {
+    // A Driver table carries whichever columns the tool that answered declared.
+    // Five of them on a phone is wider than the viewport, and a page that
+    // scrolls sideways is a page whose rail and topbar slide off.
+    expect(css).toMatch(/\.dv-tablewrap \{[^}]*overflow-x:\s*auto/);
+  });
+
+  it('keeps the floating bar clear of the bottom rail on a phone', () => {
+    // Under 860 the rail is a fixed bottom bar. A bar at `bottom: 22px` would
+    // sit on top of it, and the one thing under the pointer would be the wrong
+    // one.
+    const mobile = css.slice(css.indexOf('@media (max-width: 860px) {\n  /* The rail is a fixed bottom bar'));
+    expect(mobile).toMatch(/\.askbar \{[^}]*bottom: calc\(64px \+ env\(safe-area-inset-bottom\)\)/);
+  });
+
+  it('centres the floating bar on the content column, not on the viewport', () => {
+    // `position: fixed` makes the viewport the containing block, so the rail's
+    // width has to be added back or the bar sits half a rail to the left of
+    // the column it belongs to — measured at 112px off before this existed.
+    expect(css).toMatch(/\.askbar \{[^}]*left: calc\(50% \+ var\(--shell-left, 0px\) \/ 2\)/);
+  });
+
+  it('declares --shell-left beside every .app grid, so the two cannot disagree', () => {
+    // A variant that sets `grid-template-columns` without saying how wide its
+    // left side is leaves the bar centred on the previous variant's rail.
+    const grids = [...css.matchAll(/^[^\n{]*\.app\b[^\n{]*\{([^}]*grid-template-columns:[^}]*)\}/gm)];
+    expect(grids.length).toBeGreaterThan(0);
+    for (const [rule, body] of grids) {
+      expect(body, `no --shell-left on ${rule.split('{')[0].trim()}`).toMatch(/--shell-left:/);
+    }
+  });
+
+  it('ends the screen above the floating bar rather than under it', () => {
+    // The bar does not move, so without this the last panel on Home scrolls
+    // beneath it and its final lines cannot be read at any scroll position.
+    expect(css).toMatch(/\.content:has\(\.askbar\) \{[^}]*padding-bottom: 104px/);
+    const mobile = css.slice(css.indexOf('@media (max-width: 860px) {\n  /* The rail is a fixed bottom bar'));
+    expect(mobile).toMatch(/\.content:has\(\.askbar\) \{[^}]*padding-bottom: calc\(132px/);
+  });
+
+  it('drops the ask bar’s rise under reduced motion but keeps it centred', () => {
+    // `transform` does two jobs on this element: the centring and the rise.
+    // Setting `transform: none` would centre it on the left edge.
+    const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reduced).toMatch(/\.askbar \{[^}]*transform: translate\(-50%, 0\)/);
+  });
+
   it('labels every control in a row or none of them', () => {
     // Competitors had two labelled controls and two bare buttons on one line.
     const view = readFileSync(join(SRC, 'views/competitors.ts'), 'utf8');

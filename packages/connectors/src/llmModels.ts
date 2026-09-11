@@ -122,3 +122,54 @@ export function llmModelsWithContext(minTokens: number): LlmModelChoice[] {
     (a, b) => b.contextTokens - a.contextTokens,
   );
 }
+
+/**
+ * The surfaces that ask a model something live.
+ *
+ * Three today, and the list is here rather than in the dashboard because the
+ * requirement each one places on a model is a fact about the request it makes,
+ * not about the screen it is made from. §9a decision 5: "a model declares its
+ * context size once and every surface filters on it" — this is the other half
+ * of that sentence, the surface's side.
+ *
+ *   `prompt`  "Try a prompt" on AI answers. One prompt, verbatim, no history.
+ *   `ask`     the command palette's question. One grounded answer, reworded.
+ *   `driver`  the agent loop: a system prompt, a nineteen-tool catalogue,
+ *             replayed history and several tool results in one request.
+ */
+export type ModelSurface = 'prompt' | 'ask' | 'driver';
+
+export const MODEL_SURFACES: readonly ModelSurface[] = ['prompt', 'ask', 'driver'];
+
+/**
+ * What each surface needs from a model, in context tokens.
+ *
+ * Zero is not "no requirement stated" — it is the measured one. A single
+ * prompt and a single grounded rewording both fit any model on the account, so
+ * both offer every model and the customer's choice there is about waiting.
+ * Driver is the one surface with a requirement that excludes a model, and the
+ * number is the one `factory.ts` has always used.
+ */
+export const SURFACE_MIN_CONTEXT: Record<ModelSurface, number> = {
+  prompt: 0,
+  ask: 0,
+  driver: 128_000,
+};
+
+/** The models that can run this surface, largest context first. */
+export function modelsForSurface(surface: ModelSurface): LlmModelChoice[] {
+  return llmModelsWithContext(SURFACE_MIN_CONTEXT[surface]);
+}
+
+/**
+ * Which of `LLM_MODEL_CHOICES` each surface may offer, by id.
+ *
+ * The shape `GET /ai/models` sends, so the dashboard filters the one catalogue
+ * it already has rather than fetching three. Ids rather than whole models
+ * because the models are in the same response.
+ */
+export function modelIdsBySurface(): Record<ModelSurface, string[]> {
+  return Object.fromEntries(
+    MODEL_SURFACES.map((s) => [s, modelsForSurface(s).map((m) => m.id)]),
+  ) as Record<ModelSurface, string[]>;
+}

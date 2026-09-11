@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, accountVocabulary, showsClientColumn, chooseAccountNote, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist, strengthBand, scorePct, brandStrengthSummary, BRAND_STRENGTH_EXPLANATION } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, accountVocabulary, showsClientColumn, chooseAccountNote, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist, strengthBand, scorePct, brandStrengthSummary, BRAND_STRENGTH_EXPLANATION,
+  formatPartCell, formatBand, noticeHeading, provenanceLine, driverFindingRows, driverFixRows,
+  threadTitle, visibilityAfterShare, memberLabel, shareLabel, partialAnswerNote, VISIBILITY_LABELS, statusLabel } from './format.js';
+import { looksLikeAQuestion, matchDestinations } from './palette.js';
 import { VISIBILITY_TABS, visibilityTabId, visibleVisibilityTabs } from './views/visibility.js';
 import { firstSentence } from './views/home.js';
 import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, EntityStrength, FindingRow } from './types.js';
@@ -1369,5 +1372,254 @@ describe('brand strength as a Findings group', () => {
     expect(scorePct(0)).toBe('0%');
     expect(scorePct(1)).toBe('100%');
     expect(scorePct(1.4)).toBe('100%');
+  });
+});
+
+/* ── Driver ───────────────────────────────────────────────────────────────── */
+
+describe('formatPartCell', () => {
+  it('reads the same integer differently depending on what its tool meant', () => {
+    // The whole reason the unit travels on the part. An average position of 4.7
+    // rounded like a count reads as a rank of five, which it is not.
+    expect(formatPartCell(4.7, 'position')).toBe('4.7');
+    expect(formatPartCell(4.7, 'count')).toBe('5');
+    expect(formatPartCell(0.047, 'percent')).toBe('4.7%');
+    expect(formatPartCell(73.4, 'score')).toBe('73');
+  });
+
+  it('says "not measured" rather than zero, which is the whole point of the vocabulary', () => {
+    expect(formatPartCell(null, 'count')).toBe('—');
+    expect(formatPartCell(null, 'percent')).toBe('—');
+    expect(formatPartCell(0, 'count')).toBe('0');
+  });
+
+  it('keeps a decimal under 10%, where most of the signal is', () => {
+    expect(formatPartCell(0.024, 'percent')).toBe('2.4%');
+    expect(formatPartCell(0.24, 'percent')).toBe('24%');
+  });
+
+  it('passes a date column through when it carries a label instead of a date', () => {
+    // `integration_status` puts "Never" in its "Last synced" column. Rendering
+    // that as "Invalid Date" would be worse than the word the handler chose.
+    expect(formatPartCell('2026-09-11T08:00:00.000Z', 'date')).toBe('2026-09-11');
+    expect(formatPartCell('Never', 'date')).toBe('Never');
+  });
+
+  it('reads a numeric string, because postgres returns bigint and numeric as strings', () => {
+    expect(formatPartCell('1204', 'count')).toBe('1,204');
+    expect(formatPartCell('not a number', 'count')).toBe('not a number');
+  });
+});
+
+describe('formatBand', () => {
+  it('renders three numbers, because a band flattened to its point is a different claim', () => {
+    expect(formatBand({ low: 0.1, point: 0.2, high: 0.34 }, 'percent')).toBe('10%–34%');
+  });
+});
+
+describe('noticeHeading', () => {
+  it('gives the three states three different headings', () => {
+    // §4.2 rule 3, and §9a decision 6 is what makes it load bearing: with no
+    // gate on Google data, most early answers are one of these, so collapsing
+    // them would tell a customer who has connected nothing that they have no
+    // traffic.
+    const headings = (['zero', 'not-connected', 'no-data-yet'] as const).map(noticeHeading);
+    expect(new Set(headings).size).toBe(3);
+    expect(noticeHeading('zero')).toMatch(/measured/i);
+    expect(noticeHeading('not-connected')).toMatch(/connect/i);
+    expect(noticeHeading('no-data-yet')).toMatch(/nothing collected/i);
+  });
+});
+
+describe('provenanceLine', () => {
+  it('names the tables as the migrations name them, because that is the question being asked', () => {
+    expect(provenanceLine({ tables: ['gsc_site_daily', 'gsc_query_daily'] }))
+      .toBe('gsc_site_daily, gsc_query_daily');
+  });
+
+  it('carries the period and the sample count when the figure rests on them', () => {
+    expect(provenanceLine({
+      tables: ['citation_events'],
+      period: { from: '2026-08-14', to: '2026-09-10' },
+      sampleCount: 5,
+    })).toBe('citation_events · 2026-08-14 to 2026-09-10 · 5 samples');
+  });
+});
+
+describe('driverFindingRows', () => {
+  const row = {
+    id: 'f1',
+    entity: 'Acme',
+    source: 'crawl',
+    issueType: 'missing-title',
+    severity: 0.85,
+    predictedImpact: 0.4,
+    evidence: { url: 'https://acme.test/pricing' },
+    foundAt: '2026-09-01',
+    resolvedAt: null,
+  };
+
+  it('bands the severity exactly as the Findings screen does', () => {
+    expect(driverFindingRows([row])[0].severity).toBe(severityBand(0.85));
+    expect(driverFindingRows([{ ...row, severity: 0.6 }])[0].severity).toBe('medium');
+  });
+
+  it('never claims a fix exists, because the tool does not return the templates that decide it', () => {
+    // `toFindingRow` derives `autoFixable` from `actionTemplates.length > 0`,
+    // and the `findings` tool returns no templates. Guessing from the issue
+    // type would answer a different question — a template says a fix exists for
+    // this kind of issue, not that Engine holds what it takes to write one.
+    expect(driverFindingRows([row])[0].autoFixable).toBe(false);
+  });
+
+  it('survives a row with nothing in it rather than throwing inside a rendered answer', () => {
+    const [only] = driverFindingRows([{}]);
+    expect(only.url).toBe('');
+    expect(only.severity).toBe('low');
+    expect(only.predictedImpact).toBe(0);
+  });
+});
+
+describe('driverFixRows', () => {
+  it('reads a fix in the Fix Queue’s own words', () => {
+    const [fix] = driverFixRows([{
+      id: 'a1',
+      type: 'schema',
+      status: 'deployed',
+      answersIssue: 'missing-title',
+      severity: 0.8,
+      entity: 'Acme',
+      lastChangedAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
+    }]);
+    expect(fix.status).toBe(statusLabel('deployed'));
+    expect(fix.entity).toBe('Acme');
+    expect(fix.changed).toMatch(/h ago$/);
+  });
+});
+
+describe('threadTitle', () => {
+  it('titles a thread by its first question until someone names it', () => {
+    const t = { title: null, createdAt: '2026-09-11T09:00:00.000Z' };
+    expect(threadTitle(t, 'why are clicks down this week')).toBe('why are clicks down this week');
+    expect(threadTitle({ ...t, title: 'Clicks' }, 'why are clicks down')).toBe('Clicks');
+  });
+
+  it('falls back to the date rather than to a list of "Untitled"', () => {
+    expect(threadTitle({ title: null, createdAt: '2026-09-11T09:00:00.000Z' }))
+      .toBe('Conversation of 2026-09-11');
+  });
+
+  it('clips a long question rather than letting one row own the list', () => {
+    const long = 'a'.repeat(200);
+    const out = threadTitle({ title: null, createdAt: '2026-09-11T09:00:00.000Z' }, long);
+    expect(out.length).toBe(70);
+    expect(out.endsWith('…')).toBe(true);
+  });
+});
+
+describe('visibilityAfterShare', () => {
+  it('opens a private thread when the first person is added to it', () => {
+    // `visibility` is the authority and the share table is the recipient list,
+    // so a private thread with share rows grants nothing. Correct in the API
+    // and wrong as a UI: a person who presses Share and sees a name appear has
+    // every reason to think they shared it.
+    expect(visibilityAfterShare('private')).toBe('named');
+  });
+
+  it('never narrows a thread that is already wider', () => {
+    expect(visibilityAfterShare('named')).toBeNull();
+    expect(visibilityAfterShare('organisation')).toBeNull();
+  });
+
+  it('has a label for every visibility, in the customer’s words', () => {
+    expect(Object.keys(VISIBILITY_LABELS).sort()).toEqual(['named', 'organisation', 'private']);
+    expect(VISIBILITY_LABELS.private).not.toMatch(/private/i);
+  });
+});
+
+describe('memberLabel and shareLabel', () => {
+  it('name one person the same way in both lists', () => {
+    const person = { userId: 'u1', name: 'Ada', email: 'ada@acme.test' };
+    expect(memberLabel(person)).toBe(shareLabel(person));
+  });
+
+  it('falls back to the address, then to the id, rather than inventing a name', () => {
+    expect(memberLabel({ userId: 'u1', name: null, email: 'ada@acme.test' })).toBe('ada@acme.test');
+    expect(memberLabel({ userId: 'u1', name: null, email: null })).toBe('u1');
+  });
+});
+
+describe('partialAnswerNote', () => {
+  const parts = [
+    { kind: 'text' as const, markdown: 'Clicks are steady.' },
+    { kind: 'metric' as const, label: 'Clicks', value: 1204, unit: 'count' as const, provenance: { tables: ['gsc_site_daily'] } },
+  ];
+
+  it('says nothing at all about a Driver answer', () => {
+    expect(partialAnswerNote({ source: 'driver', parts })).toBeNull();
+  });
+
+  it('says a deadline happened and offers to keep going', () => {
+    // The gap the ledger has flagged since #133: without this the customer sees
+    // a narrower answer and no sign a richer one was nearly ready.
+    const note = partialAnswerNote({
+      source: 'copilot-fallback',
+      fellBackBecause: 'the turn stopped early: deadline',
+      parts,
+    })!;
+    expect(note.canContinue).toBe(true);
+    expect(note.text).toMatch(/ran out of time/i);
+    // One non-text part, so the sentence is singular and says the figure is below.
+    expect(note.text).toMatch(/figure it had already gathered is below/i);
+  });
+
+  it('does not offer to keep going when a second try would answer identically', () => {
+    const note = partialAnswerNote({
+      source: 'copilot-fallback',
+      fellBackBecause: 'no conversational model is configured on this deployment',
+      parts,
+    })!;
+    expect(note.canContinue).toBe(false);
+  });
+
+  it('reports an unexpected fallback with the reason rather than a generic apology', () => {
+    const note = partialAnswerNote({
+      source: 'copilot-fallback',
+      fellBackBecause: 'vendor returned 503',
+      parts,
+    })!;
+    expect(note.text).toContain('vendor returned 503');
+    expect(note.canContinue).toBe(true);
+  });
+});
+
+describe('the palette routes a question to Ask', () => {
+  it('reads a question mark, an interrogative opening, or a sentence as a question', () => {
+    expect(looksLikeAQuestion('settings?')).toBe(true);
+    expect(looksLikeAQuestion('why are clicks down')).toBe(true);
+    expect(looksLikeAQuestion('show me the queries nearly ranking')).toBe(true);
+    expect(looksLikeAQuestion('what')).toBe(true);
+  });
+
+  it('reads a screen name as a command, so ⌘K still navigates', () => {
+    expect(looksLikeAQuestion('settings')).toBe(false);
+    expect(looksLikeAQuestion('fix queue')).toBe(false);
+    expect(looksLikeAQuestion('ai answers')).toBe(false);
+  });
+
+  it('finds a screen by its name and by what a customer would call it', () => {
+    expect(matchDestinations('rankings', false).map((d) => d.route)).toContain('visibility');
+    expect(matchDestinations('search console', false).map((d) => d.route)).toEqual(['integrations']);
+    expect(matchDestinations('', false).length).toBeGreaterThan(0);
+  });
+
+  it('hides Clients from an account that has none, the way the shell does', () => {
+    expect(matchDestinations('clients', false).map((d) => d.route)).toEqual([]);
+    expect(matchDestinations('clients', true).map((d) => d.route)).toEqual(['clients']);
+  });
+
+  it('names Ask as a destination, because ⌘K is how most people will reach it', () => {
+    expect(matchDestinations('ask', false).map((d) => d.route)).toEqual(['driver']);
+    expect(SCREEN_NAMES.driver).toBe('Ask');
   });
 });

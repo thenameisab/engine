@@ -2198,3 +2198,56 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
   "Needs setup". Button is secondary now, and the copy is singular when one vendor is named.
 - Verification was the gap this build closed: #135 shipped with no browser walk, and this is
   what that cost. Harness in the session scratchpad, not committed.
+
+## 2026-09-11 — Driver step 5b: the screen, the palette, the bar, the model picker
+- Branch `feat/driver-screen-ui` off `origin/main` (c8ee5d3, #137 already merged). Fresh worktree
+  at `.worktrees/driver-ui`; removed the stale `.worktrees/driver-screen` that held 5a.
+- Measured first: `grep -rni driver apps/dashboard/src` returned nothing. Every route step 4 and
+  step 5a shipped had no caller in the product at all.
+- **Four decisions taken with the user before building**, three of them the ones the brief asked
+  about and one that the review and the ledger worded differently:
+  - Driver is a **seventh rail item and first in order**, above Home. The ⌘K overlay survives as
+    a **command palette** — search and quick actions — and free text routes to Driver. Home
+    carries a **floating ask bar** that sends a question into a new Driver thread.
+  - A partial answer renders as **notice + the figures already gathered + "Keep going"**, which
+    re-asks in the same thread.
+  - The model control: **Settings owns the per-surface default; the panels keep an overridable
+    select**. Neither document's wording alone — §9a said the control moves to Settings, the
+    ledger said the inline picker gains a surface filter.
+- **Server.** `SURFACE_MIN_CONTEXT` and `modelsForSurface` in `@engine/connectors`, with
+  `DRIVER_MIN_CONTEXT_TOKENS` re-exported from it so Settings cannot offer a model the connector
+  refuses. `GET /ai/models` now sends a `surfaces` map. `POST /driver/ask` accepts a `model` and
+  400s on one Driver cannot run; `createConversationalLlmConnector` applies the context filter
+  *before* consulting the pick, never after. New `GET /accounts/:accountId/members` — sharing
+  takes a `userId`, so until now the share routes had no reachable caller.
+- **Dashboard, seven new files.** `views/driver.ts` (threads, transcript, composer, sharing),
+  `driverParts.ts` (all seven part kinds), `findingGroup.ts` (extracted from `views/audit.ts` so
+  a finding in Driver *is* the Findings row, not a lookalike), `palette.ts` (replaces
+  `copilot.ts`), `askBar.ts`, `surfaces.test.ts`, plus the Ask block in `styles.css`.
+- **The ⌘K ask bar is gone, and that is the point.** It posted to `/ai/stream` in 'ask' mode
+  while Driver runs the agent loop, so the product had two places to type a question that
+  answered differently and no way to tell which had answered. `packages/copilot` is untouched and
+  is still the fallback engine — reached *through* Driver now, not beside it. `askCopilot` in
+  `api.ts` was orphaned by this and removed. Fixed in passing, as §4.8 asked: the panel's dead
+  "Set an API base URL under Settings first." message, pointing at a field deleted in #105.
+- `askDriver` has its own fetch: `request<T>` aborts at 8,000 ms against the loop's 45,000 ms
+  budget. Client deadline is 55,000 ms so the *server's* deadline is always the one that stops a
+  turn — a client that gave up first would turn a partial answer into a request that never was.
+  `authToken()` reused rather than re-derived; that bug has shipped twice.
+- **Browser walk, which #135 skipped and #137 paid for.** Served this worktree on 4399 (4321 and
+  8787 were held by another session's checkout) and drove it with the browser tools. Three real
+  defects found and fixed, none of which any test would have caught:
+  - The floating bar centred on the **viewport**, not the content column — **112px off**, exactly
+    half the rail. Fixed with a `--shell-left` token declared beside every `.app` grid variant.
+  - `.content` reserved no room for the bar, so Home's last panel scrolled underneath it and its
+    final lines could not be read at any scroll position. `:has(.askbar)` now pays for it.
+  - The composer's opening note stayed above the first exchange, explaining what to ask to
+    someone who had just asked.
+  - Also caught: a two-line placeholder clipped mid-word in a one-row textarea on a phone.
+- Verified in the browser: all seven part kinds render, the band shows three numbers, the three
+  empty states look different (amber "Not connected yet" with a button, plain "Measured, and the
+  answer is nothing"), dark mode is on tokens, the palette routes "why are clicks down" to Ask
+  and "rank" to Visibility, Settings offers Driver one model and the other two surfaces both,
+  and "Keep going" re-asks in the thread the first turn created.
+- Green: `turbo typecheck test` 65/65. Dashboard **243**, up from 194. Connectors **163**, up
+  from 154. API **570** with `TEST_DATABASE_URL`, up from 564.
