@@ -4,18 +4,15 @@ import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
 import {
   currentAccountVocabulary,
-  fetchAccounts,
-  fetchDeployTarget,
+  fetchConnections,
   fetchIntegrations,
   fetchPlatformAccess,
   getAccountId,
-  updateBrandingApi,
 } from '../api.js';
-import { deployTargetFields } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import { integrationsGallery } from './googleIntegrations.js';
 import type { AppContext } from '../context.js';
-import type { AccountCard, DeployTarget, ReadinessReport, IntegrationReadiness } from '../types.js';
+import type { ReadinessReport, IntegrationReadiness } from '../types.js';
 
 const STATUS_TEXT: Record<IntegrationReadiness['status'], string> = {
   configured: 'Wired',
@@ -82,144 +79,81 @@ export async function integrationsSection(): Promise<HTMLElement> {
 }
 
 /**
- * Where an approved fix for this project lands (M2.3 #3). Every generated
- * Action needs a target, so this is what unlocks the Findings screen's
- * "Propose fix" button. One target per project; the kind selects which fields
- * matter.
+ * What still needs doing, said once at the top instead of found tile by tile.
  *
- * It sat on Settings, one screen away from the accounts it depends on — a
- * GitHub PR target needs the GitHub connection, and a Cloudflare worker target
- * needs the Cloudflare key, both of which are connected here. The customer had
- * to set up half of one thing in two places.
+ * A customer opening this page cannot see which of eight tiles is blocked
+ * without opening each one, and the blocking reason is usually the same for
+ * all of them: Engine's own app with that vendor is not registered yet. So the
+ * banner names the vendors that are unregistered and, for an admin, links to
+ * the one screen that fixes it.
+ *
+ * Nothing renders when everything is registered — a banner that always says
+ * "all good" is a banner nobody reads.
  */
-async function deployTargetSection(ctx: AppContext): Promise<HTMLElement> {
-  let current: DeployTarget | null = null;
-  try {
-    current = await fetchDeployTarget();
-  } catch {
-    // No API / not reachable — render the empty form rather than blocking the page.
-  }
-
-  const fields = deployTargetFields(ctx, {
-    current,
-    onSaved: () => ctx.toast('Deploy target saved. Auto-fixable findings can now be proposed.'),
-  });
-
-  return el('section', { class: 'panel' }, [
-    el('header', {}, [
-      // Matches the section heading above it, the way the cadence and brand
-      // panels do. It said "Where approved fixes deploy", which is the exact
-      // text of the form's own first label two lines below — three phrasings
-      // of one thing on one panel.
-      el('h3', {}, ['Where fixes go']),
-      el('span', { class: 'more' }, [current ? `current: ${current.kind}` : 'none set']),
-    ]),
-    fields,
-  ]);
-}
-
-/**
- * M2.5 agency white-label: the name, logo and colour a branded report carries.
- *
- * Agency accounts only, which is what 0035's `kind` is for. A company or an
- * individual has no client to put someone else's name in front of, so the
- * panel was three fields they would never fill — and returning null rather
- * than a disabled panel means they are not told a feature exists that does not
- * apply to them.
- *
- * Operates on `getAccountId()`, the client last selected from the Clients grid,
- * since this view has no id in the URL to read one from.
- */
-async function brandingSection(ctx: AppContext): Promise<HTMLElement | null> {
+async function setupBanner(ctx: AppContext): Promise<HTMLElement | null> {
   const accountId = getAccountId();
+  // No client selected yet: the gallery below already says so, and asking the
+  // API about an empty id would only produce a 400 to swallow.
   if (!accountId) return null;
 
-  // One read serves both questions: whether to show the panel at all, and what
-  // to prefill it with. Three blank inputs over saved values read as "nothing
-  // is set", and saving one field then wiped the other two.
-  let account: AccountCard | undefined;
+  let unconfigured: string[];
+  let isAdmin = false;
   try {
-    account = (await fetchAccounts()).find((a) => a.id === accountId);
+    const [connectionState, access] = await Promise.all([
+      fetchConnections(accountId),
+      fetchPlatformAccess().catch(() => ({ isAdmin: false })),
+    ]);
+    isAdmin = access.isAdmin;
+    unconfigured = Object.entries(connectionState.vendorsConfigured)
+      .filter(([, ready]) => !ready)
+      .map(([vendor]) => vendor);
   } catch {
-    // Unreachable API. The panel is agency-only and cannot be shown without
-    // knowing the kind, so it is left out rather than guessed at.
+    // The tiles below report their own failure; a second copy here would say
+    // the same thing twice.
     return null;
   }
-  if (!account || account.kind !== 'agency') return null;
-  const current = account.branding;
+  if (unconfigured.length === 0) return null;
 
-  const nameInput = el('input', { class: 'field', type: 'text', placeholder: 'Acme Agency', value: current.companyName ?? '' }) as HTMLInputElement;
-  const logoInput = el('input', { class: 'field', type: 'text', placeholder: 'https://…/logo.png', value: current.logoUrl ?? '' }) as HTMLInputElement;
-  const colorInput = el('input', { class: 'field', type: 'text', placeholder: '#4f46e5', value: current.primaryColor ?? '' }) as HTMLInputElement;
-
-  const save = el('button', {
-    class: 'btn primary',
-    onclick: async () => {
-      try {
-        // All three sent, empty string included: the inputs hold the whole
-        // object, so a field the user emptied is a deletion the API applies.
-        await updateBrandingApi(accountId, {
-          companyName: nameInput.value.trim(),
-          logoUrl: logoInput.value.trim(),
-          primaryColor: colorInput.value.trim(),
-        });
-        ctx.toast('Branding saved.');
-      } catch (err) {
-        ctx.toast(`Could not save branding: ${readableError(err)}`);
-      }
-    },
-  }, ['Save branding']);
-
-  return el('section', { class: 'panel' }, [
-    el('header', {}, [
-      el('h3', {}, ['Report branding']),
-      el('span', { class: 'more' }, [account.name]),
+  const names = unconfigured.map((v) => v.charAt(0).toUpperCase() + v.slice(1));
+  return el('div', { class: 'notebox framed warn' }, [
+    el('div', {}, [
+      isAdmin
+        ? `Engine’s own app is not registered with ${names.join(' or ')} yet, so those connections cannot be completed by anyone on this deployment.`
+        : `${names.join(' and ')} are not set up for this workspace yet. Ask your administrator to finish the setup.`,
     ]),
-    el('div', { class: 'form' }, [
-      el('div', { class: 'fhint' }, ['What a branded report shows instead of Engine’s own name.']),
-      el('label', { class: 'flabel' }, ['Company name']),
-      nameInput,
-      el('label', { class: 'flabel' }, ['Logo URL']),
-      logoInput,
-      el('label', { class: 'flabel' }, ['Primary color']),
-      colorInput,
-      el('div', { class: 'form-actions' }, [save]),
-    ]),
+    isAdmin
+      ? el('div', { class: 'form-actions' }, [
+          el('button', { class: 'btn primary', onclick: () => ctx.navigate('platform') }, ['Finish setup on Platform']),
+        ])
+      : null,
   ]);
 }
 
 /**
- * The Integrations page: everything a customer sets up, and nothing a
- * deployment operator does.
+ * The Integrations page: the third-party accounts Engine reads from and writes
+ * to, and nothing else.
  *
- * Three sections. Where fixes go, the connected accounts, and — for an agency —
- * report branding. The first and last were on Settings, which split one job
- * across two screens: a GitHub PR target needs the GitHub connection that is
- * granted here, and a branded report needs the client whose connections are
- * listed here.
- *
- * The operator panels (Engine's own OAuth client, the deployment's vendor keys)
- * stay on Settings. A customer opening this page is setting up their own
- * account, and that should not share a screen with the deployment's
- * configuration.
+ * "Where fixes go" and report branding briefly rendered here, on the argument
+ * that a GitHub PR target needs the GitHub connection granted here. Both have
+ * moved back to Settings: they are settings about this account that happen to
+ * mention a third party, and a library of connections is not the place to
+ * configure the account. What stays is the connections themselves, plus a
+ * banner saying what is blocked before the customer opens eight tiles to find
+ * out.
  */
 export async function integrationsView(ctx: AppContext): Promise<HTMLElement> {
-  const [deploy, gallery, branding] = await Promise.all([
-    deployTargetSection(ctx),
+  const [banner, gallery] = await Promise.all([
+    setupBanner(ctx),
     integrationsGallery(ctx),
-    brandingSection(ctx),
   ]);
 
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, [screenName('integrations')]),
-      el('p', {}, ['Where approved fixes deploy, and the accounts Engine reads from and writes to.']),
+      el('p', {}, ['The accounts Engine reads from and writes to.']),
     ]),
-    el('div', { class: 'settings-sec' }, ['Where fixes go']),
-    deploy,
-    el('div', { class: 'settings-sec' }, ['Connected accounts']),
+    ...(banner ? [banner] : []),
     gallery,
-    ...(branding ? [el('div', { class: 'settings-sec' }, ['Report branding']), branding] : []),
   ]);
 }
 

@@ -274,8 +274,12 @@ function providerBadges(entry: ProviderCatalogEntry): HTMLElement[] {
   }
   const setup = entry.setupSteps ?? entry.requiredApis ?? [];
   if (setup.length > 0) {
+    // "Setup required" read as live status sitting beside "NOT CONNECTED" and
+    // "Connected under <other client>", so one tile showed three contradictory
+    // states. These steps are a standing fact about the provider — true whether
+    // or not you are connected — so the label says where they happen.
     badges.push(
-      badge('Setup required', '', `${entry.name} setup steps`, {
+      badge(`Needs ${entry.vendor ?? 'provider'} setup`, '', `${entry.name} setup steps`, {
         title: 'Do these at the provider first',
         body: ['Each one otherwise arrives as a 403 that does not explain itself.'],
         list: setup,

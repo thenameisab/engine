@@ -4,9 +4,9 @@
 `working_log.md` is the history; this is the state. If the two disagree, this file is wrong and
 should be corrected from the source.
 
-Last updated: 2026-09-11, against `feat/driver-persistence`, branched from `origin/main` at
-`9e0151d` (#133 merged), plus this branch's work. Every row below was re-measured against the
-tree.
+Last updated: 2026-09-11, against `feat/account-type-and-settings-homes`, branched from
+`origin/main` at `deef5b6` (#134 merged), plus this branch's work. Every row below was
+re-measured against the tree.
 
 Sequence and reasoning: `docs/reviews/2026-09-11-remaining-build-plan.md` and, for Driver,
 `docs/reviews/2026-09-10-driver-scoping.md` §7 and §9a, with
@@ -26,7 +26,8 @@ before starting an item — it is more precise than the one-liners here.
 | 5 | **Org-level tool governance — full build, its own PR after step 8.** Decided 2026-09-11. Governance over a read-only catalogue is close to a no-op, and the read-against-write split only means something once Tier 1 and Tier 2 write tools exist to block. Needs an enabled/disabled state per account, a Settings admin panel, and the narrowing itself, which has a seam already: `RunTurnOptions.tools` accepts a narrowed catalogue. | M | open | §9a decision 2 | step 8 |
 | 6 | **A vendor failure mid-turn loses the tool calls that already ran.** `runTurn` throws, and the partial transcript goes with it, so `askDriver`'s catch has nothing to store beyond the question and the fallback answer. Two rounds of real tool calls can vanish from an audit trail that step 4 otherwise makes complete. Fix is a typed error carrying the transcript. | S | open | `packages/driver/src/loop.ts`, `apps/api/src/driver/ask.ts` | — |
 | 7 | **A thread cannot be deleted.** Step 4 ships list, read, rename, visibility and sharing, and no delete. A customer who starts a thread by accident is stuck with it. Left out deliberately rather than missed: what deleting a shared thread does to its readers is a step 5 question. | S | open | — | step 5 |
-| 8 | **CI runs no database test at all.** `TEST_DATABASE_URL` is never set in `.github/workflows/ci.yml`, so every `*.db.test.ts` hits its `describe.skipIf` and reports green. That is **17 files and 203 tests in `@engine/api` alone**, and it now includes step 4's thread read check — the code that decides whether one person can read another's conversation is tested only on a laptop. Pre-existing, not introduced here, and larger than any row above. Fix is a Postgres service container in the test job plus `pnpm db:migrate` against it. | M | open | `.github/workflows/ci.yml:31` | — |
+| 8 | **CI runs no database test at all.** `TEST_DATABASE_URL` is never set in `.github/workflows/ci.yml`, so every `*.db.test.ts` hits its `describe.skipIf` and reports green — **17 files and 207 tests in `@engine/api` alone**. This build made the cost concrete: the local docker Postgres was a migration behind `main`, 34 tests failed on a missing `driver_threads`, and nothing in CI would ever have said so. Fix is a Postgres service container in the test job plus `pnpm db:migrate` against it. | M | open | `.github/workflows/ci.yml:31` | — |
+| 9 | **An account cannot be deleted or merged.** Onboarding could create a workspace as a side effect of a radio button, and the product has no way to remove the result: no `DELETE /accounts/:accountId`, and no way to move a project between accounts. The cause is fixed on this branch, so no *new* stray workspaces appear, but existing ones are reachable only from SQL. | S | open | `grep -n "app.delete('/accounts" apps/api/src/index.ts` returns nothing | — |
 
 ### What each row was measured against
 
@@ -37,78 +38,81 @@ Recorded so the next audit re-measures rather than trusting this line.
 | 1 | `grep -rn "#/driver" apps/dashboard/src` returns nothing. `/driver/ask` returns `{source, answer, threadId, stopReason, partial, usage, rounds}` — prose plus the audit trail, no typed parts |
 | 2 | `modelPicker` has two call sites, `copilot.ts:135` and `offsite.ts:425`. `index.ts` serves `LLM_MODEL_CHOICES` whole, with no per-surface filter. Unchanged by this branch |
 | 3 | `loop.ts` calls `converse` only, and a test asserts `streamConverse` throws if reached. Unchanged by this branch |
-| 4 | No write tool exists: `READ_TOOLS` is 19, every entry is `tier: 0, access: 'read'` (19 of each), and `DEFERRED_TOOLS` still names `page_content`. `PromptContext.screenContext` is optional and no call site sets it |
+| 4 | `READ_TOOLS` is 19, asserted at `packages/driver/src/driver.test.ts:22`, and `DEFERRED_TOOLS` still names `page_content`. `PromptContext.screenContext` is optional and no call site sets it |
 | 5 | `ToolAccess` and `ToolTier` are declared in `packages/driver/src/types.ts` and set on all 19 definitions. Nothing reads them and no admin surface exists |
 | 6 | `askDriver`'s `catch` calls `fallback(why)` with no `before`, because `runTurn` throws rather than returning what it had |
-| 7 | `grep -n "app.delete('/projects/:projectId/driver/threads" apps/api/src/index.ts` matches only the `/shares/:userId` route |
-| 8 | `grep -rn "TEST_DATABASE_URL" .github/` returns nothing. `find apps packages -name "*.db.test.ts"` is 17 files; the API package's own run reports 203 tests across them with the variable set, and skips all of them without it |
+| 7 | `grep -n "app.delete('/projects/:projectId/driver/threads" apps/api/src/index.ts` matches only the `/shares/:userId` route, at 1145 |
+| 8 | `grep -rn "TEST_DATABASE_URL" .github/` returns nothing. `@engine/api`'s own run reports `17 skipped (41)` files and `207 skipped (559)` tests without the variable, and `41 passed` / `559 passed` with it |
+| 9 | `grep -n "app.delete('/accounts" apps/api/src/index.ts` returns nothing. The only account writes are `POST /accounts`, `PATCH /accounts/:accountId` (new here) and `PATCH /accounts/:accountId/branding` |
 
 ### What changed in this audit
 
-**Driver step 4 is done, and the trust boundary is closed.** Migration **0036** adds
-`driver_threads`, `driver_thread_shares`, `driver_messages` and `driver_tool_calls`.
-`/driver/ask` takes a `threadId` and no longer accepts a `history` array: `AskInput.history` is
-gone and history is read from `driver_messages`. A route test drives the real route with a
-forged `history` in the body and asserts the vendor request carries only the system message and
-the question.
+**`accounts.kind` became writable, and that is what unlocks the client layer.** `PATCH
+/accounts/:accountId` is guarded by owner **or** platform admin; a member gets 403 and a
+non-member 404, matching `requirePlatformAdmin` rather than confirming the account exists.
+Leaving `agency` is refused with 409 while the caller belongs to more than one account —
+downgrading does not delete clients, it hides the only screen that reaches them, and the type
+control itself sits behind the same gate. `listAccountsForUser` now returns the caller's `role`
+so Settings can render the control read-only instead of offering a change the API would refuse.
 
-**Thread sharing shipped with the migration, without its UI.** Decided 2026-09-11: schema and
-enforcement now, controls with the screen in step 5. `visibility` is `private | named |
-organisation`, `readableThread` is self-contained — its `organisation` branch joins
-`account_members` rather than trusting the route guard to have run — and five routes reach the
-schema: list, read, patch, share, unshare. Rows 5 and 6 of the previous audit are therefore
-half resolved: sharing is built, governance is scheduled.
+**Three panels went back to Settings, and Integrations became one thing.** "Where fixes go" and
+report branding (agency-only) were moved to Integrations in `91b77a2` on the argument that a
+GitHub PR target needs the GitHub connection granted there. That confused a library of
+third-party connections with settings about this account. Integrations now holds the connections
+and a banner naming the vendors whose Engine app is unregistered, instead of making a customer
+open eight tiles to discover the same blocker eight times.
 
-**Three §9a decisions and the streaming question were answered before any code.** They are
-rows 2, 3 and 5 above. Only row 3 is still work rather than a plan.
+**One tile no longer shows three contradictory states.** "Setup required" was a static badge
+built from `entry.setupSteps`, rendering beside "NOT CONNECTED" and "Connected under \<other
+client\>". It now reads "Needs \<vendor\> setup", which is what it always meant: a standing
+prerequisite at the provider, true whether or not you are connected.
 
-**Row 3 is no longer "the user". It is a measurement.** The decision was taken: measure the
-final round on a real Worker before committing to streaming either way.
+**The stray-workspace bug had a specific cause.** Onboarding's `chosenAccount()` fell back to
+`accounts[0]` for a company or an individual, and `listAccountsForUser` orders newest first — so
+"add a site" filed it under whichever workspace was created last rather than the one in use, and
+created a duplicate whenever the list was empty because the load had failed. Every kind now reads
+an explicit workspace select, and "whose site it is" only appears when creating one.
+
+**The vocabulary guard needed a documented exception, not a reword.** `vocabulary.test.ts`
+forbids "client" outside agency-only copy. Settings' account-type control is the one screen where
+a non-agency must read the word, because the option has to say what an agency *is* to someone who
+is not one yet. Added as `ACCOUNT_TYPE_CHOICE` with that reasoning, rather than writing around
+the rule.
 
 ### What this build leaves behind
+
+**The type setter is ungated by billing, deliberately.** Decided 2026-09-11: build the shape now,
+wire the gate in the billing wave. Stripe scaffolding already exists — `upsertSubscription`,
+`PlanTier`, `STRIPE_PRICE_TO_TIER` — so the eventual shape is owner presses upgrade → checkout →
+webhook sets `kind`, with the direct setter reserved for platform admins. Today an owner can
+become an agency for free.
+
+**Nothing verifies the moves in a browser.** `turbo typecheck test` is green at 65/65 and the API
+is 559/559 with a database, but Settings' new sections and the Integrations banner were not
+walked. The Playwright harness exists and was not run for this branch.
 
 **Stored and replayed are deliberately different.** Everything a turn produced is persisted for
 §4.4's audit; only the question and the final answer are replayed to the model. Tool results are
 §4.7 untrusted content, and replaying them re-injects one poisoned page into every later turn of
-the thread — it also makes a thread's token cost quadratic in its length. The cost is that the
-model must call a tool again rather than re-read an old result, which is the intended behaviour.
-`docs/reviews/2026-09-10-driver-scoping.md` §4.1's "oldest turns dropped first" is now partly
-implemented as this filter plus a `MAX_REPLAYED_MESSAGES = 20` cap, rather than as trimming.
+the thread. `MAX_REPLAYED_MESSAGES = 20` is a round number, not a measurement — the probe
+measured one turn, not a thread.
 
-**The replay cap is a round number, not a measurement.** Twenty messages is ten exchanges. The
-probe measured one turn, not a thread, so there is no measured figure to use here yet. It is a
-bound that prevents the unbounded case, not a tuned one.
-
-**`visibility` is the authority and the share table is the recipient list.** The read check
-consults shares only on the `named` branch, so rows that survive a trip through `organisation`
-grant nothing. `shareThread` promotes `private` to `named` in the same transaction, because
-otherwise "share with one person" is a two-step act whose first step silently does nothing.
-
-**The `seq` race is prevented by an ordering, not by a constraint.** Two concurrent turns on one
-thread would both compute `max(seq) + 1` and the second would die on `unique (thread_id, seq)`.
-It does not happen because the `last_message_at` update takes the thread's row lock before the
-`max(seq)` read. That is commented at the line; moving the update to the end of the transaction
-would reintroduce it silently.
-
-**A failed write no longer loses the answer, and that took a review to catch.** `record`
-returned an un-awaited promise from inside a `try`, so a `persistTurn` rejection escaped both the
-`catch` and the route and became a 500 on a turn that had already produced a complete grounded
-answer. Persistence failures are now caught where they happen: logged, and the answer returned
-without a `threadId`. Routing them into the `catch` would have been the wrong fix — that path
-degrades to the deterministic Copilot, so an audit write failing would have cost the customer a
-worse answer as well.
+**The `seq` race is prevented by an ordering, not by a constraint.** The `last_message_at` update
+takes the thread's row lock before the `max(seq)` read. That is commented at the line; moving the
+update to the end of the transaction would reintroduce it silently.
 
 **A partial answer still costs an extra model round**, and a turn that hits the deadline still
-returns no text and falls back to the deterministic Copilot. Both unchanged from step 3, and
-step 5 still has to decide what a deadline looks like on screen.
+returns no text and falls back to the deterministic Copilot. Step 5 still has to decide what a
+deadline looks like on screen.
 
 ## Waiting on something outside the code
 
 | Item | Waiting on |
 |---|---|
+| Moving the test site to TartanHQ and dropping the empty workspace | The user, with SQL. Production is not reachable from the build environment, and row 9 means the product cannot do it either |
 | Engine's Google app registration | The user, partly done. `apps/api/.dev.vars` carries the client id, secret and redirect URI, so a local deployment can run the connect flow. Whether production's `platform_credentials` row is set was not measured from here |
 | `GITHUB_WEBHOOK_SECRET` and the App's webhook URL | Registering Engine's GitHub App, which is only worth doing when a customer wants PR-based deploys. Unset is safe: the endpoint fails closed and the nightly pass finds merges |
-| A live Google connection on production | A customer completing the connect flow. `gsc_*` and `ga4_channel_daily` may still be empty — handled rather than merely noted: all six Google tools report `not-connected` with the specific next step, and the system prompt tells the model to check `integration_status` before concluding a site is quiet |
+| A live Google connection on production | A customer completing the connect flow. All six Google tools report `not-connected` with the specific next step |
 | The Workers plan, if row 3's measurement says streaming needs Paid | The user. Not a decision yet — the measurement comes first |
 
 ## Deferred, with the trigger that reopens it
@@ -117,6 +121,7 @@ From `2026-09-10-action-plan.md` unless noted. These are decisions, not backlog.
 
 | Item | Trigger |
 |---|---|
+| Gating the account type on payment | The billing wave. Decided 2026-09-11 to build the setter ungated first |
 | Billing, plan limits, upgrade screen | Before the first paying customer |
 | Bing sync | Customer demand. The honesty line is already on the tile |
 | MCP (roadmap M3.6) | After the product works well |
@@ -124,11 +129,11 @@ From `2026-09-10-action-plan.md` unless noted. These are decisions, not backlog.
 | Alerts and notifications | Its own feature, with push and in-app |
 | `getAccessToken` per-connection lock | The first provider that rotates refresh tokens. Harmless for Google |
 | Driver calling deploy or rollback | After the Tier 2 confirmation component has been in front of real customers. §9a decision 3 |
-| `page_content` as a tool | Driver step 9. The poisoned-crawled-page test gates it. §9a decision 7. `DEFERRED_TOOLS` names it so step 9 has one place to look |
-| A router that narrows the catalogue before the model sees it | The probe measured the 20 tools at **2,974 tokens, 43% of the request**. §9a decision 2 said offer all of them if latency allows, and latency does. Reopens if rounds start missing the wall-clock budget |
+| `page_content` as a tool | Driver step 9. The poisoned-crawled-page test gates it. §9a decision 7 |
+| A router that narrows the catalogue before the model sees it | The probe measured the 20 tools at **2,974 tokens, 43% of the request**. Reopens if rounds start missing the wall-clock budget |
 | Replaying tool results into later turns | Never, unless a measured need appears. The security and cost arguments are in `loadHistory` |
-| Trimming a thread by tokens rather than by message count | A thread that hits `MAX_REPLAYED_MESSAGES` often enough that the twenty-message cap is felt as a limit rather than as a ceiling |
-| A single-call fallback for tools | Never. Parallel calls are confirmed, so the serial degradation path §4.8 would have needed does not exist |
+| Trimming a thread by tokens rather than by message count | A thread that hits `MAX_REPLAYED_MESSAGES` often enough that twenty is felt as a limit |
+| A single-call fallback for tools | Never. Parallel calls are confirmed |
 | Parsing tool-call arguments in the connector | Never. `validate.ts` in `packages/driver` is the layer that knows the schema |
 | Promote the Driver doc to `docs/feature-specs/D1-driver.md` | Still due, now folding in §9a, the probe, and step 4's sharing model |
 | Gate "+ New client" inside `views/accounts.ts` | Never, unless the Clients grid becomes reachable without an agency account |
@@ -144,7 +149,7 @@ readiness step 4 is finished, and Driver has reached step 5 of eleven.** Redesig
 (#105, #107, #108, #113–#117, #119, #120, and the `kind` gate in #124), data screens 1, 4, 5 and
 7, action-plan waves 0–3, PR merge verification both ways, v1 readiness step 6 (#125), step 9's
 three passes — 5a (#126), 5b (#127), 5c (#128) — brand strength on Findings (#129), the Google
-connection guide on the docs site (#132), and Driver **steps 1, 2, 3, 4 and 6**: the connector's
-tool calling (#130), the vendor probe and the nineteen-tool read catalogue (#131), the agent loop
-with the `/driver/ask` route (#133), and conversation persistence with thread sharing (this
-branch).
+connection guide on the docs site (#132), Driver **steps 1, 2, 3, 4 and 6** — the connector's tool
+calling (#130), the vendor probe and the nineteen-tool read catalogue (#131), the agent loop with
+`/driver/ask` (#133), conversation persistence with thread sharing (#134) — and, on this branch,
+the writable account type with Settings and Integrations each holding one job.

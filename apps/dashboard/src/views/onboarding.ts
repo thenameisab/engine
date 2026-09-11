@@ -136,10 +136,9 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
     el('label', { class: 'flabel', for: 'setup-client-name' }, ['Client name']),
     clientName,
   ]);
+  const clientSelectLabel = el('label', { class: 'flabel', for: 'setup-client' }, ['Client']);
   const clientWrap = el('div', { class: 'fstack' }, [
-    ...(accounts.length > 0
-      ? [el('label', { class: 'flabel', for: 'setup-client' }, ['Client']), clientSelect]
-      : []),
+    ...(accounts.length > 0 ? [clientSelectLabel, clientSelect] : []),
     clientNameWrap,
   ]);
 
@@ -172,10 +171,19 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
   });
   const derived = el('p', { class: 'fderived', 'aria-live': 'polite' }, [derivedText, ' ', changeBrand]);
 
-  /** The client an agency picked, or the one that is already selected. */
+  /**
+   * The workspace this site joins, or undefined when the form is creating one.
+   *
+   * Every kind reads the select now. It used to fall back to `accounts[0]` for
+   * a company or an individual, and `accounts` is ordered newest first — so
+   * "add a site" filed it under whichever workspace was created last rather
+   * than the one being used, and created a duplicate whenever the list was
+   * empty because the load had failed. Creating an account is now only ever
+   * the result of choosing to.
+   */
   function chosenAccount(): AccountCard | undefined {
-    if (kind === 'agency') return accounts.find((a) => a.id === clientSelect.value);
-    return accounts.find((a) => a.id === preselected) ?? accounts[0];
+    if (clientSelect.value === NEW_CLIENT) return undefined;
+    return accounts.find((a) => a.id === clientSelect.value);
   }
 
   function currentPlan() {
@@ -190,8 +198,16 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
   function sync(): void {
     for (const [value, input] of radios) input.checked = value === kind;
     for (const opt of options) opt.classList.toggle('on', (opt.firstChild as HTMLInputElement).checked);
-    clientWrap.hidden = kind !== 'agency';
-    clientNameWrap.hidden = kind !== 'agency' || (accounts.length > 0 && clientSelect.value !== NEW_CLIENT);
+    const creating = clientSelect.value === NEW_CLIENT;
+    // Shown to everyone who has somewhere to put the site, not just an agency.
+    // A company with two workspaces was never asked which one it meant.
+    clientWrap.hidden = accounts.length === 0;
+    clientSelectLabel.textContent = kind === 'agency' ? 'Client' : 'Workspace';
+    newClientOption.textContent = kind === 'agency' ? 'New client…' : 'New workspace…';
+    // "Whose site it is" only decides how a *new* workspace is named and typed.
+    // Adding a site to one that already exists has answered it already.
+    owner.hidden = accounts.length > 0 && !creating;
+    clientNameWrap.hidden = !creating || kind !== 'agency';
     const plan = currentPlan();
     if (!plan.domain) {
       derivedText.textContent = 'Engine names the brand from the address.';

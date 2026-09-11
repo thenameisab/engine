@@ -348,6 +348,38 @@ function patch(path: string, body: unknown): Promise<Response> {
   );
 }
 
+/**
+ * The account-type setter. Every case here is refused before `createDb`, which
+ * matters more than usual: this route decides who may unlock the client layer,
+ * so a malformed or unknown kind must never reach the guard at all.
+ */
+describe('PATCH /accounts/:accountId', () => {
+  const ACCOUNT = '11111111-1111-4111-8111-111111111111';
+
+  it('rejects a kind outside the three the column allows', async () => {
+    const res = await patch(`/accounts/${ACCOUNT}`, { kind: 'reseller' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('kind');
+  });
+
+  it('requires kind, rather than treating an absent key as "leave it alone"', async () => {
+    const res = await patch(`/accounts/${ACCOUNT}`, {});
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('kind');
+  });
+
+  it('rejects a malformed account id before reading the body', async () => {
+    const res = await patch('/accounts/not-a-uuid', { kind: 'agency' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('accountId');
+  });
+
+  it('rejects an unparseable body', async () => {
+    const res = await patch(`/accounts/${ACCOUNT}`, 'not json');
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('PATCH /projects/:projectId', () => {
   it('rejects a blank name, naming the field', async () => {
     const res = await patch('/projects/proj_1', { name: '  ' });

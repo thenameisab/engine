@@ -681,6 +681,24 @@ export async function createAccountApi(name: string, kind: AccountKind): Promise
   return toAccountCard({ ...resp.account, projects: [] });
 }
 
+/**
+ * Change what kind of thing this account is.
+ *
+ * The cache of kinds is refilled from the response rather than the requested
+ * value, because the vocabulary ("client" vs "site") and the client layer both
+ * read it — a select that optimistically said "agency" while the API refused
+ * the change would rename half the product until the next reload.
+ */
+export async function setAccountKindApi(accountId: string, kind: AccountKind): Promise<AccountCard> {
+  const resp = await request<{ account: ApiAccount }>(`/accounts/${accountId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ kind }),
+  });
+  const card = toAccountCard({ ...resp.account, projects: [] });
+  await fetchAccounts();
+  return card;
+}
+
 export async function createProjectApi(accountId: string, name: string, domain: string): Promise<ApiProject> {
   const resp = await request<{ project: ApiProject }>(`/accounts/${accountId}/projects`, {
     method: 'POST',
