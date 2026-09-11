@@ -1430,3 +1430,25 @@ shipped since, which is called out per item.
 
 Recommendation given: **§3.1 alone** (the `kind` gate) if the user wants something shipped today —
 §3.2 no longer fits beside it — or §4 if they want the biggest risk retired.
+
+## 2026-09-11 (a pending-items ledger, and the convention that keeps it current)
+`#122` merged as `c6a0730`. Branched `docs/pending-ledger`.
+
+- **`docs/PENDING.md`** is new: one always-current table of what is left, seeded from the build
+  plan. Four sections — Open (9 items, sized, each pointing at the document that specifies it),
+  Waiting on something outside the code, Deferred with the trigger that reopens each, and a
+  one-paragraph Done. **Rewritten, never appended**, which is the opposite of `working_log.md`
+  and the point of having both: the log is history, the ledger is state.
+- **`CLAUDE.md` gains the convention**, so no session has to be told. Every build ends by
+  rewriting the ledger: move what finished, **re-check the untouched rows against the source
+  rather than copying them forward**, add what the build uncovered, update the audited commit,
+  and say in the final message what is next. Two honesty rules written in: verify rather than
+  assume (a count is measured, not remembered), and keep deferred out of Open — a deferral lives
+  in the deferred table with its trigger.
+- Every number in the seed ledger was re-measured rather than copied from the plan: 9 distinct
+  list rows, 7 breakpoints (excluding the two `max-width` values that are element widths, not
+  media queries), `.fq-note` 63 uses across 17 files, and
+  `NIGHTLY_AUDIT_KINDS = ['offsite','competitor','local']` confirming entity has no automatic
+  trigger.
+- Also gave the user a copy-pasteable prompt for a fresh session. It is deliberately short and
+  points at `docs/PENDING.md` rather than restating the work, so it cannot go stale.
