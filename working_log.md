@@ -1326,3 +1326,51 @@ same trap in my own new CSS within a minute.
   URL configured. Until both, merges are found by the nightly pass. The
   operator checklist does not list the webhook as its own row; the secret shows
   under the GitHub entry in Vendor keys as optional.
+
+## 2026-09-11 (audit of the three plan documents, no code)
+`#120` merged as `91bf455`. Branched `docs/plan-audit` off it. This session read the plans
+against the source rather than against this log, and the three documents now carry what is
+actually true.
+
+### What the audit found that the log did not already say
+- **Step 9 of the build plan has not started.** It is the whole answer to "what is left in UI".
+  Seven breakpoints unchanged, nine list-row implementations (up from the eight its own table
+  counted — #119 added `.oprow`), two stat rows (`.fstrip` joined `.hm-health-row`), six empty
+  states with `.fq-note` used 63 times (up from 53), and `min-height: 0`,
+  `.serp-form-row .field { flex: 1 }` and the unclamped `.ci-blurb` all still present.
+- **The plan's own warning came true.** It said running 6 and 7 before 9 "means building the rows
+  twice". That is what happened: #119's checklist and Integrations sections are built from the
+  primitives step 9 rewrites. Recorded in §0 rather than quietly left.
+- **`accounts.kind` is stored and almost unused.** 0035 stores it, onboarding sends it, three
+  readers return it — and exactly **one** consumer reads it, the agency branding gate. Step 1's
+  decision 3 ("Company and Individual never see 'Client', the switcher or the Clients grid") is
+  half done: the workspace rail still shows a clients column to a single-site company, `#/clients`
+  is reachable, and 16 strings say "client" unconditionally. **I had written the opposite into a
+  draft of the journey-review note and corrected it before committing** — storing the kind was the
+  prerequisite, not the feature.
+- **Data screens 3 and 6 are not done.** `runQueue.ts` never calls `entity-audit`, so brand
+  strength is still behind a manual button; the Local tab is in `VISIBILITY_TABS` with no GBP
+  check. Screen 2 (Bing) is *deferred* by the action plan, not pending, and the honesty line it
+  asked for instead is shipped (`syncsNothingYet`).
+- **Driver's measurements had drifted and one was wrong when written.** 42 tables not 39; 0035 not
+  0033; and "76 routes" counted `index.ts` alone — it is 80 there plus 22 in
+  `routes/integrations.ts`, so 102. None of it changes a conclusion, and the doc now says so
+  rather than being silently rewritten.
+
+### What changed in the documents
+- `2026-09-09-redesign-build-plan.md`: new **§0 Status**, audited per step and per data screen,
+  with four sub-sections — the kind gate, where step 6 diverged from its own design, what step 9
+  still owes, and a five-item "shortest list of what is actually left". The §7 order paragraph now
+  says the diagram is the intended order, not the built one.
+- `2026-09-10-driver-scoping.md`: status moves from "for decision" to **decided**; a drift note at
+  the head of §1; §4.4's migration number corrected to 0036+; §6's wave-3 bullet struck through
+  and replaced; §9 marked closed but kept as the record; and new **§9a** writing in the six
+  decisions with the three that add scope marked, plus a table of which sections each one changes.
+  This is the follow-up the 2026-09-10 entry said was owed once #112 landed.
+- `2026-09-09-user-journey-review.md`: one note at the head saying it is a dated record and not a
+  to-do list, what shipped, and the two things it asked for that are still open. The body and the
+  §7 decisions are untouched on purpose — the screenshots are the before state and rewriting the
+  prose would destroy the comparison.
+
+Promotion of the Driver document to `docs/feature-specs/D1-driver.md` is now due and was not done;
+§9a has to be folded into §4 when it happens rather than appended to it.

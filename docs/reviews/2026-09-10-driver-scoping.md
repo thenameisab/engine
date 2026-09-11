@@ -1,9 +1,13 @@
 # Driver — scoping document
 
-**Status:** for decision. No code should start until §9 is answered.
+**Status:** **decided.** §9 was answered on 2026-09-10; the answers are §9a, and they are the
+spec until this document is promoted. Three of them add scope this document did not carry.
 **Gates:** wave 4 of `docs/reviews/2026-09-10-action-plan.md`, which requires this document
 to answer five questions before any implementation. Those answers are §8.
-**Becomes:** `docs/feature-specs/D1-driver.md` once the open decisions in §9 are taken.
+**Becomes:** `docs/feature-specs/D1-driver.md`. That promotion is now due and has not been done;
+§9a has to be folded into §4 when it happens, not appended to it.
+**Re-audited 2026-09-11** against `origin/main` at `91bf455`. §1's measurements have drifted —
+see the note at the head of §1 — and §6's second bullet is no longer true.
 
 Driver is the conversational surface of Engine: a standalone chat screen, plus an entry bar
 on every other screen. It answers questions over the customer's own marketing data and takes
@@ -16,8 +20,18 @@ description of an "Ask Engine bar".
 ## 1. What exists today, measured
 
 Read from `main` at `90eccd8` on 2026-09-10. Every claim here is from the source, not the plan.
-Counts and line numbers are against that commit; `feat/measurement-methodology` is in flight and
-already adds routes and tables, so re-check before relying on a number here.
+Counts and line numbers are against that commit.
+
+> **Drift, measured 2026-09-11 at `91bf455`.** The counts below have all moved, and one was wrong
+> when written. Tables: **42**, not 39. Migrations: **0035** is the latest. Routes: `index.ts`
+> alone now declares **80**, and `routes/integrations.ts` adds **22**, so **102** — the "76
+> routes" figure in §1.5 counted `index.ts` only and was already an undercount of about twenty
+> when this document was written. None of it changes a conclusion: §1.5's point is that the write
+> surface exists as HTTP routes, which more routes only strengthens, and §1.4's point is that the
+> Copilot reads three tables out of all of them, which is worse at 42 than at 39. The structural
+> claims still hold as written: `llmSarvam.ts` sends no `tools`, `llmStream.ts` has no tool-call
+> chunk type, there is no conversation state, and `copilot.ts` still blocks its panel on a
+> setting that #105 deleted.
 
 ### 1.1 The current Copilot is a phrasing layer, not an AI feature
 
@@ -249,7 +263,10 @@ button and explain what it will do. See §9.
 
 ### 4.4 Conversation state
 
-A migration, numbered **0034 or later** (0033 is taken by `email_login`):
+A migration, numbered **0036 or later**. This said "0034 or later (0033 is taken by
+`email_login`)" when written; 0034 went to `measurement_methodology` six minutes after this
+document merged, and 0035 to `account_kind`. Check `infra/migrations/postgres/` rather than this
+line — with branches in flight, number past the highest across all of them, not just `main`:
 
 - `driver_threads` — id, project_id, created_by, title, created_at, last_message_at.
 - `driver_messages` — id, thread_id, role, content, created_at, and for assistant turns the model
@@ -441,13 +458,19 @@ it. Two facts about the current deployment matter:
   cron runs. What is not established is that `gsc_*` and `ga` hold rows for a real account. Check
   `GET /health/integrations` and the Integrations screen before assuming the search and traffic
   tools have anything to return.
-- Wave 3 of the action plan — what we measure and how often — has not been done. The action plan
-  sequenced Driver last for exactly this reason: it "should cite trustworthy data, which waves 1
-  and 3 produce."
+- ~~Wave 3 of the action plan — what we measure and how often — has not been done.~~ **Done on
+  2026-09-10**, merged as #111 and deployed; the database is at 0035. Rank polling, AI answer
+  polling with stored answers, share of voice over mined mentions, and per-tier cadence all exist.
+  The action plan sequenced Driver last because it "should cite trustworthy data, which waves 1
+  and 3 produce" — both have now produced it, so that gate is cleared.
 
-Building Driver before wave 3 is a defensible decision, but it should be a decision. A chat surface
-that answers most questions with "not connected yet" is a worse first impression than no chat
-surface. See §9.
+What remains of this section is the first bullet, and it is the one that matters: the pipeline is
+in place but **no customer has been observed completing the Google connect flow on production**,
+so `gsc_*` and `ga` may still be empty. Decision 6 in §9a settles what to do about it — ship
+regardless — which makes §4.2's three-state rule (not connected / no data yet / a real zero) load
+bearing rather than a nicety.
+
+The "build before or after wave 3" question in §9 is therefore moot, and is marked so in §9a.
 
 ---
 
@@ -506,9 +529,11 @@ Queue. A Tier 2 action was confirmed by a person before it happened. Tier 3 neve
 
 ---
 
-## 9. Open decisions
+## 9. Open decisions — all answered, see §9a
 
-These need answers before step 3. Recommendations included; the decision is yours.
+**Closed on 2026-09-10.** This section is kept as the record of what was asked and what was
+recommended, because three of the answers went against the recommendation and the reasoning is
+only legible with both halves. **§9a is what to build.** Nothing here is still open.
 
 1. **Sequencing against wave 3.** Build Driver now on thin data, or after wave 3 so its first
    answers are substantial? *Recommendation: start steps 1 and 2 now — they are vendor and
@@ -533,6 +558,70 @@ These need answers before step 3. Recommendations included; the decision is your
 
 6. **`page_content` in v1.** It is the most useful tool for content questions and the main injection
    vector. *Recommendation: ship it in step 9, after the controls, not before.*
+
+---
+
+## 9a. The decisions, taken 2026-09-10
+
+The six questions in §9 are answered. Three of them add scope §4 does not describe, marked
+**new scope**; those are the ones to read before estimating.
+
+**1. Sequencing against wave 3 — moot.** Wave 3 shipped the same day this document merged, so
+there is no longer a choice to make. See the correction in §6.
+
+**2. Tool catalogue size — measure it in step 1, as recommended.** Offer all twenty tools per turn
+if latency allows; a router is a second place to be wrong about intent.
+
+**new scope** — with a requirement this document does not carry: **an admin control that allows
+or blocks individual tools for the whole organisation, and sets read against write access.** That
+is org-level tool governance. It lands on §4.2 and §4.3 — the tool definitions need an
+enabled/disabled state and a read-or-write classification that an admin can set — and on Settings,
+which needs the surface to set it. It does not touch the loop in §4.1.
+
+**3. Deploy stays Tier 3 for v1, to be revisited.** Driver never calls deploy or rollback; it
+walks the customer to the button. Reconsider once the Tier 2 confirmation component in §4.3 has
+been in front of real customers.
+
+**4. Threads are private by default, with explicit sharing.** Not "private to the author" and not
+"visible to the account" — the two options §9 offered. Modelled on how Claude shares artifacts:
+share with named people in the organisation, or with the whole organisation.
+
+**new scope.** §4.4's `driver_threads` sketch cannot express this. It needs a visibility state on
+the thread (private / named / organisation) and a share table naming the people a private thread
+has been shared with, plus a read check on every thread and message route. Budget the migration
+and the routes accordingly; the sketch in §4.4 is now incomplete rather than wrong.
+
+**5. The model control moves into Settings, filtered per surface.** Neither of §9's options: not a
+per-screen picker, and not "Driver offers no choice". Settings lists, for each surface, only the
+models that can run it, so Driver never offers a 32K model in the first place.
+
+**new scope**, and it changes a shipped surface rather than only Driver. `modelPicker.ts` assumes
+one choice across surfaces; that assumption is now wrong and the picker is what gives way. Because
+more LLMs are expected, **a model declares its context size once and every surface filters on
+it** — the rule, not a hardcoded list of which model suits which screen. This also resolves the
+contradiction §2 raises: wave 3 correctly made `sarvam-105b-conversations` (32K) the default for
+live answers so try-a-prompt matches the citation poll's instrument, while Driver needs
+`sarvam-105b` (128K) for a system prompt plus a 20-tool catalogue plus several tool results. Both
+defaults are right for their own surface; only the picker's one-choice assumption was wrong.
+
+**6. Ship the Driver surface regardless of Google data.** No gate on `gsc_*` and `ga` holding
+rows, which is the opposite of §9's recommendation. Consequence to design for: early on, most
+search and traffic answers will be "not connected". §4.2's rule 3 — three distinct states, never
+one — therefore carries the whole first impression and is load bearing, not a nicety.
+
+**7. `page_content` ships at step 9, after the injection controls**, as recommended. The
+poisoned-crawled-page test in §10 gates it.
+
+### What these change, by section
+
+| Section | Change |
+|---|---|
+| §4.1 Agent loop | none |
+| §4.2 Read tools | tools need an enabled/disabled state and a read-or-write class; rule 3 becomes load bearing |
+| §4.3 Write tools | the tier table gains an admin override; deploy stays Tier 3 |
+| §4.4 Conversation state | the migration is 0036+, and needs thread visibility plus a share table |
+| §4.9 Surfaces | Settings gains a per-surface model list and an org tool-governance panel |
+| §7 Build sequence | unchanged in order; steps 1 and 2 are unblocked and nothing waits on wave 3 |
 
 ---
 
