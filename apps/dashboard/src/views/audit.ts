@@ -283,7 +283,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
       container.replaceChildren(
         el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('findings')])]),
         el('section', { class: 'panel' }, [
-          el('div', { class: 'fq-note' }, [`Could not load the audit: ${loadError}`]),
+          el('div', { class: 'errbox' }, [`Could not load the audit: ${loadError}`]),
         ]),
       );
       return;
@@ -308,7 +308,7 @@ export async function auditView(ctx: AppContext): Promise<HTMLElement> {
           el('span', { class: 'more' }, [issueCount(d.findings)]),
         ]),
         d.findings.length === 0
-          ? el('div', { class: 'fq-note' }, [
+          ? el('div', { class: 'emptybox' }, [
               d.healthScore === null
                 ? 'Run an audit to see what to fix. Findings appear here when it finishes.'
                 : 'No findings. The last audit found nothing to fix.',

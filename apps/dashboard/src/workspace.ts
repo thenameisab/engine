@@ -139,7 +139,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
       const shown = filterWorkspace(clients, query);
       if (shown.length === 0) {
         list.replaceChildren(
-          el('div', { class: 'fq-note' }, [
+          el('div', { class: 'emptybox' }, [
             query ? `Nothing matches “${query}”.`
             : v.agency ? 'No clients yet. Add one to get started.'
             : 'No sites yet. Add one to get started.',
@@ -150,7 +150,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
       if (!v.agency) {
         const sites = shown.flatMap((c) => c.sites.map((site) => siteRow(c, site)));
         list.replaceChildren(
-          ...(sites.length > 0 ? sites : [el('div', { class: 'fq-note' }, ['No sites yet.'])]),
+          ...(sites.length > 0 ? sites : [el('div', { class: 'emptybox' }, ['No sites yet.'])]),
         );
         return;
       }
@@ -165,7 +165,7 @@ export function createWorkspace(ctx: AppContext, onSwitch: () => void): Workspac
                 : []),
             ]),
             ...(c.sites.length === 0
-              ? [el('div', { class: 'fq-note' }, ['No sites yet.'])]
+              ? [el('div', { class: 'emptybox' }, ['No sites yet.'])]
               : c.sites.map((s) => siteRow(c, s))),
           ]),
         ),

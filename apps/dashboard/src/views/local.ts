@@ -85,7 +85,7 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
   function render(rows: LocalVisibility[]): void {
     listWrap.replaceChildren(
       rows.length === 0
-        ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [
+        ? el('section', { class: 'panel' }, [el('div', { class: 'emptybox' }, [
               'No location scored yet. Run the audit — the nightly pass keeps it current from then on. Location details are on Integrations, under Google Business Profile.',
             ])])
         : el('div', {}, rows.map(visibilityCard)),
@@ -117,7 +117,7 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
   });
 
   if (loadError) {
-    listWrap.append(el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load local visibility: ${loadError}`])]));
+    listWrap.append(el('section', { class: 'panel' }, [el('div', { class: 'errbox' }, [`Could not load local visibility: ${loadError}`])]));
   } else {
     render(visibility);
   }
@@ -128,7 +128,7 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
     return el('div', {}, [
       el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('local')])]),
       el('section', { class: 'panel' }, [
-        el('div', { class: 'fq-note' }, ['Add a brand for this site first — a location is a brand in Engine.']),
+        el('div', { class: 'notebox' }, ['Add a brand for this site first — a location is a brand in Engine.']),
       ]),
     ]);
   }

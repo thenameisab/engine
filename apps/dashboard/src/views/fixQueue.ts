@@ -233,9 +233,9 @@ export async function fixQueueView(ctx: AppContext): Promise<HTMLElement> {
         el('span', { class: 'fq-sub' }, ['Every fix shows what changes before you approve it.']),
       ]),
       ...(loadError
-        ? [el('div', { class: 'fq-note' }, [`Could not load the queue: ${loadError}`])]
+        ? [el('div', { class: 'errbox' }, [`Could not load the queue: ${loadError}`])]
         : actions.length === 0
-          ? [el('div', { class: 'fq-note' }, ['No actions yet. Run an audit to turn findings into proposed fixes.'])]
+          ? [el('div', { class: 'emptybox' }, ['No actions yet. Run an audit to turn findings into proposed fixes.'])]
           : [el('div', { class: 'lanes' }, LANE_ORDER.map((status) => lane(status, actions, ctx, onMoved, onReviewed)))]),
     );
   };
@@ -278,6 +278,6 @@ function lane(
     ]),
     ...(inLane.length > 0
       ? inLane.map((a) => card(a, ctx, onMoved, onReviewed))
-      : [el('div', { class: 'lane-empty' }, ['—'])]),
+      : [el('div', { class: 'emptybox' }, ['—'])]),
   ]);
 }

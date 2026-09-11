@@ -298,7 +298,7 @@ export async function onboardingView(ctx: AppContext): Promise<HTMLElement> {
       el('h1', {}, [screenName('get-started')]),
       el('p', {}, ['Engine works on one website at a time. Type its address and say whose it is; everything else is read from the site.']),
     ]),
-    loadError ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load your ${currentAccountVocabulary().many}: ${loadError}`])]) : null,
+    loadError ? el('section', { class: 'panel' }, [el('div', { class: 'errbox' }, [`Could not load your ${currentAccountVocabulary().many}: ${loadError}`])]) : null,
     el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, [accounts.length > 0 ? 'Add a site' : 'Your first site'])]),
       form,

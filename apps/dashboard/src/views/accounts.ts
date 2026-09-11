@@ -137,7 +137,7 @@ function accountCard(a: AccountCard, ctx: AppContext, onNewProject: (accountId: 
       }, ['+ Project']),
     ]),
     a.projects.length === 0
-      ? el('div', { class: 'fq-note' }, ['No projects yet for this client.'])
+      ? el('div', { class: 'emptybox' }, ['No projects yet for this client.'])
       : el('div', { class: 'client-projects' }, a.projects.map((p) => projectRow(p, a.id, ctx))),
     invitePanel(a, ctx),
     el('div', { class: 'client-actions' }, [
@@ -173,11 +173,11 @@ export async function accountsView(ctx: AppContext): Promise<HTMLElement> {
   const rerender = () => {
     grid.replaceChildren();
     if (loadError) {
-      grid.append(el('div', { class: 'fq-note' }, [`Could not load your clients: ${loadError}`]));
+      grid.append(el('div', { class: 'errbox' }, [`Could not load your clients: ${loadError}`]));
       return;
     }
     if (accounts.length === 0) {
-      grid.append(el('div', { class: 'fq-note' }, ['No clients yet. Create one to get started.']));
+      grid.append(el('div', { class: 'emptybox' }, ['No clients yet. Create one to get started.']));
       return;
     }
     grid.append(...accounts.map((a) => accountCard(a, ctx, onNewProject)));

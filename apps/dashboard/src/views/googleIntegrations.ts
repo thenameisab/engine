@@ -353,7 +353,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
   if (entry.availability === 'planned') {
     return el('div', { class: 'intg-panel' }, [
       purpose,
-      el('div', { class: 'intg-note' }, ['Coming soon. This integration is on the roadmap and cannot be connected yet.']),
+      el('div', { class: 'notebox framed' }, ['Coming soon. This integration is on the roadmap and cannot be connected yet.']),
       docs,
     ]);
   }
@@ -372,7 +372,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     return el('div', { class: 'intg-panel' }, [
       purpose,
       elsewhereNote,
-      el('div', { class: 'intg-note warn' }, [
+      el('div', { class: 'notebox framed warn' }, [
         isAdmin
           // "under Settings" and a button to Settings, both of which stopped
           // being true when the operator panels moved to their own screen.
@@ -462,14 +462,14 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
       }
     } catch (err) {
       pickerHost.replaceChildren(
-        el('div', { class: 'fq-note' }, [`Could not list ${entry.resourceNoun}s: ${readableError(err)}`]),
+        el('div', { class: 'errbox' }, [`Could not list ${entry.resourceNoun}s: ${readableError(err)}`]),
       );
       return;
     }
 
     if (resources.length === 0) {
       pickerHost.replaceChildren(
-        el('div', { class: 'fq-note' }, [
+        el('div', { class: 'notebox' }, [
           `This ${vendor} account can see no ${entry.resourceNoun}s. Check you connected the account that owns them.`,
         ]),
       );
@@ -534,7 +534,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
           ? entityOptions.length > 0
             ? [el('label', { class: 'flabel' }, ['Which brand is this listing?']), entitySelect]
             : [
-                el('div', { class: 'fq-note' }, [
+                el('div', { class: 'notebox' }, [
                   'Add a brand for this site before assigning a listing — a location is a brand in Engine.',
                 ]),
               ]
@@ -658,7 +658,7 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
 
   if (!accountId) {
     return el('section', { class: 'panel' }, [
-      el('div', { class: 'fq-note' }, [
+      el('div', { class: 'notebox' }, [
         `Choose a ${v.one} first. Connections belong to one ${v.one}, and every site of that ${v.one} can use them.`,
       ]),
       el('div', { class: 'intg-center' }, [
@@ -705,7 +705,7 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
         .filter((a) => a.id !== accountId)
         .map((a) => ({ name: a.name, connectedProviders: a.connectedProviders }));
     } catch (err) {
-      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
+      host.replaceChildren(el('div', { class: 'errbox' }, [readableError(err)]));
       return;
     }
 
