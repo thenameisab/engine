@@ -1690,3 +1690,90 @@ center; min-height: 120px` onto `.errbox` fails it, and only it.
 `.gm-note` is a further note class, used by the Google panels with its own
 smaller type. It was not among the six the step named, so it stays. `.ci-blurb`
 is still unclamped and `.serp-form-row .field` is still `flex: 1` — both 5c.
+
+## 2026-09-11 — Layout pass 5c: three breakpoints, and controls the width of their values
+
+Redesign step 9, pass 5c — the last of the redesign. Ledger item 1.
+
+### Seven breakpoints to three
+560, 860 and 1080, each declared at the top of `styles.css` with a comment
+naming what it is for: the phone, the width where the sidebar goes, and the
+width where two panels stop fitting side by side. Every rule moved to the
+nearest of the three, mechanically: 620 and 640 to 560, 720 and 760 to 860.
+Eight `@media` lines changed and nothing else — the diff is those eight lines.
+The count of queries is unchanged at 21, and the two `max-width` declarations
+that are not queries (`.content` at 1180px, `.form` at 620px) were left alone.
+
+Rules stayed where they sit in the file rather than being merged into shared
+blocks, so the cascade is untouched. No selector appears twice at 560, and
+none of the moved selectors collides with one already at 860.
+
+Two bands change behaviour, both by collapsing ~100px earlier than before:
+`.lanes` goes 4 columns to 2 from 860 rather than 720, and `.intg-grid` goes
+2 columns to 1 from 860 rather than 760. Collapsing earlier is the safe
+direction — it never leaves a grid more cramped than it was.
+
+The one risk in "move to the nearest" was `.hm-name`, whose 620 block carried a
+comment saying a fixed left column left the name field "about 150px wide, which
+is not enough to read a name in". Moving it to 560 puts that layout back in the
+561–620 band, so it was measured rather than assumed: the field is 249–300px
+across that band, because `.hm-name-edit` caps it at `34ch` anyway. The comment
+was describing a narrower layout than the one in the tree. No regression.
+
+### One field per row absorbs the slack
+`.serp-form-row .field { flex: 1 }` gave every field in the row an equal share,
+so the two-letter country select was exactly as wide as the domain input. A
+field now takes its own width and the one marked `.grow` takes the rest.
+Measured on the real sheet: the country select goes 491px to 62px at 1440 and
+holds 62px at every width; the domain field takes the slack instead.
+
+### Five dimension cards, two tracks
+`.ci-tables` was `repeat(auto-fit, minmax(260px, 1fr))`, which made four tracks
+at the 1180px content width and left the fifth card alone at a quarter of it.
+The card count is fixed at five by `ORDER`, so `auto-fit` was solving a problem
+the screen does not have. Two named tracks now, with the fifth spanning both,
+and one track on a phone. `.ci-blurb` reserves two lines rather than merely
+clamping to them — clamping alone would still let a one-line blurb shorten its
+card. Measured: card heights went from 104 and 119 mixed to 125 everywhere, and
+the blurb from 15/30 to a flat 36.
+
+### The control row labels nothing
+Competitors' row had two labelled controls and two bare buttons, so its top
+edge stepped three ways. The labels moved to `aria-label`; the select shows a
+brand name and the input placeholders `competitor.com`, so both still name
+themselves on screen. Distinct top edges went from three to two — and the
+remaining 2px is a button and a select rounding differently, not a step.
+`.ci-controls` is `align-items: center` now instead of `flex-end`, which was
+only ever there to sit bare buttons on a labelled control's baseline.
+
+`.ci-lbl` stays: Off-site, Local and the local profile each use it for a single
+labelled control, and there the label is the only thing naming that control.
+**Those three rows are now a different shape from Competitors'** — one labelled
+control plus a bare button. Step 9 named only Competitors, so they were left
+alone, but the inconsistency is real and is recorded in the ledger.
+
+### `.flabel.check` was styling nothing
+`.flabel.check` set `flex-direction: row` and `gap` while `.flabel` set no
+`display` at all. For the 28 text-only labels that is correct; for the one that
+wraps a checkbox it meant the rule did nothing. `display: flex` added to the
+variant only, so the other 28 are untouched. Confirmed by computed style:
+`block` before, `flex` after.
+
+### Guards
+Six new cases in `styles.test.ts`: the breakpoint set is exactly the three
+values; exactly one field per flex row wears `.grow`; `.flabel.check` declares
+the flex it overrides; `.ci-tables` has two tracks with the fifth spanning, and
+`ORDER` still has five entries so that span stays correct; `.ci-blurb` both
+clamps and reserves; and the Competitors row builds no `.ci-lbl` while the
+select keeps an `aria-label`. The breakpoint case was mutation-tested —
+appending a `@media (max-width: 700px)` rule fails it, and only it.
+
+- **Green bar:** typecheck 41/41, test 39/39, build 24/24, 68/68 turbo tasks.
+  Dashboard tests 186 (was 180). No lint task is defined in this repo.
+- **Measured, not asserted:** all figures above come from rendering the real
+  stylesheet in Chromium at 1440, 900, 700, 600 and 420px, before and after.
+
+### Noticed, not fixed
+`.ci-lbl`'s three remaining rows differ in shape from the one this pass
+changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
+5b.
