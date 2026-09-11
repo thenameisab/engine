@@ -1374,3 +1374,59 @@ actually true.
 
 Promotion of the Driver document to `docs/feature-specs/D1-driver.md` is now due and was not done;
 §9a has to be folded into §4 when it happens rather than appended to it.
+
+## 2026-09-11 (build plan for the remainder)
+Wrote `docs/reviews/2026-09-11-remaining-build-plan.md` off `91bf455`. Covers everything left
+across the redesign plan, the action plan and the Driver document, sized and sequenced.
+
+**The order, and the reasoning that decided it:**
+1. **The two deployment steps** — the user's, minutes. `GITHUB_WEBHOOK_SECRET` and the App's
+   webhook URL. The #120 code is inert until both are done.
+2. **The two gating checks** (S, half a day) — the `kind` gate and the Local tab. Neither adds a
+   row, a stat cell or an empty state, so neither collides with the layout pass.
+3. **The Driver vendor probe** (S, a day) — Driver §7 step 1, unblocked since #111 landed. Put
+   before the layout pass because it is the only remaining item whose result can change a *design*
+   rather than an implementation: if a worst-case turn does not fit a Worker invocation, the loop
+   moves off the Worker.
+4. **The layout pass**, redesign step 9 (L, 3–4 days) split into three PRs — rows and stat cells,
+   empty states, then breakpoints and field widths.
+5. **Data screen 3** (S/M) after the layout pass, so the brand-strength Findings group is built on
+   the new grammar rather than adding a tenth row.
+6. **Driver steps 2–11**, after the layout pass.
+
+**Why not Driver first, written down so it is not re-argued:** Driver is the largest new surface
+left — thread list, message list, tool-call blocks, metric and table parts, three-plus empty
+states — and every one of those is a list row, a stat cell or an empty state. Building it before
+step 9 repeats the #119 mistake at roughly four times the size. The plan warned about this once,
+we did it anyway, and `.oprow` and `.fstrip` are the receipts.
+
+Two measurements corrected while drafting, both caught by grep rather than shipped: the row split
+is **five grid / four flex**, not four/five as first written, and `.fq-note` spans **17** files,
+not 16.
+
+**Revised the same session, after the user asked to refer to the existing detailed plans.** That
+exposed a real gap: I had audited three documents and there are **five**. Reading the other two
+changed two items and added one.
+
+- **`2026-09-09-v1-data-readiness-plan.md` step 6 scopes Local far more broadly** than my "filter
+  the tab". Its gate is `gbp` **or manually entered profile facts**, with a form for the facts —
+  gating on the connection alone would hide the screen from the customer the form exists for. Its
+  crawl-coverage half is already done (`crawlCoverageLine`).
+- **Its step 4 scopes the audits, and three of the four are already automatic.**
+  `NIGHTLY_AUDIT_KINDS` is `['offsite','competitor','local']`; entity is deliberately excluded
+  because the plan says the crawl is its trigger, and `runQueue.ts` never makes the call. So the
+  item is one bullet of step 4, not a new step.
+- **`2026-09-08-ship-readiness-review.md` has three live Tier 2 leftovers**, each confirmed
+  against the tree: `packages/connectors/src/google/oauth.ts` is still there and imported by
+  nothing but its own test; `reapExpiredFlows` (`oauthFlows.ts:139`) is called from nowhere, so
+  `oauth_flows` grows forever; and `getAccessToken` still has no per-connection lock, which the
+  review itself judged safe until a rotating provider ships — recorded as a deferral with a
+  trigger rather than as work.
+
+The document now opens with a table of the five plans and what each is still the authority on, and
+a second table mapping every item to the section that specifies it. Stated rule: where this
+document and a detailed one disagree on scope, the detailed one wins — except where something has
+shipped since, which is called out per item.
+
+Recommendation given: **§3.1 alone** (the `kind` gate) if the user wants something shipped today —
+§3.2 no longer fits beside it — or §4 if they want the biggest risk retired.
