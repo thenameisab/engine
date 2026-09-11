@@ -113,7 +113,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     return root;
   }
 
-  const selfSelect = el('select', { class: 'ci-select' }, entities.map((e) => el('option', { value: e.id }, [e.canonicalName]))) as HTMLSelectElement;
+  const selfSelect = el('select', { class: 'ci-select', 'aria-label': 'Your brand' }, entities.map((e) => el('option', { value: e.id }, [e.canonicalName]))) as HTMLSelectElement;
   const domainInput = el('input', {
     class: 'ci-input',
     type: 'text',
@@ -222,12 +222,11 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
 
   head.append(
     lastRunLine,
-    el('div', { class: 'ci-controls' }, [
-      el('label', { class: 'ci-lbl' }, ['You', selfSelect]),
-      el('label', { class: 'ci-lbl' }, ["A competitor's website", domainInput]),
-      addBtn,
-      runBtn,
-    ]),
+    // Four controls on one line, none of them labelled. Two carried a label
+    // and two did not, which gave the row a ragged top edge; both controls
+    // name themselves without one — the select shows the brand and the input
+    // placeholders `competitor.com` — so the labels moved to `aria-label`.
+    el('div', { class: 'ci-controls' }, [selfSelect, domainInput, addBtn, runBtn]),
     chips,
   );
   root.append(head, leadWrap, tablesWrap);

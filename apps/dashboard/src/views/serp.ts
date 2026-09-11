@@ -238,7 +238,7 @@ export async function serpView(ctx: AppContext): Promise<HTMLElement> {
 
   // ---- the live lookup, unchanged except that a result can now be tracked ----
   const kw = el('input', { class: 'field', type: 'text', placeholder: 'keyword, e.g. best crm for small business' }) as HTMLInputElement;
-  const domain = el('input', { class: 'field', type: 'text', placeholder: 'your domain (optional), e.g. acme.com' }) as HTMLInputElement;
+  const domain = el('input', { class: 'field grow', type: 'text', placeholder: 'your domain (optional), e.g. acme.com' }) as HTMLInputElement;
   const country = el('select', { class: 'field' }, COUNTRIES.map((c) => el('option', { value: c }, [c]))) as HTMLSelectElement;
   const out = el('div', { class: 'serp-out' });
 

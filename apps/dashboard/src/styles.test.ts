@@ -240,4 +240,66 @@ describe('styles.css base rules', () => {
     walk(SRC);
     expect(offenders).toEqual([]);
   });
+  it('sizes the layout on exactly three named breakpoints', () => {
+    // Seven values meant a rule's breakpoint was whatever the author had in
+    // mind that day, and 620/640 in particular were a second phone width
+    // sitting 60px from the first. Layout pass 5c moved every rule onto the
+    // nearest of three. The set is the assertion; the number of blocks at
+    // each value is not, because a rule stays where it sits in the cascade.
+    const widths = [...css.matchAll(/@media \(max-width: (\d+)px\)/g)].map((m) => Number(m[1]));
+    expect(widths.length).toBeGreaterThan(0);
+    expect([...new Set(widths)].sort((a, b) => a - b)).toEqual([560, 860, 1080]);
+  });
+
+  it('lets exactly one field per flex row absorb the slack', () => {
+    // `.serp-form-row .field { flex: 1 }` priced a two-letter country select
+    // as wide as the domain input beside it. A field now takes its own width
+    // and the one marked `.grow` takes the rest.
+    expect(css).toMatch(/\.serp-form-row \.field \{[^}]*flex: none/);
+    expect(css).toMatch(/\.serp-form-row \.field\.grow \{[^}]*flex: 1/);
+    // Exactly one element in the row may wear it.
+    const serp = readFileSync(join(SRC, 'views/serp.ts'), 'utf8');
+    expect([...serp.matchAll(/class: 'field grow'/g)]).toHaveLength(1);
+  });
+
+  it('declares the flex that .flabel.check overrides', () => {
+    // The variant set `flex-direction` and `gap` while `.flabel` set no
+    // display at all, so for 28 text-only labels that was correct and for the
+    // one that wraps a checkbox it styled nothing.
+    const rule = css.match(/^\.flabel\.check \{([^}]*)\}/m);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/display:\s*flex/);
+  });
+
+  it('gives the five dimension cards two tracks and spans the fifth', () => {
+    // `auto-fit` made four tracks at the 1180px content width and left the
+    // fifth card alone at a quarter of it.
+    expect(css).not.toMatch(/\.ci-tables \{[^}]*auto-fit/);
+    expect(css).toMatch(/\.ci-tables \{[^}]*repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/\.ci-table:nth-child\(5\) \{[^}]*grid-column: 1 \/ -1/);
+    // The span is only correct because the card count is fixed at five.
+    const view = readFileSync(join(SRC, 'views/competitors.ts'), 'utf8');
+    const order = view.match(/const ORDER: GapType\[\] = \[([^\]]*)\]/);
+    expect(order).not.toBeNull();
+    expect(order![1].split(',').filter((x) => x.trim()).length).toBe(5);
+  });
+
+  it('reserves the blurb two lines so the cards match in height', () => {
+    // Clamping alone would still let a one-line blurb shorten its card.
+    const rule = css.match(/^\.ci-blurb \{([^}]*)\}/m);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/-webkit-line-clamp: 2/);
+    expect(rule![1]).toMatch(/min-height: 3em/);
+  });
+
+  it('labels every control in a row or none of them', () => {
+    // Competitors had two labelled controls and two bare buttons on one line.
+    const view = readFileSync(join(SRC, 'views/competitors.ts'), 'utf8');
+    const row = view.match(/class: 'ci-controls' \}, \[([^\]]*)\]/);
+    expect(row).not.toBeNull();
+    expect(row![1]).not.toMatch(/ci-lbl/);
+    // Dropping the visible label is only honest if the control still names
+    // itself to a screen reader.
+    expect(view).toMatch(/class: 'ci-select', 'aria-label'/);
+  });
 });
