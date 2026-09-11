@@ -3,6 +3,7 @@ export * from './llmEngine.js';
 export * from './serpSerper.js';
 export * from './llmCitation.js';
 export * from './llmStream.js';
+export * from './llmTools.js';
 export * from './llmModels.js';
 export * from './llmOpenAI.js';
 export * from './llmGemini.js';

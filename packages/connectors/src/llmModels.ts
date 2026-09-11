@@ -54,6 +54,18 @@ export interface LlmModelChoice {
    * A single shared default therefore makes one of the two models unusable.
    */
   maxTokens: number;
+  /**
+   * The model's total context window, in tokens.
+   *
+   * Declared on the model rather than decided per screen, because "which
+   * models can run this surface" is a question about the model. Driver carries
+   * a system prompt, a twenty-tool catalogue, several turns of history and
+   * several tool results in one request; `sarvam-105b-conversations` at 32K
+   * cannot hold that reliably, and the right fix is a surface that filters on
+   * a declared number rather than a hardcoded list of which model suits which
+   * screen. Decided 2026-09-10, driver scoping §9a decision 5.
+   */
+  contextTokens: number;
 }
 
 export const LLM_MODEL_CHOICES: readonly LlmModelChoice[] = [
@@ -64,6 +76,7 @@ export const LLM_MODEL_CHOICES: readonly LlmModelChoice[] = [
     byline: 'Works through the question before answering. The first words take a few seconds, and it can write a longer answer.',
     reasons: true,
     maxTokens: 16000,
+    contextTokens: 128_000,
   },
   {
     id: 'sarvam-105b-conversations',
@@ -72,6 +85,7 @@ export const LLM_MODEL_CHOICES: readonly LlmModelChoice[] = [
     byline: 'Starts answering straight away. No reasoning step, and a shorter maximum answer.',
     reasons: false,
     maxTokens: 8192,
+    contextTokens: 32_000,
   },
 ];
 
@@ -93,4 +107,18 @@ export function isKnownLlmModel(id: string): boolean {
 
 export function llmModelChoice(id: string): LlmModelChoice | undefined {
   return LLM_MODEL_CHOICES.find((m) => m.id === id);
+}
+
+/**
+ * The models with at least this much context, largest first.
+ *
+ * The filter §9a decision 5 asks for, at its first use. A surface states what
+ * it needs and gets the models that can run it, so Driver never offers a 32K
+ * model in the first place and no list of "which model suits which screen"
+ * has to be maintained anywhere.
+ */
+export function llmModelsWithContext(minTokens: number): LlmModelChoice[] {
+  return LLM_MODEL_CHOICES.filter((m) => m.contextTokens >= minTokens).slice().sort(
+    (a, b) => b.contextTokens - a.contextTokens,
+  );
 }

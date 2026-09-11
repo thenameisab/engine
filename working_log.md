@@ -1848,3 +1848,62 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
   which is the 25 tests of the deleted duplicate. The group was rendered in
   Chromium against the real stylesheet in both themes, and the 62px score slot
   and 107px row indent were measured rather than assumed.
+
+## 2026-09-11 — Driver step 2: tool calling in the connector
+
+- **Why this and not the probe.** §7 step 1 is still blocked on a
+  `SARVAM_API_KEY` that can be used locally. Step 2 is not: §2 checked the
+  vendor documentation and `tools`, `tool_choice`, all four message roles and
+  streaming-with-tools are supported. The one undocumented capability is
+  **parallel** tool calls, and that is a question for the loop in step 3, not
+  for the wire format. So the plumbing is buildable now and the probe's answers
+  change nothing in it.
+- **`llmTools.ts` is new** and carries the conversation vocabulary in Engine's
+  own terms — `LlmMessage` in four roles, `LlmToolDefinition`, `LlmToolCall`,
+  `LlmToolChoice`, `LlmTurn`, `LlmTurnChunk` — plus the OpenAI-shaped
+  serialisation in one place, so `packages/driver` is never written against one
+  vendor's JSON. Nothing here executes a tool; a tool call is a request the
+  model made.
+- **Arguments are carried verbatim, unparsed.** A model can emit malformed
+  JSON. The layer that knows which tool this is and what its schema says is the
+  layer that should decide what to do about it; parsing in the adapter would
+  turn a recoverable "ask again" into a transport error.
+- **`ToolCallAccumulator` keys fragments by `index` from the start.** The
+  vendor sends a call's id and name once and its arguments a few characters at
+  a time, each fragment identified only by its index. Concatenating in arrival
+  order is what breaks the moment two calls interleave — which is exactly what
+  the parallel-tool-call probe exists to find out. Keyed now, so whatever the
+  probe finds changes nothing here. Six tests, including two interleaved calls
+  and a name that itself arrives in two fragments.
+- **Two new stream chunks, not one.** `tool_call` carries a complete call;
+  `tool_call_start` fires as soon as the name is known, because arguments are
+  useless until whole but the name is what lets a screen say which tool is
+  running. The same reason `thinking` is a chunk type at all.
+- **Four entry points, two wire calls.** `converse` and `streamConverse` are
+  the primitives; `sample`, `complete` and `stream` now go through them. They
+  were four near-identical `fetch` blocks that had already drifted — only one
+  sent the truncation check and only one accepted a signal. `stream` stays
+  narrowed to `LlmStreamChunk`: it offers no catalogue, so no tool chunk can
+  arrive, and the live-answer surface should not have to prove that per chunk.
+- **`converse` hands back a truncated turn rather than throwing on one**, which
+  is the opposite of `sample`. A citation sample must refuse a turn cut off
+  mid-thought because recording it understates the brand's visibility; an agent
+  loop may retry with a larger budget. The transport is not the layer that
+  decides. `streamConverse` keeps the throw for the case where nothing at all
+  was produced — but a turn that spent its budget deciding to call a tool
+  produced a result, so that is no longer treated as truncation.
+- **`contextTokens` is declared on the model**, 128K and 32K, with
+  `llmModelsWithContext(min)` as the filter. This is §9a decision 5's rule — a
+  model declares its context once and a surface filters on it — applied at its
+  first use. `modelPicker.ts` is untouched; changing that shipped surface
+  belongs with the Settings work.
+- **`createConversationalLlmConnector` is a third factory** because it answers
+  a third question. It is not the customer's pick and not the deployment
+  default: the surface states the context it needs and takes the largest model
+  that clears it, so `SARVAM_MODEL` — which names the citation poll's 32K
+  instrument — cannot put Driver on a model too small for a twenty-tool
+  catalogue. Asserted on the wire with a stubbed fetch.
+- Verified: `npx turbo typecheck test lint build --force` 68/68. Connectors
+  tests 152, up from 124 — 28 new. Dashboard 194 and API 438, both unchanged,
+  which is the point: the citation poll and the live-answer surface go through
+  rewritten code and their assertions did not move.
