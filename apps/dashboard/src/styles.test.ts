@@ -130,6 +130,67 @@ describe('styles.css base rules', () => {
     expect(rule).toContain('grid-template-columns: 1fr');
   });
 
+  /* ── The one list-row grammar ────────────────────────────────────────── */
+
+  it('gives the five list rows one declaration, not five', () => {
+    // The whole point of the merge: `display: grid` and the alignment are
+    // stated once. A row class that re-declares `display` has left the
+    // grammar, and its numbers are free to drift again.
+    expect(css).toMatch(/^\.gm-row, \.kw-row, \.ci-row, \.off-row, \.ci-lead-row \{/m);
+    for (const cls of ['gm-row', 'kw-row', 'ci-row', 'off-row', 'ci-lead-row']) {
+      const own = css.match(new RegExp(`^\\.${cls} \\{[^}]*\\}`, 'm'))?.[0] ?? '';
+      expect(own).not.toMatch(/display:\s*(grid|flex)/);
+      expect(own).not.toMatch(/grid-template-columns:/);
+    }
+  });
+
+  it('sizes every row track through --lrow-cols, never a bare track list', () => {
+    // A rule that sets `grid-template-columns` on one of these bypasses the
+    // grammar's `var(--lrow-cols)` and cannot be read from the variant list.
+    const offenders = [...css.matchAll(/^[^\n{]*\.(gm-row|kw-row|ci-row|off-row|ci-lead-row)[^\n{]*\{([^}]*)\}/gm)]
+      .filter((m) => /grid-template-columns:(?!\s*var\(--lrow-cols)/.test(m[2]))
+      .map((m) => m[0].split('{')[0].trim());
+    expect(offenders).toEqual([]);
+  });
+
+  it('has a track list for every row variant the views ask for', () => {
+    // A view can add `gm-row gm-x` and get the grammar with no tracks, which
+    // renders as one column and looks like a data bug rather than a CSS one.
+    const used = new Set<string>();
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts') && !entry.name.includes('.test.')) {
+          const src = readFileSync(full, 'utf8');
+          for (const m of src.matchAll(/class: '(?:gm-row|kw-row) ([a-z0-9-]+)'/g)) used.add(m[1]);
+        }
+      }
+    };
+    walk(SRC);
+    expect(used.size).toBeGreaterThan(0);
+    for (const variant of used) {
+      expect(css, `no --lrow-cols for .${variant}`).toMatch(
+        new RegExp(`\\.${variant} \\{[^}]*--lrow-cols:`),
+      );
+    }
+  });
+
+  it('keeps the stat cell label box that holds numbers on one line', () => {
+    // `.cell .top` reserves 32px so a label wrapping to two lines does not
+    // push its own number a line below its neighbours'. The Google panels
+    // used to opt out with `min-height: 0`, which is exactly what made
+    // "Engaged sessions" sit lower than "Sessions" beside it.
+    expect(css).toMatch(/^\.cell \.top \{[^}]*min-height:\s*32px/m);
+    expect(css).not.toMatch(/\.gm-stats \.cell \.top \{[^}]*min-height:\s*0/);
+  });
+
+  it('has no .row rule left to be confused for the grammar', () => {
+    // `.row` was dead — no view built one — and a generic name beside a real
+    // row grammar is a trap for the next person.
+    expect(css).not.toMatch(/^\.row[\s,{:]/m);
+  });
+
   it('defines every token the stylesheet spends', () => {
     // Tokens are declared several to a line, so this cannot anchor to the
     // line start. A use is `var(--x)` and carries no colon, so matching on

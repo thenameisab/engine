@@ -290,14 +290,44 @@ a { color: inherit; text-decoration: none; }
 
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .list { padding: 6px; }
-.row { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border-radius: var(--r-sm); transition: background .12s var(--ease); }
-.row:hover { background: var(--surface-2); }
 .dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 6px; flex: none; }
 .dot.g { background: var(--good); } .dot.r { background: var(--risk); }
-.row .t { font-size: var(--t-sm); font-weight: 500; line-height: 1.4; }
-.row .m { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-faint); margin-top: 2px; }
-.row .mv { margin-left: auto; font-family: var(--mono); font-size: var(--t-xs); font-weight: 600; padding-left: 8px; }
 .mv.g { color: var(--good); } .mv.r { color: var(--risk); }
+
+/* ── One list-row grammar ──────────────────────────────────────────────────
+   Every list of figures in the product is this rule. A grid, because fixed
+   tracks are the one mechanism in this sheet that lines numbers up by
+   construction: a flex row shrink-wraps each cell to its own content, so
+   "1,204 clicks" and "12 clicks" start at different x and a reader comparing
+   a column has to read every row separately.
+
+   The track list is the one thing a list chooses, through `--lrow-cols`,
+   because the number of figures differs per list. It belongs to the row's own
+   variant class rather than to the container: `el()` drops a null child
+   instead of leaving an empty track (`dom.ts`), so two builders with
+   different arity must not share a track list. Where a cell is optional the
+   builder emits an always-present wrapper with the optional thing inside —
+   `.slot` on Home's query rows is the pattern.
+
+   Numeric cells are `.n` or `.num`; they are tabular and right-aligned, which
+   is what makes the decimal points line up once the tracks are fixed.
+
+   `.oprow` and `.serp-row` are deliberately not here. `.oprow` carries no
+   figures at all and aligns on the baseline because its body is two lines of
+   prose; `.serp-row` puts its one number first and is an `<a>` whose whole
+   box is the click target. Folding either in would mean widening this rule
+   until it said nothing. */
+.gm-row, .kw-row, .ci-row, .off-row, .ci-lead-row {
+  display: grid;
+  grid-template-columns: var(--lrow-cols, minmax(0, 1fr));
+  align-items: center;
+  gap: var(--lrow-gap, 12px);
+}
+.gm-row > .n, .kw-row > .num, .ci-row > .num, .off-row > .num, .ci-lead-row > .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
 
 /* fix queue */
 .fq { margin-top: 4px; }
@@ -654,17 +684,16 @@ select.field { cursor: pointer; }
    "20" on its own tells a customer nothing they can act on, so the severity
    counts sit beside it and are the thing that is clickable. */
 .hm-health { padding: 16px 18px; }
-.hm-health-row { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-.hm-score { display: flex; align-items: baseline; gap: 9px; }
-.hm-score-v { font-size: var(--t-3xl); font-weight: 600; line-height: 1; letter-spacing: -.02em; }
-.hm-score-v.good { color: var(--good); }
-.hm-score-v.watch { color: var(--watch); }
-.hm-score-v.risk { color: var(--risk); }
-.hm-score-k { font-size: var(--t-sm); font-weight: 550; color: var(--text-muted); }
-.hm-sevs { display: flex; align-items: center; gap: 8px; }
-.hm-sev { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: var(--r-sm); border: 1px solid var(--border); }
-.hm-sev .num { font-size: var(--t-sm); font-weight: 600; }
-.hm-health-row .btn { margin-left: auto; }
+/* Home's health strip. Its shape is declared with Findings' strip below, under
+   "One stat-strip grammar"; these are the two things that differ — a larger
+   score, and a trailing button instead of two more figures.
+
+   The button and the skeleton's stand-in share the rule. They were two
+   declarations of the same behaviour, so the skeleton could drift from the row
+   it imitates. */
+.hm-score-v { font-size: var(--t-3xl); }
+.hm-health-row .btn, .hm-health-row > .skel-run { margin-left: auto; }
+.hm-health-row > .skel-run { width: 132px; }
 .hm-stale { margin-top: 10px; font-size: var(--t-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* What to fix first. Rows, not cards: three issues one under another read as
@@ -704,9 +733,7 @@ select.field { cursor: pointer; }
   /* The row wraps here, and `margin-left: auto` then parked the button alone
      on the right of its own line with the gap of a missing column beside it.
      Full width under the counts is the honest shape of a wrapped row. */
-  .hm-health-row .btn { margin-left: 0; width: 100%; }
-  .hm-sevs { width: 100%; }
-  .hm-sev { flex: 1; justify-content: center; }
+  .hm-health-row .btn, .hm-health-row > .skel-run { margin-left: 0; width: 100%; }
 }
 
 /* Names: what Engine calls this client, this site and this brand. Rows, one
@@ -941,29 +968,43 @@ select.field { cursor: pointer; }
 .ci-chip-x:hover { color: var(--risk); }
 .ci-lead { margin-bottom: 16px; }
 .ci-lead-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.ci-lead-row, .ci-row { display: grid; grid-template-columns: 100px 1fr auto 52px; align-items: center; gap: 12px; padding: 8px 4px; border-top: 1px solid var(--border); font-size: var(--t-sm); }
-.ci-row { grid-template-columns: 1fr auto 52px; }
-.ci-lead-row:first-child, .ci-row:first-child { border-top: none; }
-.ci-item { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ci-held { color: var(--text-faint); font-size: var(--t-2xs); text-align: right; }
-.ci-impact { text-align: right; font-weight: 700; }
-.ci-impact.good { color: var(--good); } .ci-impact.warn { color: var(--watch); } .ci-impact.bad { color: var(--risk); }
+/* `.ci-row` and `.off-row` were the same four declarations written twice, on
+   two screens, with only their cell class names differing. One rule now, and
+   the gap table's leading tag is the only track that varies. */
+.ci-lead-row, .ci-row, .off-row { padding: 8px 4px; border-top: 1px solid var(--border); font-size: var(--t-sm); }
+/* The middle track was `auto` on all three, which is a shrink-wrap by another
+   name: "×1" and "×12" sized their own column, so the impact percentages to
+   their right started at a different x on every row. Fixed to the widest
+   value each column really holds — a four-figure count, a spelled-out
+   competitor count, and the citation line. */
+.ci-row { --lrow-cols: minmax(0, 1fr) 36px 52px; }
+.ci-lead-row { --lrow-cols: 100px minmax(0, 1fr) 112px 52px; }
+.off-row { --lrow-cols: minmax(0, 1fr) 140px 52px; }
+.ci-lead-row:first-child, .ci-row:first-child, .off-row:first-child { border-top: none; }
+.ci-item, .off-domain { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.off-domain { font-weight: 550; }
+.ci-held, .off-meta { color: var(--text-faint); font-size: var(--t-2xs); text-align: right; }
+.ci-impact, .off-auth { text-align: right; font-weight: 700; }
+.ci-impact.good, .off-auth.good { color: var(--good); }
+.ci-impact.warn, .off-auth.warn { color: var(--watch); }
+.ci-impact.bad, .off-auth.bad { color: var(--risk); }
 .ci-tag { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: var(--t-3xs); font-weight: 600; background: var(--accent-wash); color: var(--accent); text-align: center; }
 .ci-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 .ci-table header { display: flex; align-items: center; justify-content: space-between; }
 .ci-blurb { color: var(--text-muted); font-size: var(--t-xs); margin: 4px 0 8px; }
-@media (max-width: 560px) { .ci-lead-row { grid-template-columns: 80px 1fr 48px; } .ci-lead-row .ci-held { display: none; } }
+@media (max-width: 560px) { .ci-lead-row { --lrow-cols: 80px minmax(0, 1fr) 48px; } .ci-lead-row .ci-held { display: none; } }
 
 /* A6 Backlink & Mention Index: citation opportunities */
 .off-lead { margin-top: 16px; }
 .off-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.off-row { display: grid; grid-template-columns: 1fr auto 52px; align-items: center; gap: 12px; padding: 8px 4px; border-top: 1px solid var(--border); font-size: var(--t-sm); }
-.off-row:first-child { border-top: none; }
-.off-domain { color: var(--text); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.off-meta { color: var(--text-faint); font-size: var(--t-2xs); text-align: right; }
-.off-auth { text-align: right; font-weight: 700; }
-.off-auth.good { color: var(--good); } .off-auth.warn { color: var(--watch); } .off-auth.bad { color: var(--risk); }
-@media (max-width: 560px) { .off-meta { display: none; } .off-row { grid-template-columns: 1fr 48px; } }
+
+/* Both twins drop the middle count on a phone, where it is the least useful of
+   the three. Only `.off-row` did before the merge, so `.ci-row` kept three
+   columns at 360px while the identical row beside it had collapsed to two. */
+@media (max-width: 560px) {
+  .ci-row, .off-row { --lrow-cols: minmax(0, 1fr) 48px; }
+  .ci-held, .off-meta { display: none; }
+}
 
 /* M2.5 agency white-label: Clients grid, branding settings, branded report */
 .pagehead .btn { margin-top: 10px; }
@@ -971,26 +1012,37 @@ select.field { cursor: pointer; }
    replaced a sentence carrying the same numbers — a reader had to parse prose
    to answer "how bad is it, and where do I start". Baseline-aligned so the
    four values read as one row of numbers rather than four small cards. */
-.fstrip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; margin-top: 12px; }
-.fstrip-score { display: flex; align-items: baseline; gap: 9px; }
-.fstrip-score-v { font-size: var(--t-2xl); font-weight: 600; line-height: 1; letter-spacing: -.02em; }
-.fstrip-score-v.good { color: var(--good); }
-.fstrip-score-v.watch { color: var(--watch); }
-.fstrip-score-v.risk { color: var(--risk); }
-.fstrip-stat { display: flex; align-items: baseline; gap: 7px; }
+/* ── One stat-strip grammar ────────────────────────────────────────────────
+   Home's health strip and Findings' overview strip were the same eight rules
+   written twice under two prefixes: a score beside its label, three severity
+   chips, and a trailing element. Only two things ever differed, and they are
+   declared where each strip is used — Home's score is one step larger, and it
+   ends in a button where this one ends in two more figures. */
+.fstrip, .hm-health-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; }
+.fstrip { margin-top: 12px; }
+.fstrip-score, .hm-score, .fstrip-stat { display: flex; align-items: baseline; gap: 9px; }
+.fstrip-stat { gap: 7px; }
+.fstrip-score-v, .hm-score-v { font-size: var(--t-2xl); font-weight: 600; line-height: 1; letter-spacing: -.02em; }
+.fstrip-score-v.good, .hm-score-v.good { color: var(--good); }
+.fstrip-score-v.watch, .hm-score-v.watch { color: var(--watch); }
+.fstrip-score-v.risk, .hm-score-v.risk { color: var(--risk); }
 .fstrip-v { font-size: var(--t-lg); font-weight: 600; line-height: 1; }
-.fstrip-k { font-size: var(--t-sm); font-weight: 550; color: var(--text-muted); }
+.fstrip-k, .hm-score-k { font-size: var(--t-sm); font-weight: 550; color: var(--text-muted); }
 /* Not links, unlike Home's counts: this screen is already the destination
    those point at, so a link here would go nowhere. */
-.fstrip-sevs { display: flex; align-items: center; gap: 8px; }
-.fstrip-sev { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: var(--r-sm); border: 1px solid var(--border); }
-.fstrip-sev .num { font-size: var(--t-sm); font-weight: 600; }
-/* Under 560 px the three chips take the row on their own and share it evenly,
-   the same behaviour Home's counts have at that width. */
-@media (max-width: 560px) {
-  .fstrip { gap: 12px 18px; }
-  .fstrip-sevs { width: 100%; }
-  .fstrip-sev { flex: 1; justify-content: center; }
+.fstrip-sevs, .hm-sevs { display: flex; align-items: center; gap: 8px; }
+.fstrip-sev, .hm-sev { display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.fstrip-sev .num, .hm-sev .num { font-size: var(--t-sm); font-weight: 600; }
+@media (max-width: 560px) { .fstrip { gap: 12px 18px; } }
+
+/* The three chips take the row on their own and share it evenly. One rule for
+   both strips now: it used to fire at 560 on Findings and 620 on Home, so the
+   comment claiming they matched was false. 620 is the wider of the two and the
+   one that has a reason — Home's strip carries a button and wraps first.
+   Layout pass 5c folds 620 into the named breakpoint scale. */
+@media (max-width: 620px) {
+  .fstrip-sevs, .hm-sevs { width: 100%; }
+  .fstrip-sev, .hm-sev { flex: 1; justify-content: center; }
 }
 
 .audit-status { font-size: var(--t-sm); margin-top: 6px; color: var(--text-muted); }
@@ -1063,7 +1115,6 @@ select.field { cursor: pointer; }
 @media (max-width: 560px) { .gm-stats, .gm-stats.three { grid-template-columns: repeat(2, 1fr); } }
 .gm-stats .cell { min-width: 0; overflow: hidden; }
 .gm-stats .cell .v { font-size: var(--t-xl); margin-top: 6px; }
-.gm-stats .cell .top { min-height: 0; }
 .gm-stats .cell .sub { font-family: var(--font); font-size: var(--t-2xs); }
 .gm-stats .cell .sub .delta { font-size: var(--t-2xs); }
 .delta.flat { color: var(--text-faint); }
@@ -1072,20 +1123,40 @@ select.field { cursor: pointer; }
 .gm-spark .line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .gm-sec { display: flex; align-items: center; gap: 6px; padding: 14px 16px 4px; font-size: var(--t-xs); font-weight: 550; color: var(--text-muted); }
 .gm-list { padding: 0 8px 8px; }
-.gm-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-sm); font-size: var(--t-sm); }
+/* Home's four list shapes. Each builder in `home.ts` names its own variant,
+   because the four have three, four or five cells and a track list shared
+   across arities would put a figure in the wrong column. Track widths are the
+   widest real value each column holds, measured on the rendered page rather
+   than guessed: clicks and sessions run to four figures with a separator,
+   impressions to six. */
+.gm-row { --lrow-gap: 10px; padding: 7px 8px; border-radius: var(--r-sm); font-size: var(--t-sm); }
+.gm-row.gm-q { --lrow-cols: minmax(0, 1fr) 46px 96px 104px 76px; }
+.gm-row.gm-p { --lrow-cols: minmax(0, 1fr) 96px 104px 76px; }
+/* The Traffic panel is 414px wide, so its four tracks are budgeted rather
+   than generous: the meter gets the 72px it actually rendered at under flex,
+   and the channel name keeps the rest. A wider meter track ate the name. */
+.gm-row.gm-c { --lrow-cols: minmax(0, 1fr) 72px 96px 88px; }
+.gm-row.gm-a { --lrow-cols: minmax(0, 1fr) 80px 92px; }
 .gm-row + .gm-row { border-top: 1px solid var(--border); }
-.gm-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gm-row .n { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-faint); flex: none; text-align: right; white-space: nowrap; }
-.gm-row .t.fixed { flex: 0 1 38%; }
-.gm-row .t { min-width: 56px; }
-.gm-row .slot { flex: 0 0 46px; display: inline-flex; justify-content: flex-end; }
+.gm-row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-row .n { font-family: var(--mono); font-size: var(--t-2xs); color: var(--text-faint); }
+.gm-row .slot { display: inline-flex; justify-content: flex-end; }
 .gm-row .t .tagband { margin-left: 6px; }
 .gm-row .n b { color: var(--text); font-weight: 600; font-size: var(--t-xs); }
 .gm-row .tagband { margin-left: 0; display: inline-flex; align-items: center; gap: 4px; }
-.gm-bar { flex: 1 1 40px; max-width: 110px; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+/* A grid item now, so it fills its own track rather than negotiating width
+   with the cells beside it. */
+.gm-bar { width: 100%; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .gm-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .gm-bar.ai i { background: var(--good); }
-@media (max-width: 560px) { .gm-bar { display: none; } .gm-head { flex-direction: column; align-items: flex-start; gap: 6px; } .gm-head .num { white-space: normal; text-align: left; } }
+@media (max-width: 560px) {
+  /* The track goes with the bar. Hiding the element alone would leave 110px
+     of empty column between the channel name and its figures. */
+  .gm-bar { display: none; }
+  .gm-row.gm-c { --lrow-cols: minmax(0, 1fr) 96px 88px; }
+  .gm-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .gm-head .num { white-space: normal; text-align: left; }
+}
 .gm-empty { padding: 22px 16px 24px; color: var(--text-muted); font-size: var(--t-sm); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
 .gm-empty p { line-height: 1.5; }
 .gm-note { font-size: var(--t-2xs); color: var(--text-faint); padding: 8px 16px 12px; line-height: 1.5; }
@@ -1137,7 +1208,11 @@ select.field { cursor: pointer; }
 /* ── Rankings: tracked keywords ─────────────────────────────────────────── */
 .kw-summary { padding: 0 16px 10px; color: var(--text-muted); font-size: var(--t-xs); }
 .kw-list { padding: 0 8px 8px; }
-.kw-row { display: grid; grid-template-columns: 1fr 92px 84px auto; align-items: center; gap: 12px; padding: 10px 8px; border-radius: var(--r-sm); transition: background .12s var(--ease); }
+/* Four cells on Rankings, two on the prompt and cadence lists — `.kw-2` for
+   those, or their one trailing control lands in the 92px figure track with
+   two empty tracks after it. */
+.kw-row { --lrow-cols: minmax(0, 1fr) 92px 84px auto; padding: 10px 8px; border-radius: var(--r-sm); transition: background .12s var(--ease); }
+.kw-row.kw-2 { --lrow-cols: minmax(0, 1fr) auto; }
 .kw-row:hover { background: var(--surface-2); }
 .kw-row + .kw-row { border-top: 1px solid var(--border); }
 .kw-main { min-width: 0; }
@@ -1152,7 +1227,8 @@ select.field { cursor: pointer; }
 .kw-change.flat, .kw-change.unknown { color: var(--text-faint); font-weight: 500; }
 .serp-track-row { padding: 12px 0 0; }
 @media (max-width: 560px) {
-  .kw-row { grid-template-columns: 1fr 72px auto; }
+  .kw-row { --lrow-cols: minmax(0, 1fr) 72px auto; }
+  .kw-row.kw-2 { --lrow-cols: minmax(0, 1fr) auto; }
   .kw-row .kw-change { display: none; }
 }
 .kw-country-wrap { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -1292,10 +1368,9 @@ select.field { cursor: pointer; }
 .skel-bar.xl { height: 30px; }
 .skel-bar.blk { height: 36px; }
 .skel-bar.act { height: 28px; }
-/* The one placeholder with a responsive width, because the button it stands
-   in for has one: `.hm-health-row .btn` goes full width when the row wraps. */
-.hm-health-row > .skel-run { width: 132px; margin-left: auto; }
-@media (max-width: 620px) { .hm-health-row > .skel-run { width: 100%; margin-left: 0; } }
+/* `.skel-run`, the one placeholder with a responsive width, is declared with
+   the button it stands in for rather than here, so the two cannot drift. */
+
 @keyframes skel-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 /* The pulse is decoration and goes. The delayed fade stays: it is opacity,

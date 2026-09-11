@@ -415,7 +415,7 @@ function searchPanel(ctx: AppContext, s: SearchSummary | null, status: ProviderS
   // The tag sits in a fixed slot so the metric columns line up whether or
   // not a row carries it.
   const queryRow = (q: SearchSummary['topQueries'][number]) =>
-    el('div', { class: 'gm-row' }, [
+    el('div', { class: 'gm-row gm-q' }, [
       el('span', { class: 't', title: q.query }, [q.query]),
       el('span', { class: 'slot' }, [q.brand ? el('span', { class: 'tagband' }, ['brand']) : null]),
       metricCell('clicks', fmtInt(q.clicks)),
@@ -424,7 +424,7 @@ function searchPanel(ctx: AppContext, s: SearchSummary | null, status: ProviderS
     ]);
 
   const pageRow = (p: SearchSummary['topPages'][number]) =>
-    el('div', { class: 'gm-row' }, [
+    el('div', { class: 'gm-row gm-p' }, [
       el('span', { class: 't', title: p.page }, [pagePath(p.page)]),
       metricCell('clicks', fmtInt(p.clicks)),
       metricCell('impr.', fmtInt(p.impressions)),
@@ -474,7 +474,7 @@ function trafficPanel(ctx: AppContext, t: TrafficSummary | null, status: Provide
 
   const max = Math.max(1, ...t.channels.map((c) => c.sessions));
   const channelRow = (c: TrafficSummary['channels'][number]) =>
-    el('div', { class: 'gm-row' }, [
+    el('div', { class: 'gm-row gm-c' }, [
       el('span', { class: 't fixed', title: c.label }, [c.label]),
       el('span', { class: `gm-bar${c.key === 'ai-assistants' ? ' ai' : ''}` }, [
         el('i', { style: `width:${Math.max(1, Math.round((c.sessions / max) * 100))}%` }),
@@ -486,7 +486,7 @@ function trafficPanel(ctx: AppContext, t: TrafficSummary | null, status: Provide
   // Two metrics, not three: this column is the narrow one, and a third
   // figure pushed the source name out of its own row.
   const aiRow = (a: TrafficSummary['aiAssistants'][number]) =>
-    el('div', { class: 'gm-row' }, [
+    el('div', { class: 'gm-row gm-a' }, [
       el('span', { class: 't', title: a.source }, [
         a.source,
         a.classifiedBy === 'engine'

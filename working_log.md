@@ -1565,3 +1565,71 @@ granted scope and no registered app.
 whose base `.flabel` never sets `display: flex`, so the checkbox gap has never
 rendered. Pre-existing, and in the file layout passes 5a–5c rewrite; left for
 them rather than opening a conflict surface here.
+
+## 2026-09-11 — One row grammar and one stat strip (ledger item 2, redesign step 9 / pass 5a)
+
+- Checked ledger item 1 first (Driver vendor probe) and stopped: `SARVAM_API_KEY`
+  is set as a Worker secret in production but its value cannot be read back,
+  and there is no local copy in `apps/api/.dev.vars`. The probe needs live
+  vendor calls, so it stays blocked until the key is available locally.
+- Measured the tree before designing, and three of the plan's premises were
+  wrong. **`.row` is dead** — zero construction sites in `apps/dashboard/src`,
+  so eight live row classes, not nine. **Only `.gm-row` was actually ragged**;
+  the four grid rows already aligned by construction, which is why the plan was
+  right that `.kw-row` is the base. And **four of the eight have variable child
+  counts**, with `el()` dropping null children, so one shared track list across
+  arities would put a figure in the wrong column.
+- Asked before building rather than deviating from a written plan silently.
+  Scope chosen: merge the five numeric rows, leave `.oprow` and `.serp-row` out
+  with the reason recorded.
+
+### What the grammar is
+One declaration block that `.gm-row`, `.kw-row`, `.ci-row`, `.off-row` and
+`.ci-lead-row` share, with the track list supplied per variant through
+`--lrow-cols`. The variant belongs to the row, not the container, because two
+builders with different arity render into the same list. `.slot` — already the
+answer to the null-child problem in one of Home's four builders — stays as the
+pattern for an optional cell.
+
+`.oprow` and `.serp-row` are out on purpose: `.oprow` carries no figures and
+aligns on baseline because its body is two lines of prose, and `.serp-row` puts
+its one number first inside an `<a>` whose whole box is the click target.
+
+### Also merged
+`.ci-row` and `.off-row` were the same four declarations written twice, down to
+their cell rules; one set now. Their breakpoints had diverged — only `.off-row`
+dropped its middle column on a phone — so both do. The two stat strips
+(`.fstrip`, `.hm-health-row`) were the same eight rules under two prefixes; the
+only real differences left are a larger score on Home and a trailing button
+instead of two figures. The skeleton's `margin-left: auto` was a second copy of
+the button's rule and could drift from it; both now share one declaration.
+
+### Measured, not asserted
+A Playwright harness records the x of every cell in every list of two or more
+sibling rows and fails a column whose x is not the same down the list.
+
+- **Before:** 5 ragged lists at 1440 and 5 at 390 — four `.gm-row` lists plus
+  the Traffic stat cells, where "Engaged sessions" wrapped and pushed its number
+  15px below its neighbours'.
+- **After:** 14 aligned, 0 ragged at 1440, 620 and 390.
+
+Track widths come from measuring the rendered cells, not from guessing. Two
+corrections the measurements forced: a 110px meter track squeezed "Organic
+Search" to an ellipsis in the 414px-wide Traffic panel, so the meter went back
+to the 72px it rendered at under flex; and `auto` middle tracks on the gap
+tables were a shrink-wrap by another name, so they are fixed too.
+
+### Guards
+Five new cases in `styles.test.ts`, each mutation-tested to confirm it fails on
+the regression it exists for: the five rows keep one declaration and none
+re-declares `display`; no rule sets a bare `grid-template-columns` on them; every
+row variant a view names has a `--lrow-cols` in the sheet; `.cell .top` keeps its
+32px and `.gm-stats` does not cancel it; and no `.row` rule survives.
+
+- **Green bar:** `turbo typecheck test lint build --force` 68/68. Dashboard 177
+  (was 172). 827 rule blocks down to 812; the file grew only in comments.
+
+### Noticed, not fixed
+`.list`, `.dot` and `.mv` are dead alongside `.row` but were not named by the
+step, so they stay. `.ci-blurb` is still unclamped and `.serp-form-row .field`
+still `flex: 1` — both are pass 5c.
