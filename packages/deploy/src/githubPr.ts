@@ -130,6 +130,37 @@ export async function openPullRequest(
   return { url: pr.html_url, number: pr.number };
 }
 
+/**
+ * What a pull request is now: still open, merged, or closed unmerged.
+ *
+ * Needed because a `github-pr` deploy means "the PR is open", not "the change
+ * is live". Nothing changes on the customer's site until someone merges it, so
+ * verifying the page at deploy time checks a page that has not changed yet and
+ * reports "not found on the page" about a fix nobody has rejected.
+ *
+ * GitHub reports this as two fields: `state` goes to `closed` on both a merge
+ * and an abandonment, and `merged` is what separates them.
+ */
+export type PullRequestState = 'open' | 'merged' | 'closed';
+
+export async function getPullRequestState(
+  token: string,
+  repo: string,
+  number: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PullRequestState> {
+  const pr = await githubJson<{ state: string; merged?: boolean; merged_at?: string | null }>(
+    `/repos/${repo}/pulls/${number}`,
+    token,
+    fetchImpl,
+  );
+  if (pr.state === 'open') return 'open';
+  // `merged` is the documented field; `merged_at` is checked too because it is
+  // what the webhook payload and the list endpoint carry, and a caller that
+  // hands us either shape should get the same answer.
+  return pr.merged === true || (pr.merged_at ?? null) !== null ? 'merged' : 'closed';
+}
+
 function base64Encode(s: string): string {
   // Web-standard btoa is bytewise; encode via UTF-8 bytes first so non-ASCII
   // diff content (accented names, curly quotes) round-trips correctly.

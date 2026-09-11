@@ -669,6 +669,13 @@ describe('the platform admin gate under failure', () => {
     expect(res.status).toBe(404);
   });
 
+  it('hides the queue depth from a non-admin', async () => {
+    // Queue depth across every project is a deployment fact. It would also
+    // leak how many other customers exist, from a route a customer can reach.
+    const res = await request('/platform/queue', {}, ADMIN_ENV);
+    expect(res.status).toBe(404);
+  });
+
   it('refuses a role change with an invalid role', async () => {
     const res = await request(
       '/platform/users/some-user/role',

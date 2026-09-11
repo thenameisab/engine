@@ -5,6 +5,7 @@ import { entityGraphView } from './entityGraph.js';
 import { competitorsView } from './competitors.js';
 import { offsiteView } from './offsite.js';
 import { localView } from './local.js';
+import { readableError } from '../errors.js';
 import type { AppContext, View } from '../context.js';
 
 /**
@@ -84,7 +85,7 @@ export async function visibilityView(ctx: AppContext): Promise<HTMLElement> {
   try {
     body.replaceChildren(await tab.view(ctx));
   } catch (err) {
-    body.replaceChildren(el('div', { class: 'errbox' }, [`Failed to render: ${(err as Error).message}`]));
+    body.replaceChildren(el('div', { class: 'errbox' }, [`Failed to render: ${readableError(err)}`]));
   }
 
   return el('div', {}, [strip, body]);

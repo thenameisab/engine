@@ -14,6 +14,7 @@ import type {
   ActionCard,
   ApiAccount,
   ApiAccountBranding,
+  AccountKind,
   ApiAction,
   ApiEntity,
   ApiFinding,
@@ -42,6 +43,7 @@ import type {
   PlatformClientView,
   PlatformUser,
   ProviderCatalogEntry,
+  QueueHealth,
   IntegrationConnection,
   IntegrationAssignment,
   ProviderResource,
@@ -587,10 +589,10 @@ export async function fetchAccounts(): Promise<AccountCard[]> {
   return resp.accounts.map(toAccountCard);
 }
 
-export async function createAccountApi(name: string): Promise<AccountCard> {
+export async function createAccountApi(name: string, kind: AccountKind): Promise<AccountCard> {
   const resp = await request<{ account: ApiAccount }>('/accounts', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, kind }),
   });
   return toAccountCard({ ...resp.account, projects: [] });
 }
@@ -950,6 +952,11 @@ export async function setAccountCadence(accountId: string, override: CadenceOver
     method: 'PUT',
     body: JSON.stringify(override),
   });
+}
+
+/** Queue depth and last completion, for the operator checklist. Admin only. */
+export async function fetchQueueHealth(): Promise<QueueHealth> {
+  return (await request<{ queue: QueueHealth }>('/platform/queue')).queue;
 }
 
 export async function fetchPlatformUsers(): Promise<{ users: PlatformUser[]; adminCount: number }> {

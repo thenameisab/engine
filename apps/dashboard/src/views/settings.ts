@@ -1,50 +1,18 @@
 import { el } from '../dom.js';
 import { screenName } from '../format.js';
-import { deployTargetFields } from '../deployTargetForm.js';
 import {
   getProjectId,
   getAccountId,
-  updateBrandingApi,
-  fetchDeployTarget,
-  saveDeployTarget,
   fetchEntities,
   setEntityKindApi,
   setPasswordApi,
   fetchAccountCadence,
+  fetchPlatformAccess,
 } from '../api.js';
 import { ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND } from '../format.js';
 import { readableError } from '../errors.js';
-import { platformSection } from './platform.js';
-import { vendorKeysPanel } from './integrations.js';
 import type { AppContext } from '../context.js';
-import type { DeployTarget, EffectiveCadence } from '../types.js';
-
-/**
- * Where an approved fix for this project lands (M2.3 #3). Every generated
- * Action needs a target, so this is what unlocks the Audit view's "Propose
- * fix" button. One target per project; the kind selects which fields matter.
- */
-async function deployTargetSection(ctx: AppContext): Promise<HTMLElement> {
-  let current: DeployTarget | null = null;
-  try {
-    current = await fetchDeployTarget();
-  } catch {
-    // No API / not reachable — render the empty form rather than blocking Settings.
-  }
-
-  const fields = deployTargetFields(ctx, {
-    current,
-    onSaved: () => ctx.toast('Deploy target saved. Auto-fixable findings can now be proposed.'),
-  });
-
-  return el('section', { class: 'panel' }, [
-    el('header', {}, [
-      el('h3', {}, ['Deploy target']),
-      el('span', { class: 'more' }, [current ? `current: ${current.kind}` : 'none set']),
-    ]),
-    fields,
-  ]);
-}
+import type { EffectiveCadence } from '../types.js';
 
 /**
  * What kind of thing each brand on this site is. Engine writes it into the
@@ -105,55 +73,6 @@ async function brandKindSection(ctx: AppContext): Promise<HTMLElement> {
         'What Engine tells search engines and assistants this is. It sets the type on the structured data Engine proposes for your pages.',
       ]),
       ...rows,
-    ]),
-  ]);
-}
-
-/**
- * M2.5 agency white-label: branding is an account-level setting, so it lives
- * alongside "which project/API base am I pointed at" rather than a separate
- * page. Operates on `getAccountId()` — the account last selected from the
- * Clients grid — since this view has no id in the URL to read one from.
- */
-function brandingSection(ctx: AppContext): HTMLElement {
-  const accountId = getAccountId();
-  if (!accountId) {
-    return el('section', { class: 'panel' }, [
-      el('header', {}, [el('h3', {}, ['Branding'])]),
-      el('div', { class: 'fq-note' }, ['Pick a client from the Clients grid first.']),
-    ]);
-  }
-
-  const nameInput = el('input', { class: 'field', type: 'text', placeholder: 'Acme Agency' }) as HTMLInputElement;
-  const logoInput = el('input', { class: 'field', type: 'text', placeholder: 'https://…/logo.png' }) as HTMLInputElement;
-  const colorInput = el('input', { class: 'field', type: 'text', placeholder: '#4f46e5' }) as HTMLInputElement;
-
-  const save = el('button', {
-    class: 'btn primary',
-    onclick: async () => {
-      try {
-        await updateBrandingApi(accountId, {
-          companyName: nameInput.value.trim() || undefined,
-          logoUrl: logoInput.value.trim() || undefined,
-          primaryColor: colorInput.value.trim() || undefined,
-        });
-        ctx.toast('Branding saved.');
-      } catch (err) {
-        ctx.toast(`Could not save branding: ${(err as Error).message}`);
-      }
-    },
-  }, ['Save branding']);
-
-  return el('section', { class: 'panel' }, [
-    el('header', {}, [el('h3', {}, ['Branding']), el('span', { class: 'more' }, [`account ${accountId.slice(0, 8)}…`])]),
-    el('div', { class: 'form' }, [
-      el('label', { class: 'flabel' }, ['Company name']),
-      nameInput,
-      el('label', { class: 'flabel' }, ['Logo URL']),
-      logoInput,
-      el('label', { class: 'flabel' }, ['Primary color']),
-      colorInput,
-      el('div', { class: 'form-actions' }, [save]),
     ]),
   ]);
 }
@@ -254,18 +173,45 @@ async function cadenceSection(): Promise<HTMLElement> {
   ]);
 }
 
+/**
+ * A link to the operator screen, or nothing.
+ *
+ * Nothing for a customer, who has no reason to learn that the screen exists.
+ * The screen itself checks admin again, so this is presentation rather than
+ * the guard.
+ */
+async function platformPointer(ctx: AppContext): Promise<HTMLElement | null> {
+  let isAdmin = false;
+  try {
+    isAdmin = (await fetchPlatformAccess()).isAdmin;
+  } catch {
+    return null;
+  }
+  if (!isAdmin) return null;
+
+  return el('div', {}, [
+    el('div', { class: 'settings-sec' }, ['Platform']),
+    el('section', { class: 'panel' }, [
+      el('div', { class: 'form' }, [
+        el('div', { class: 'fhint' }, [
+          'Engine’s own OAuth clients, this deployment’s vendor keys, the user list and the setup checklist.',
+        ]),
+        el('div', { class: 'form-actions' }, [
+          el('button', { class: 'btn', onclick: () => ctx.navigate('platform') }, ['Open Platform']),
+        ]),
+      ]),
+    ]),
+  ]);
+}
+
 export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, [screenName('settings')]),
-      el('p', {}, ['Your brand, where approved fixes deploy, and how reports are branded.']),
+      el('p', {}, ['Your brand, how often Engine looks, and your sign-in.']),
     ]),
     el('div', { class: 'settings-sec' }, ['Your brand']),
     await brandKindSection(ctx),
-    el('div', { class: 'settings-sec' }, ['Deploy target']),
-    await deployTargetSection(ctx),
-    el('div', { class: 'settings-sec' }, ['Branding']),
-    brandingSection(ctx),
     el('div', { class: 'settings-sec' }, ['Polling cadence']),
     await cadenceSection(),
     el('div', { class: 'settings-sec' }, ['Sign-in']),
@@ -274,17 +220,19 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     el('section', { class: 'panel' }, [
       el('div', { class: 'form' }, [
         el('div', { class: 'fhint' }, [
-          'Search Console, Analytics, Business Profile, Bing and Cloudflare are connected from the Integrations page.',
+          'Search Console, Analytics, Business Profile, Bing and Cloudflare are connected from the Integrations page, ' +
+            'along with where approved fixes deploy and — for an agency — your report branding.',
         ]),
         el('div', { class: 'form-actions' }, [
           el('button', { class: 'btn', onclick: () => ctx.navigate('integrations') }, ['Open Integrations']),
         ]),
       ]),
     ]),
-    // Operator-only. Both render nothing for a customer, so this is where an
-    // administrator registers Engine's own OAuth client and checks the
-    // deployment's vendor keys, away from the customer's connections.
-    await platformSection(ctx),
-    await vendorKeysPanel(),
+    // Operator-only, and a link rather than the panels themselves. The OAuth
+    // client registration and the deployment's vendor keys used to render at
+    // the bottom of this page, which put a deployment's configuration on the
+    // same scroll as "change my password" and gave the operator's own work no
+    // address to bookmark. It renders nothing for a customer.
+    await platformPointer(ctx),
   ]);
 }

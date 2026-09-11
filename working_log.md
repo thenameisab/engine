@@ -1176,3 +1176,97 @@
 - **Verified.** Unit: `effectiveCadence` (4), mention matching/extraction parsing/folding (10). Database: AI poll due-check now follows the tier (paid weekly, free monthly, override back to weekly) — 20 cases; cadence override get/set/list/clear, crawl due-check (never crawled → due; live request → not due; 10-day-old run is inside a monthly window, past a weekly override, never on `on_demand`), and share of voice over mined samples with unmined ones counted apart and re-mining replacing — 5 cases. Full bar 41/41 typecheck, 39/39 test. Against `wrangler dev` on the test Postgres: a member reads the free defaults; a non-admin gets 404 on the platform list; an admin's `PUT` pins crawl to weekly and the member's read shows `crawl: weekly · override`; a bad value is refused naming the allowed ones; a new keyword on a free account arrives with `cadence: weekly`; `/ai/models` reports the conversational model as both default and poll model; share of voice on an unsampled entity is an honest zero. Browser: Settings shows "Polling cadence" with sources; the Platform screen's Cadence panel lists every account with three selects, and changing one saves, toasts and repaints from the API.
 - The `core` package has no vitest, so its cadence unit test lives in `apps/api/src/cadence.test.ts` importing from `@engine/core`. Docker Desktop had quit mid-session, taking the test database down; relaunched, container restarted, data intact at 0034.
 - Not verified live: a real mined answer. It needs a Sarvam call, and the first will happen on the next scheduled poll (05:00 UTC) or a manual `POST /ai/poll`.
+
+## 2026-09-10 (wave 3 deployed, and the Driver scoping document reviewed)
+- **#111 merged** (`e6b2324`), tip verified in `origin/main`; `build`, `migrate`, `deploy-api`, `deploy` all green; **Neon at 0034**, applied 12:56:12Z, with `answer_mentions` and `account_cadence` present and empty.
+- **Wave 4 was done in another session** — `docs/reviews/2026-09-10-driver-scoping.md`, 575 lines, merged as #110 at 12:47:47Z. It was not in my working tree because `feat/measurement-methodology` was branched before it. Reviewed rather than rewritten.
+- **A commit was stranded on the merged branch and has already been recovered.** `e3b05ff` was pushed to `docs/driver-scoping` after #110 merged — the #69/#95 pattern. It was cherry-picked onto `docs/driver-scoping-correction` as `4a0a471` and is open as **#112**. Neither branch tip is an ancestor of main; #112 is the live copy. Nothing is lost, but nothing on main carries the correction yet.
+- **Claims I could check hold.** 39 tables at the doc's stated commit `90eccd8` (main is now 41 — the doc warned its counts would move); the Copilot reads three of them; `llmSarvam.ts` sends no `tools` and `llmStream.ts` has no tool-call chunk type; `copilot.ts:248` really does still block the panel with "Set an API base URL under Settings first." for a setting #105 deleted. Sarvam's own docs confirm the load-bearing model fact: **`sarvam-105b` is 128K and `sarvam-105b-conversations` is 32K**, with `tools`, `tool_choice` and the `tool` role supported; streaming of tool calls and parallel tool calls are **not** documented, which is why step 1 is a vendor probe.
+- **Three things in the doc went stale six minutes after it merged, when #111 landed.** §4.4 says Driver's migration is "0034 or later (0033 is taken)" — 0034 is now taken too, so it is 0035+. §6 says "wave 3 has not been done" — it is done. §9 decision 1 asks whether to build Driver before or after wave 3 — moot. #112 corrects the `ENCRYPTION_KEY` bullet in the same section but not these three. Held for a follow-up rather than pushed onto #112, which is frozen.
+- **One count is low.** "The API exposes 76 routes" is `index.ts` alone; `routes/integrations.ts` adds 19 more, so 95. It does not change any conclusion — the doc's Tier 3 already covers `/platform/*` — but the inventory in §5 is drawn from the smaller number.
+- **The doc's model finding contradicts a decision I shipped in wave 3, correctly.** Wave 3 made `sarvam-105b-conversations` the default for live answers so try-a-prompt matches the citation poll's instrument. Driver needs 128K for a system prompt plus a 20-tool catalogue plus several tool results, which 32K will not hold. The doc pins `sarvam-105b` for Driver and raises the picker's "one choice across surfaces" assumption as open decision 5. Both decisions are right for their own surface; the picker is what has to give.
+
+### The six open decisions in §9, answered by the user (2026-09-10)
+1. **Deploy stays Tier 3 for v1, to be revisited.** Driver never calls deploy or rollback; it walks the customer to the button. Reconsider once the Tier 2 confirmation component has been in front of real customers.
+2. **`page_content` ships after the injection controls**, at step 9, not with the first read tools. The poisoned-crawled-page test gates it.
+3. **The model control moves into Settings, filtered per surface.** Not a per-screen picker and not one global model. Settings lists, for each surface, only the models that can run it, so Driver never offers a 32K model. The user expects more LLMs later, so a model declares its context size once and every surface filters on it. This supersedes `modelPicker.ts`'s "one choice across surfaces" assumption and is a change to the wave 3 surface, not only to Driver.
+4. **Threads are private by default with explicit sharing**, modelled on Claude's artifact sharing: share with named people in the org, or with the whole org. Larger than the document's `driver_threads` sketch — it needs a share table and a visibility state, not a boolean.
+5. **Tool catalogue size is measured in step 1**, as recommended. Plus a requirement the document does not have: **an admin control in Settings that allows or blocks individual tools for the whole organisation, and sets read against write access.** That is org-level tool governance, and it lands on §4.2 and §4.3 rather than on the loop.
+6. **Ship the Driver surface regardless of Google data.** No gate on `gsc_*` and `ga` holding rows. Consequence to design for: early on most search and traffic answers will be "not connected", so §4.2 rule 3 — three distinct states, not connected against no data yet against zero — carries the whole first impression and is no longer a nicety.
+- Decisions 3, 4 and 5 each add scope the document did not carry. None of them can be written into it yet: #112 is open against the same file and is frozen. The corrections, the three stale facts and these six decisions go into one follow-up once #112 lands.
+
+## 2026-09-10 (the nine wave 4 follow-ups, on `fix/wave4-followups`)
+Branched off `origin/main` at `b18f670` (#117 merged), carrying the two doc
+commits from `docs/wave4-review` so `working_log.md` has one lineage. One branch,
+five commits, because all nine items touch the same handful of files and parallel
+branches would conflict on every one of them.
+
+- **`readableError` in the five places that still printed a raw message** —
+  `entityGraph`, `integrations`, `report`, `visibility`, `shell.ts:331` and the
+  Findings load. A request error's `.message` is `"<status> <JSON body>"`, so
+  those screens rendered the API's internals.
+- **The `pnpm db:user` hint is off the Users panel.** 0033 replaced it with
+  invitations, so it pointed at the older of two paths.
+- **The branding bug is fixed, and it was real data loss.**
+  `updateAccountBranding` assigned the whole jsonb object and the panel built
+  three empty inputs with no prefill, so filling one field wiped the other two.
+  Now a jsonb merge, the route splits the body into fields to set and keys to
+  clear, and the panel prefills. An emptied field deletes its key rather than
+  storing `''`, because every reader falls back with `?? account.name`.
+  `checkBrandingBody` had to stop refusing `logoUrl: ''` — `new URL('')` throws —
+  since that is the only body that can remove a logo.
+- **Findings leads with a strip, not a sentence.** Health with its band, the
+  three severity counts, pages, fixable ratio. `severityCounts` existed and only
+  Home called it, so the screen built for triage could not say how many findings
+  were high. Same function on both screens, so they cannot disagree.
+- **The six planned integration tiles sit behind one disclosure.** They sorted
+  last already but still filled the grid ahead of nothing.
+- **Migration 0035 stores `accounts.kind`.** Onboarding has asked "a company · an
+  agency's client · me" since step 5 and dropped the answer; `POST /accounts`
+  read `{ name }` only. All 39 existing rows took the `company` default. This is
+  what the agency-only branding gate had no data to read.
+- **Integrations is the one customer setup screen**: where fixes go, the
+  connected accounts, and — for an agency, gated on `kind` — report branding. A
+  GitHub PR target needs the GitHub connection granted on that screen, so the
+  two belonged together.
+- **Platform is a screen at `#/platform`** with a nine-row deployment checklist,
+  each row done or carrying the exact next action, derived from state the
+  deployment already reports. `GET /platform/queue` is new for its last row:
+  depth, how long the oldest queued request has waited, and when one last
+  finished, because depth alone cannot tell an idle queue from a dead runner.
+  Deliberately read-only, unlike `listQueuedAuditRequests`, which fails stale
+  running requests as a side effect.
+- **A PR fix is no longer verified before it is merged.** `enqueueVerify` fired
+  for every target kind, `github-pr` included — so the runner fetched an
+  unchanged page and the card said "Not found on the page yet" about a fix nobody
+  had rejected, the same lesson the removed Verify button taught.
+  `deployChangesTheLivePage` restricts it to `edge-worker` and `cms-plugin`;
+  `getPullRequestState` reads the PR (GitHub reports a merge and an abandonment
+  both as `closed`, so three states); `scheduledPrMergeCheck` walks deployed PR
+  fixes in the nightly pass, takes each PR's repo and number from the deploy
+  transition's own audit entry, and enqueues the page check on merge. The card
+  now says it is waiting on the merge and still offers "Check now".
+
+### What the browser walk found that the tests could not
+A 42-check Playwright walk of Findings, Integrations, Settings, Platform and
+Fixes, at 1440 and 390, light and dark, with the API stubbed. Three things:
+- **A throw in one platform panel took the whole screen**, checklist included —
+  `cadencePanel` reading a field off a row an older API did not send. Each part
+  now settles on its own and names its own failure. Asserted with a walk case
+  that serves exactly that bad shape.
+- **`platformSection` still rendered its own "Platform" heading**, two lines
+  under the h1 that now says Platform.
+- **The deploy panel said "Where approved fixes deploy" twice** — panel header
+  and the form's own first label. The header matches its section heading now, the
+  way the cadence and brand panels do.
+
+Three "failures" in the first walk were the walk's own bugs, recorded so they are
+not re-diagnosed: severity `0.5` is `low` (the band is `>= 0.55` for medium), one
+visual row means shared vertical centres and not shared tops on a
+centre-aligned strip, and `.pagehead p` matches the coverage lines too.
+
+- **Green bar:** `turbo run typecheck test lint build` 68/68. API 419 (was 400),
+  dashboard 155 (was 141), deploy 61 (was 58). Local Postgres migrated to 0035.
+- **Not done, and deliberately:** the GitHub webhook (the scheduled pass is the
+  fallback the plan allows), the "Install Engine on GitHub" tile flow in step 7,
+  and reordering the deploy-target kinds to put WordPress and Cloudflare first.

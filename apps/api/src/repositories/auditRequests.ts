@@ -188,6 +188,49 @@ export async function listQueuedAuditRequests(db: Db, limit = 20): Promise<Audit
   return rows.map(toRequest);
 }
 
+/**
+ * Whether the crawl runner is alive and keeping up, for the operator checklist.
+ *
+ * An operator's real question is not "is a queue table present" but "is work
+ * moving". Depth alone cannot answer it: an empty queue means either healthy or
+ * nothing has ever been asked for, and a deep queue is fine ten seconds after a
+ * batch and broken an hour later. So this returns the depth, how long the oldest
+ * queued item has waited, and when a request last finished — the three facts a
+ * stuck runner shows up in.
+ *
+ * Read-only, unlike `listQueuedAuditRequests`, which also fails stale running
+ * requests as a side effect. The checklist must not change the queue it reports.
+ */
+export interface QueueHealth {
+  queued: number;
+  running: number;
+  /** Seconds the oldest queued request has waited, or null when nothing is queued. */
+  oldestQueuedAgeSeconds: number | null;
+  /** When a request last reached done or failed, or null if none ever has. */
+  lastFinishedAt: string | null;
+}
+
+export async function queueHealth(db: Db): Promise<QueueHealth> {
+  const [row] = await db<
+    { queued: string; running: string; oldest_age: number | null; last_finished: Date | null }[]
+  >`
+    select
+      count(*) filter (where status = 'queued') as queued,
+      count(*) filter (where status = 'running') as running,
+      extract(epoch from (now() - min(created_at) filter (where status = 'queued'))) as oldest_age,
+      max(finished_at) as last_finished
+    from audit_requests
+  `;
+  return {
+    // `count` comes back as a bigint, which postgres.js hands over as a string
+    // to avoid a silent precision loss. A queue depth fits in a number.
+    queued: Number(row!.queued),
+    running: Number(row!.running),
+    oldestQueuedAgeSeconds: row!.oldest_age === null ? null : Math.round(row!.oldest_age),
+    lastFinishedAt: row!.last_finished?.toISOString() ?? null,
+  };
+}
+
 /** queued → running, only if still queued. Null means someone else got it, or it is not queued. */
 export async function claimAuditRequest(db: Db, id: string): Promise<AuditRequest | null> {
   const rows = await db<Row[]>`

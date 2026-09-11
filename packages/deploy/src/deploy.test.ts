@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Action, Diff } from '@engine/core';
 import { applyHtmlDiff, applyHtmlActions, applySchemaDiff, applyMetaDiff, applyBodyDiff } from './html.js';
 import { applyRobotsActions } from './robots.js';
-import { verifyHtmlDeploy, verifyRobotsDeploy, verifyRedirectDeploy } from './verify.js';
+import { verifyHtmlDeploy, verifyRobotsDeploy, verifyRedirectDeploy, deployChangesTheLivePage } from './verify.js';
 import { checkRedirectDeployHealth } from './health.js';
 
 const BASE_HTML = '<html><head><title>Old</title></head><body>hi</body></html>';
@@ -179,5 +179,28 @@ describe('checkRedirectDeployHealth', () => {
       ok: false,
       reason: 'redirect-empty-destination',
     });
+  });
+});
+
+/**
+ * Which target kinds a deploy can be verified against by fetching a page.
+ *
+ * The verify enqueue used to fire for every kind. For a `github-pr` fix that
+ * meant checking the page the moment the pull request opened — before anyone
+ * had merged it — so the card said "not found on the page yet" about a fix
+ * nobody had rejected. This is the rule that stopped it.
+ */
+describe('deployChangesTheLivePage', () => {
+  it('is true for the two targets that apply the diff during the deploy', () => {
+    expect(deployChangesTheLivePage('edge-worker')).toBe(true);
+    expect(deployChangesTheLivePage('cms-plugin')).toBe(true);
+  });
+
+  it('is false for a PR, which only opens a pull request', () => {
+    expect(deployChangesTheLivePage('github-pr')).toBe(false);
+  });
+
+  it('is false for a Business Profile write, which is not a page at all', () => {
+    expect(deployChangesTheLivePage('gbp-api')).toBe(false);
   });
 });

@@ -10,9 +10,18 @@ export interface AccountBranding {
   primaryColor?: string;
 }
 
+/**
+ * What kind of thing an account is. Onboarding asks it and 0035 stores it; the
+ * dashboard reads it to decide whether to speak about "clients" at all and
+ * whether to offer the white-label branding panel.
+ */
+export const ACCOUNT_KINDS = ['company', 'agency', 'individual'] as const;
+export type AccountKind = (typeof ACCOUNT_KINDS)[number];
+
 export interface Account {
   id: string;
   name: string;
+  kind: AccountKind;
   branding: AccountBranding;
   createdAt: string;
 }

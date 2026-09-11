@@ -566,11 +566,21 @@ export function checkCadenceBody(body: unknown): Invalid | null {
 // ── M2.5 agency white-label (POST /accounts, POST /accounts/:id/projects,
 // PATCH /accounts/:id/branding) ─────────────────────────────────────────────
 
+// Declared here rather than imported, the same as the seven closed unions
+// above: this file carries no imports. The type lives in `@engine/core` as
+// `AccountKind`, and 0035's check constraint holds the same three values.
+const ACCOUNT_KINDS = ['company', 'agency', 'individual'] as const;
+
 export function checkCreateAccountBody(body: unknown): Invalid | null {
   const invalid = checkObject(body, 'body');
   if (invalid) return invalid;
   const b = body as Record<string, unknown>;
-  return checkString(b.name, 'name');
+  // `kind` is optional so a caller that sends `{ name }` alone still works; the
+  // column defaults to 'company', which is what those callers meant.
+  return first(
+    checkString(b.name, 'name'),
+    optional(b.kind, () => checkOneOf(b.kind, 'kind', ACCOUNT_KINDS)),
+  );
 }
 
 export function checkCreateProjectBody(body: unknown): Invalid | null {
@@ -667,7 +677,9 @@ export function checkBrandingBody(body: unknown): Invalid | null {
   const b = body as Record<string, unknown>;
   return first(
     optional(b.companyName, () => checkString(b.companyName, 'companyName')),
-    optional(b.logoUrl, () => checkUrl(b.logoUrl, 'logoUrl')),
+    // `''` is how the form clears a prefilled logo, so it has to pass the URL
+    // check rather than fail it. Any other non-URL string is still rejected.
+    optional(b.logoUrl, () => (b.logoUrl === '' ? null : checkUrl(b.logoUrl, 'logoUrl'))),
     optional(b.primaryColor, () => checkString(b.primaryColor, 'primaryColor')),
   );
 }

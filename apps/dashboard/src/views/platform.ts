@@ -16,6 +16,7 @@ import { el } from '../dom.js';
 import { infoCard } from '../hovercard.js';
 import { logoTile } from '../logo.js';
 import {
+  fetchIntegrations,
   fetchPlatformAccess,
   fetchPlatformClient,
   savePlatformClient,
@@ -24,8 +25,11 @@ import {
   setUserRole,
   fetchPlatformCadences,
   setAccountCadence,
+  fetchQueueHealth,
 } from '../api.js';
+import { operatorChecklist, screenName } from '../format.js';
 import { readableError } from '../errors.js';
+import { vendorKeysPanel } from './integrations.js';
 import type { AppContext } from '../context.js';
 import type { PlatformClientView, PlatformUser, AccountCadenceRow, CadenceOverride } from '../types.js';
 import { CADENCE_LABELS } from './settings.js';
@@ -432,15 +436,62 @@ async function usersPanel(ctx: AppContext): Promise<HTMLElement> {
           el('div', { class: 'intg-assigns' }, data.users.map((u) =>
             userRow(u, data.adminCount <= 1, ctx, () => void render()),
           )),
-          el('div', { class: 'fhint num' }, [
-            'New sign-in accounts are created with `pnpm db:user --email <address> --role admin|user`.',
-          ]),
         ]),
       ]),
     );
   };
   await render();
   return host;
+}
+
+/**
+ * The checklist, and what to do about each row.
+ *
+ * An operator's first question on a fresh deployment is "what is not set up
+ * yet", and until now the only answer was to read four panels and infer it.
+ * Every row is derived from state the deployment already reports, so it cannot
+ * claim something is done after someone deletes the secret behind it.
+ *
+ * A failed read is a `todo` row naming the read that failed, not a thrown
+ * error: nine rows where one cannot be determined is more useful than no
+ * checklist at all.
+ */
+async function checklistPanel(): Promise<HTMLElement> {
+  const [readiness, google, github, users, queue] = await Promise.all([
+    fetchIntegrations().catch(() => null),
+    fetchPlatformClient('google').catch(() => null),
+    fetchPlatformClient('github').catch(() => null),
+    fetchPlatformUsers().catch(() => null),
+    fetchQueueHealth().catch(() => null),
+  ]);
+
+  const rows = operatorChecklist({ readiness, google, github, users, queue });
+  const done = rows.filter((r) => r.state === 'done').length;
+
+  return el('section', { class: 'panel' }, [
+    el('header', {}, [
+      el('h3', {}, ['Deployment checklist']),
+      el('span', { class: 'more num' }, [`${done} of ${rows.length} done`]),
+    ]),
+    el('div', { class: 'oplist' }, rows.map((r) =>
+      el('div', { class: `oprow ${r.state}` }, [
+        // A glyph, not a coloured dot alone: colour is the fast read, and the
+        // mark is what survives a screenshot in greyscale or a colour-blind
+        // reader. `aria-hidden`, with the state named in the row's own text.
+        el('span', { class: 'opmark', 'aria-hidden': 'true' }, [
+          r.state === 'done' ? '✓' : r.state === 'partial' ? '!' : '•',
+        ]),
+        el('div', { class: 'opmain' }, [
+          el('div', { class: 't' }, [r.label]),
+          el('div', { class: 'm' }, [r.detail]),
+          r.next ? el('div', { class: 'opnext num' }, [r.next]) : null,
+        ].filter(Boolean) as HTMLElement[]),
+        el('span', { class: `opstate ${r.state}` }, [
+          r.state === 'done' ? 'done' : r.state === 'partial' ? 'partial' : 'to do',
+        ]),
+      ]),
+    )),
+  ]);
 }
 
 /**
@@ -502,15 +553,69 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
       usersPanel(ctx),
       cadencePanel(ctx),
     ]);
-    host.replaceChildren(
-      el('div', { class: 'settings-sec' }, ['Platform']),
-      google,
-      github,
-      users,
-      cadence,
-    );
+    // No section heading of its own any more. It carried one while it was a
+    // block at the bottom of Settings; on a screen already titled Platform it
+    // repeated the h1 two lines below it.
+    host.replaceChildren(google, github, users, cadence);
   };
 
   await render();
   return host;
+}
+
+/** One panel's failure, named, so the rest of the screen still renders. */
+function failedPanel(what: string, err: unknown): HTMLElement {
+  return el('section', { class: 'panel' }, [
+    el('div', { class: 'fq-note' }, [`Could not load ${what}: ${readableError(err)}`]),
+  ]);
+}
+
+/**
+ * The Platform screen at `#/platform`, for an operator.
+ *
+ * It was a section at the bottom of Settings, under a customer's brand names
+ * and sign-in. That put a deployment's OAuth client registration on the same
+ * scroll as "change my password", and it meant the operator's own work had no
+ * address to link to or bookmark.
+ *
+ * Not in the rail. An admin is a customer too on every other screen, and a
+ * seventh rail item that is invisible to almost everyone is worse than a hash
+ * an operator learns once. Reached from the Settings pointer below.
+ *
+ * A non-admin is sent to Home rather than shown a refusal: the API answers 404
+ * to them, so there is nothing to render, and a customer has no reason to learn
+ * that an operator screen exists.
+ */
+export async function platformView(ctx: AppContext): Promise<HTMLElement> {
+  let isAdmin = false;
+  try {
+    isAdmin = (await fetchPlatformAccess()).isAdmin;
+  } catch {
+    isAdmin = false;
+  }
+  if (!isAdmin) {
+    ctx.navigate('home');
+    return el('div', {});
+  }
+
+  // Each part settles on its own. A panel that throws — `cadencePanel` reading
+  // a field off a row an older API did not send, say — used to take the whole
+  // screen to the shell's "Failed to render" box, and the checklist with it.
+  // The checklist is what an operator opens this screen for when something is
+  // broken, so it must not share a failure with the panels below it.
+  const [checklist, panels, vendorKeys] = await Promise.all([
+    checklistPanel(),
+    platformSection(ctx).catch((err: unknown) => failedPanel('the platform panels', err)),
+    vendorKeysPanel().catch((err: unknown) => failedPanel('the vendor keys', err)),
+  ]);
+
+  return el('div', {}, [
+    el('div', { class: 'pagehead' }, [
+      el('h1', {}, [screenName('platform')]),
+      el('p', {}, ['What this deployment needs in order to work. Not visible to customers.']),
+    ]),
+    checklist,
+    panels,
+    ...(vendorKeys ? [vendorKeys] : []),
+  ]);
 }

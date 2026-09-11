@@ -93,6 +93,12 @@ export interface ActionCard {
   status: ActionStatus;
   /** True when a person must read the wording before this fix can be approved. */
   needsReview: boolean;
+  /**
+   * Where this fix deploys. The Deployed card needs it: a PR fix is waiting on
+   * a merge, not on a page check, and saying "not checked yet" about it invites
+   * a customer to press a button that cannot succeed.
+   */
+  targetKind: string;
   reviewedAt?: string;
   reviewedBy?: string;
 }
@@ -197,6 +203,18 @@ export interface ReadinessReport {
   integrations: IntegrationReadiness[];
   mvpReady: boolean;
   summary: { configured: number; partial: number; missing: number; total: number };
+}
+
+/**
+ * Whether the crawl runner is alive and keeping up, as `GET /platform/queue`
+ * returns it. Three facts rather than one, because a depth on its own cannot
+ * tell a healthy empty queue from a deployment nobody has ever asked to crawl.
+ */
+export interface QueueHealth {
+  queued: number;
+  running: number;
+  oldestQueuedAgeSeconds: number | null;
+  lastFinishedAt: string | null;
 }
 
 /** One organic SERP result (A1). */
@@ -356,10 +374,19 @@ export interface ApiProject {
   createdAt: string;
 }
 
+/**
+ * What kind of thing an account is, as onboarding asks it and 0035 stores it.
+ * The same three values as `SITE_OWNER_KINDS` in `format.ts`, which is the
+ * form's own list with the labels the radio group shows.
+ */
+export type AccountKind = 'company' | 'agency' | 'individual';
+
 /** An account with its projects, as `GET /accounts` returns it (apps/api). */
 export interface ApiAccount {
   id: string;
   name: string;
+  /** Absent from an API deploy older than 0035, where every account is a company. */
+  kind?: AccountKind;
   branding: ApiAccountBranding;
   createdAt: string;
   projects: ApiProject[];
@@ -371,6 +398,7 @@ export interface ApiAccount {
 export interface AccountCard {
   id: string;
   name: string;
+  kind: AccountKind;
   branding: ApiAccountBranding;
   projects: ApiProject[];
   connectedProviders: ProviderId[];

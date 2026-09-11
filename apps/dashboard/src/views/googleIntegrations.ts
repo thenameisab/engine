@@ -3,7 +3,7 @@ import { logoTile } from '../logo.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
 import { openDialog, type DialogHandle } from '../dialog.js';
 import { readableError } from '../errors.js';
-import { integrationTileState, relativeTime, syncStatusLine } from '../format.js';
+import { integrationTileState, relativeTime, syncStatusLine, type IntegrationTileState } from '../format.js';
 import {
   getAccountId,
   setAccountId,
@@ -748,7 +748,24 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
         elsewhere: otherClients.filter((a) => a.connectedProviders.includes(entry.id)).map((a) => a.name),
       });
 
-    const tiles = catalog
+    const openPanel = (entry: ProviderCatalogEntry, state: IntegrationTileState) => () => {
+      openId = entry.id;
+      dialog = openDialog({
+        title: el('div', { class: 'intg-dialog-title' }, [
+          logoTile(entry.logoDomain, entry.name),
+          el('h2', { class: 'dialog-title' }, [entry.name]),
+          statusPill(state.label, state.tone),
+        ]),
+        label: entry.name,
+        content: panelFor(entry),
+        onClose: () => {
+          openId = null;
+          dialog = null;
+        },
+      });
+    };
+
+    const rated = catalog
       .map((entry) => ({
         entry,
         state: integrationTileState(entry, byProvider.get(entry.id), {
@@ -756,32 +773,43 @@ export async function integrationsGallery(ctx: AppContext): Promise<HTMLElement>
           isAdmin,
         }),
       }))
-      .sort((a, b) => a.state.sort - b.state.sort)
-      .map(({ entry, state }) =>
-        providerTile(entry, state, () => {
-          openId = entry.id;
-          dialog = openDialog({
-            title: el('div', { class: 'intg-dialog-title' }, [
-              logoTile(entry.logoDomain, entry.name),
-              el('h2', { class: 'dialog-title' }, [entry.name]),
-              statusPill(state.label, state.tone),
-            ]),
-            label: entry.name,
-            content: panelFor(entry),
-            onClose: () => {
-              openId = null;
-              dialog = null;
-            },
-          });
-        }),
-      );
+      .sort((a, b) => a.state.sort - b.state.sort);
+
+    // Planned providers sorted last already, but they were still six tiles in
+    // the grid a customer had to read past to find the three they can act on.
+    // Behind one disclosure they are still discoverable — the roadmap question
+    // "will you support X" has an answer on the screen — without competing
+    // with the tiles that do something today.
+    const connectable = rated.filter((t) => t.entry.availability !== 'planned');
+    const planned = rated.filter((t) => t.entry.availability === 'planned');
+    const tile = ({ entry, state }: (typeof rated)[number]) => providerTile(entry, state, openPanel(entry, state));
+
+    const plannedBlock = (): HTMLElement[] => {
+      if (planned.length === 0) return [];
+      const grid = el('div', { class: 'intg-planned-grid' }, planned.map(tile));
+      grid.hidden = true;
+      const label = `${planned.length} planned integration${planned.length === 1 ? '' : 's'}`;
+      const toggle = el('button', {
+        class: 'fgroup-toggle intg-planned-toggle',
+        type: 'button',
+        'aria-expanded': 'false',
+      }, [`Show ${label}`]);
+      toggle.addEventListener('click', () => {
+        grid.hidden = !grid.hidden;
+        toggle.setAttribute('aria-expanded', String(!grid.hidden));
+        toggle.textContent = grid.hidden ? `Show ${label}` : `Hide ${label}`;
+      });
+      return [toggle, grid];
+    };
+
     host.replaceChildren(
       el('div', { class: 'intg-scope' }, [
         'Connections for ',
         el('b', {}, [clientName ?? 'the selected client']),
         '. Every site of this client shares them; another client’s connections do not carry over.',
       ]),
-      ...tiles,
+      ...connectable.map(tile),
+      ...plannedBlock(),
     );
 
     // The panel that is open re-renders with the fresh state, so the customer
