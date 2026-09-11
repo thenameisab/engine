@@ -26,7 +26,7 @@ was written, so its scope has genuinely shrunk.
 
 | Item here | Detail lives in |
 |---|---|
-| §2 deployment steps | PR #120's description |
+| §2 the GitHub webhook (**not yet — see why**) | PR #120's description |
 | §3.1 the `kind` gate | redesign plan, step 1, decision 3 |
 | §3.2 the Local tab | **v1 data readiness, step 6** — broader than the summary here |
 | §4 vendor probe | driver scoping, §7 step 1, with §2 for what Sarvam documents |
@@ -39,10 +39,11 @@ was written, so its scope has genuinely shrunk.
 
 ## 1. Answer first: what to do now
 
-**You, in the next ten minutes:** the two deployment steps in §2. They are console actions on
-accounts I cannot reach, and until they are done a merged pull request is verified overnight
-instead of in seconds. Nothing else waits on them, so they are worth clearing before anything
-starts.
+**You: nothing, yet.** The first draft of this plan opened by asking you to set
+`GITHUB_WEBHOOK_SECRET` in the next ten minutes. That was a misread on my part and §2 now explains
+it: the secret hangs off a GitHub App that has never been registered, and even registered it
+carries nothing until a customer picks a PR deploy target. Leaving it unset is safe — the endpoint
+fails closed and the nightly pass finds merges correctly.
 
 **Me, first:** §3.1 — the `kind` gate. Half a day, no new CSS, and the thing a single-site
 customer notices first. §3.2 rides with it if its form turns out small; the detailed plan it comes
@@ -73,18 +74,43 @@ is worth more than a day of layout work, and it costs the layout pass nothing to
 
 ---
 
-## 2. Yours, not code (minutes)
+## 2. The GitHub webhook — **do not do this yet**
 
-From #120. The webhook is built, tested and merged; it is inert until both are done.
+This section said "yours, in the next ten minutes" in the first draft of this plan. That was
+wrong, and the correction matters more than the task.
+
+`GITHUB_WEBHOOK_SECRET` is production configuration, not a test fixture: it is the shared secret
+GitHub signs each delivery with, and `POST /webhooks/github` verifies. Nothing about it is
+development-only. But it cannot be done on its own and it is not useful yet, because of a chain
+nobody has started:
+
+1. The webhook URL is configured **in Engine's GitHub App settings**. That App has never been
+   registered — the working log for #82 records the install round trip, token minting and the
+   repository picker as "not verified: all need a registered GitHub App, which is the user's
+   one-time task", and it is still not done.
+2. With no App, there is nowhere to put the webhook URL. The secret alone does nothing.
+3. Even with the App registered, the webhook only carries merges of pull requests **Engine
+   opened**, which requires a customer to have installed the App and chosen "GitHub pull request"
+   as their deploy target. No customer has: `integration_connections` holds no `github` row and
+   `actions` holds none at all.
+
+So the trigger is not a date, it is **registering the GitHub App** — and the secret is one step of
+that setup, not a separate task before it. Registering the App is itself only worth doing when a
+customer needs PR-based deploys; a WordPress or Cloudflare target needs none of it.
+
+**Leaving it unset is safe, and the safety is deliberate.** With no secret the endpoint answers
+500 and refuses every delivery rather than trusting an unsigned body, so a half-finished setup
+fails closed. Merges are found by `scheduledPrMergeCheck` in the 03:15 pass — slower, never
+wrong, and it needs no webhook.
+
+**When you do register the App**, the webhook is three fields in the same form:
 
 1. `wrangler secret put GITHUB_WEBHOOK_SECRET` on the API Worker — any long random string.
-2. In Engine's GitHub App settings, set the webhook URL to `<api-origin>/webhooks/github`, paste
-   the same secret, and subscribe to **Pull requests**.
+2. Webhook URL `<api-origin>/webhooks/github`, the same secret in the secret field.
+3. Subscribe to **Pull requests**.
 
-**Done when:** merging a pull request Engine opened moves its card to Verified within a minute,
-rather than after the 03:15 pass. Until then the nightly pass covers it — slower, never wrong.
-The endpoint refuses every delivery while the secret is unset, so a half-finished setup fails
-closed.
+**Done when:** merging a pull request Engine opened moves its card to Verified within a minute
+rather than by the next morning.
 
 ---
 
@@ -321,7 +347,8 @@ Two housekeeping items before step 2:
 ## 9. Order, and what can overlap
 
 ```
-you ─► §2 deployment (minutes, independent of everything)
+you ─► nothing. §2 waits on registering the GitHub App, which waits on a customer
+       who needs PR deploys. Unset is safe: the endpoint fails closed.
 
 me  ─► §3 gates ─► §4 probe ─► §5a ─► §5b ─► §5c ─► §6 entity audit ─► §8 Driver 2…11
                        │                                                   ▲
@@ -337,7 +364,7 @@ layout work for a day. §7 is two small deletions and one scheduled call, indepe
 everything. `working_log.md` is the only file two branches would both edit, which is the known
 conflict point and cheap to resolve.
 
-Sizes, honestly: §2 is minutes and yours. §3 is half a day, more if §3.2's form is real work. §4
+Sizes, honestly: §2 is not yet due. §3 is half a day, more if §3.2's form is real work. §4
 is a day. §5 is three to four days across three PRs. §6 is a day. §7 is half a day. §8 is the
 rest.
 

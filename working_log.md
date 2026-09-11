@@ -1430,3 +1430,27 @@ shipped since, which is called out per item.
 
 Recommendation given: **§3.1 alone** (the `kind` gate) if the user wants something shipped today —
 §3.2 no longer fits beside it — or §4 if they want the biggest risk retired.
+
+### Correction the same day: the webhook secret was not due
+The user asked why `GITHUB_WEBHOOK_SECRET` is being set up and whether it is for production or
+testing. Checking it properly showed **my own "do this in the next ten minutes" was wrong**, and
+the plan is corrected.
+
+It is production configuration, not a test fixture — it is what GitHub signs deliveries with. But
+it cannot be done alone and carries nothing yet:
+
+- The webhook URL lives in **Engine's GitHub App settings**, and that App has never been
+  registered. This log already said so at #82: "not verified: the install round trip, token
+  minting against real GitHub, and the repository picker — all need a registered GitHub App, which
+  is the user's one-time task."
+- With no App there is nowhere to put the URL, so the secret does nothing.
+- Even registered, the webhook only carries merges of PRs **Engine opened**, which needs a
+  customer to install the App and choose a `github-pr` target. Nobody has:
+  `integration_connections` has no `github` row and `actions` is empty.
+
+So the trigger is registering the App — itself only worth doing when a customer wants PR deploys —
+and the secret is one field in that same form. Unset is safe by design: the endpoint answers 500
+and refuses every delivery rather than trusting an unsigned body, and `scheduledPrMergeCheck`
+finds merges without it.
+
+§2 of the plan is now titled "do not do this yet" and §1 opens with "You: nothing, yet."
