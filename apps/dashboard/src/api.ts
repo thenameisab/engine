@@ -876,6 +876,17 @@ export async function fetchIntegrationEvents(accountId: string): Promise<Integra
   return resp.events;
 }
 
+/**
+ * Whether the Local screen applies to this project — a Business Profile
+ * connection, or location facts typed in on Integrations. One server-side
+ * answer rather than two client-side checks, so the tab strip and the screen
+ * cannot disagree.
+ */
+export async function fetchLocalAvailability(): Promise<boolean> {
+  const resp = await request<{ available: boolean }>(`/projects/${requireProjectId()}/local-availability`);
+  return resp.available === true;
+}
+
 export async function fetchProjectIntegrations(): Promise<{
   assignments: IntegrationAssignment[];
   connections: IntegrationConnection[];

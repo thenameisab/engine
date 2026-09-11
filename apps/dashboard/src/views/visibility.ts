@@ -6,6 +6,7 @@ import { competitorsView } from './competitors.js';
 import { offsiteView } from './offsite.js';
 import { localView } from './local.js';
 import { readableError } from '../errors.js';
+import { fetchLocalAvailability } from '../api.js';
 import type { AppContext, View } from '../context.js';
 
 /**
@@ -40,20 +41,61 @@ export const VISIBILITY_TABS: VisibilityTab[] = [
 
 const DEFAULT_TAB = VISIBILITY_TABS[0].id;
 
-/** The tab named in `#/visibility/<tab>`, or the first one. */
+/**
+ * The tab named in `#/visibility/<tab>`, or the first one.
+ *
+ * Deliberately knows nothing about the Local gate below. This is the name of
+ * the tab a hash refers to, used by the breadcrumb as well as by the view, and
+ * it is synchronous — a crumb must not wait on a fetch, and a hash that names
+ * a gated tab still names it.
+ */
 export function visibilityTabId(hash: string): string {
   const part = hash.replace(/^#\/?/, '').split('/')[1] ?? '';
   return VISIBILITY_TABS.some((t) => t.id === part) ? part : DEFAULT_TAB;
 }
 
+/**
+ * The tabs this project actually has.
+ *
+ * Local is the only conditional one. A business with no location — most SaaS,
+ * most publishers — had a fifth tab that could never say anything but "no
+ * location scored yet", which teaches that the product is guessing about them.
+ * It appears once there is a Business Profile connection, or once someone has
+ * typed the location facts in on Integrations.
+ *
+ * `null` means the answer is not known — the request failed. Unknown shows the
+ * tab: a transient API failure must not move a customer off the screen they
+ * were on, and an empty tab is a smaller error than a missing one.
+ */
+export function visibleVisibilityTabs(localAvailable: boolean | null): VisibilityTab[] {
+  if (localAvailable === false) return VISIBILITY_TABS.filter((t) => t.id !== 'local');
+  return VISIBILITY_TABS;
+}
+
 export async function visibilityView(ctx: AppContext): Promise<HTMLElement> {
-  const active = visibilityTabId(location.hash);
+  // Asked before the strip is built, not after, so the four-or-five decision
+  // happens in the same frame as the rest of the screen. The shell already
+  // awaits this view, so the gate costs one request and no flash of a tab
+  // that is about to disappear.
+  const localAvailable = await fetchLocalAvailability().catch(() => null);
+  const tabs = visibleVisibilityTabs(localAvailable);
+
+  let active = visibilityTabId(location.hash);
+  // A bookmark, or the old `#/local` alias, pointing at a tab this project
+  // does not have. Same shape as the shell's `clients` redirect: the
+  // destination stays in the table and is simply not this project's.
+  if (!tabs.some((t) => t.id === active)) {
+    active = DEFAULT_TAB;
+    location.hash = `#/visibility/${DEFAULT_TAB}`;
+    return el('div', {});
+  }
+
   const body = el('div', { class: 'tabbody' });
 
   const strip = el(
     'div',
     { class: 'tabstrip', role: 'tablist', 'aria-label': screenName('visibility') },
-    VISIBILITY_TABS.map((t) =>
+    tabs.map((t) =>
       el('a', {
         class: `tab${t.id === active ? ' on' : ''}`,
         href: `#/visibility/${t.id}`,
@@ -81,7 +123,7 @@ export async function visibilityView(ctx: AppContext): Promise<HTMLElement> {
     else if (on.offsetLeft < strip.scrollLeft) strip.scrollLeft = on.offsetLeft;
   });
 
-  const tab = VISIBILITY_TABS.find((t) => t.id === active)!;
+  const tab = tabs.find((t) => t.id === active)!;
   try {
     body.replaceChildren(await tab.view(ctx));
   } catch (err) {
