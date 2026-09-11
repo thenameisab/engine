@@ -9,11 +9,19 @@
  * fix is proposed with nowhere to put it.
  */
 import { el } from './dom.js';
-import { fetchDeployTarget, saveDeployTarget } from './api.js';
+import {
+  fetchConnectUrl,
+  fetchConnections,
+  fetchDeployTarget,
+  fetchPlatformAccess,
+  getAccountId,
+  saveDeployTarget,
+} from './api.js';
 import { readableError } from './errors.js';
 import { openDialog } from './dialog.js';
+import { openConsentPopup } from './consentPopup.js';
 import type { AppContext } from './context.js';
-import type { DeployTarget } from './types.js';
+import type { DeployTarget, IntegrationConnection } from './types.js';
 
 export interface DeployTargetFormOptions {
   current: DeployTarget | null;
@@ -25,10 +33,17 @@ export interface DeployTargetFormOptions {
 /** The fields and the Save button, without any panel or dialog around them. */
 export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOptions): HTMLElement {
   const current = options.current;
+  // Ordered by how much work the customer has left after choosing.
+  //
+  // A plugin or a worker applies the fix live: approve it and the page is
+  // different. A pull request needs a repository, a branch, a file path, and
+  // then someone to merge it — and until they do, nothing has changed. GitHub
+  // was first on this list, so the default for a new site was the one option
+  // that cannot finish on its own.
   const kind = el('select', { class: 'field' }, [
-    el('option', { value: 'github-pr' }, ['GitHub PR']),
+    el('option', { value: 'cms-plugin' }, ['WordPress or Shopify plugin']),
     el('option', { value: 'edge-worker' }, ['Cloudflare edge worker']),
-    el('option', { value: 'cms-plugin' }, ['CMS plugin (WordPress/Shopify)']),
+    el('option', { value: 'github-pr' }, ['GitHub pull request']),
   ]) as HTMLSelectElement;
   if (current) kind.value = current.kind;
 
@@ -59,10 +74,119 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
     siteId,
   ]);
 
+  /**
+   * Whether Engine can actually open a pull request for this client, and what
+   * to do about it when it cannot.
+   *
+   * A PR target is the only kind that needs a second thing set up: the customer
+   * has to install Engine's GitHub App on the repositories it may write to, and
+   * before that an operator has to register the App itself. Without either, the
+   * form saved happily and the first Deploy failed with a 503 — the customer
+   * learned about the missing step from a failed fix.
+   *
+   * Three states, because the two failures have different owners: the App
+   * unregistered is the administrator's to fix, the App uninstalled is the
+   * customer's, and conflating them tells one of them to do the other's job.
+   */
+  const ghSetup = el('div', { class: 'dt-gh' }, []);
+  let ghLoaded = false;
+
+  const paintGhSetup = async (): Promise<void> => {
+    const accountId = getAccountId();
+    if (!accountId) {
+      ghSetup.replaceChildren(
+        el('div', { class: 'intg-note' }, ['Pick a client first — the GitHub installation belongs to one.']),
+      );
+      return;
+    }
+    let registered = false;
+    let connection: IntegrationConnection | undefined;
+    let isAdmin = false;
+    try {
+      const [state, access] = await Promise.all([
+        fetchConnections(accountId),
+        fetchPlatformAccess().catch(() => ({ isAdmin: false })),
+      ]);
+      registered = state.vendorsConfigured.github ?? false;
+      connection = state.connections.find((c) => c.provider === 'github');
+      isAdmin = access.isAdmin;
+    } catch {
+      // Unreachable API. Say nothing rather than claim a state: the fields
+      // below still work, and inventing "not installed" would send a customer
+      // to install something they may already have.
+      ghSetup.replaceChildren();
+      return;
+    }
+
+    if (!registered) {
+      ghSetup.replaceChildren(
+        el('div', { class: 'intg-note warn' }, [
+          isAdmin
+            ? 'Engine’s GitHub App is not registered for this workspace yet. Register it once on the Platform screen, and every client can install it from here.'
+            : 'Needs setup by your administrator. Engine’s GitHub App is not registered for this workspace yet, so it cannot open pull requests for anyone.',
+        ]),
+      );
+      if (isAdmin) {
+        ghSetup.append(
+          el('div', { class: 'form-actions' }, [
+            el('button', { class: 'btn', type: 'button', onclick: () => ctx.navigate('platform') }, ['Open Platform']),
+          ]),
+        );
+      }
+      return;
+    }
+
+    const live = connection?.status === 'connected';
+    const label = live
+      ? 'Change which repositories'
+      : connection?.status === 'needs_reauth'
+        ? 'Install Engine on GitHub again'
+        : 'Install Engine on GitHub';
+
+    // The same flow the Integrations tile runs, not a second one: one popup,
+    // one callback, one place where a connection is recorded.
+    const install = el('button', { class: live ? 'btn' : 'btn primary', type: 'button', onclick: async () => {
+      install.setAttribute('disabled', 'true');
+      try {
+        const url = await fetchConnectUrl(accountId, 'github', window.location.hash || '/');
+        const outcome = await openConsentPopup(url);
+        if (outcome === 'cancelled') ctx.toast('Nothing was installed.');
+        else ctx.toast('Checking the installation…');
+        // Either way, re-read rather than assert: the popup can succeed and
+        // close without reporting.
+        await paintGhSetup();
+      } catch (err) {
+        ctx.toast(`Could not start the installation: ${readableError(err)}`);
+      } finally {
+        install.removeAttribute('disabled');
+      }
+    } }, [label]);
+
+    ghSetup.replaceChildren(
+      el('div', { class: `intg-note${live ? '' : ' warn'}` }, [
+        live
+          ? 'Engine is installed on GitHub for this client. Approved fixes open a pull request in the repository below.'
+          : 'Engine is not installed on GitHub for this client yet, so a pull request cannot be opened. Install it once and every fix after this one goes there.',
+      ]),
+      el('div', { class: 'form-actions' }, [install]),
+    );
+  };
+
   const showFields = (): void => {
-    ghFields.style.display = kind.value === 'github-pr' ? '' : 'none';
-    edgeFields.style.display = kind.value === 'edge-worker' ? '' : 'none';
-    cmsFields.style.display = kind.value === 'cms-plugin' ? '' : 'none';
+    const isGh = kind.value === 'github-pr';
+    // `hidden`, not `style.display`: an inline style beats the stylesheet's
+    // `[hidden]` rule, and having two mechanisms decide one element's
+    // visibility is how a class with a `display` silently wins.
+    ghFields.hidden = !isGh;
+    ghSetup.hidden = !isGh;
+    edgeFields.hidden = kind.value !== 'edge-worker';
+    cmsFields.hidden = kind.value !== 'cms-plugin';
+    // Loaded on first use, not on mount: most customers never pick GitHub, and
+    // this costs two requests.
+    if (isGh && !ghLoaded) {
+      ghLoaded = true;
+      void paintGhSetup();
+    }
   };
   kind.addEventListener('change', showFields);
   showFields();
@@ -103,7 +227,10 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
   return el('div', { class: 'form' }, [
     el('label', { class: 'flabel' }, ['Where approved fixes deploy']),
     kind,
-    el('div', { class: 'fhint num' }, ['Every generated fix lands here. GitHub PR opens a pull request; edge worker / CMS plugin apply live.']),
+    el('div', { class: 'fhint' }, [
+      'Every generated fix lands here. A plugin or a worker applies it live; a pull request waits for you to merge it.',
+    ]),
+    ghSetup,
     ghFields,
     edgeFields,
     cmsFields,

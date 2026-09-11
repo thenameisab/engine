@@ -3,6 +3,7 @@ import { logoTile } from '../logo.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
 import { openDialog, type DialogHandle } from '../dialog.js';
 import { readableError } from '../errors.js';
+import { openConsentPopup } from '../consentPopup.js';
 import { integrationTileState, relativeTime, syncStatusLine, type IntegrationTileState } from '../format.js';
 import {
   getAccountId,
@@ -40,7 +41,7 @@ import type {
  * site is chosen, synced, and disconnected.
  *
  * Nothing operator-facing renders here. Engine's own OAuth client and the
- * deployment's vendor keys live under Settings. When the OAuth client is
+ * deployment's vendor keys live on the Platform screen. When the OAuth client is
  * missing, an administrator's tile says "Needs setup" and the panel links
  * there; a customer's tile says "Not available yet" and the panel says who to
  * ask. Neither is a disabled button with the reason hidden behind a hover.
@@ -81,47 +82,6 @@ function healthProblem(
   return null;
 }
 
-/**
- * Open Google's consent screen in a popup and resolve when the callback page
- * reports back.
- *
- * A popup rather than a full-page redirect so the user keeps the screen they
- * were on. The callback page posts a message and closes itself; the polling
- * fallback covers the case where the user closes the popup by hand, which would
- * otherwise leave this promise pending forever.
- */
-function openConsentPopup(url: string): Promise<'connected' | 'cancelled' | 'closed'> {
-  return new Promise((resolve) => {
-    const popup = window.open(url, 'engine-google-oauth', 'width=520,height=680');
-    if (!popup) {
-      // Popup blocked. Falling back to the current tab is better than silently
-      // doing nothing; the callback page offers a link back.
-      window.location.href = url;
-      resolve('closed');
-      return;
-    }
-
-    let settled = false;
-    const finish = (outcome: 'connected' | 'cancelled' | 'closed') => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener('message', onMessage);
-      clearInterval(poll);
-      resolve(outcome);
-    };
-
-    function onMessage(event: MessageEvent) {
-      const data = event.data as { source?: string; status?: string } | null;
-      if (!data || data.source !== 'engine-oauth') return;
-      finish(data.status === 'connected' ? 'connected' : 'cancelled');
-    }
-
-    window.addEventListener('message', onMessage);
-    const poll = setInterval(() => {
-      if (popup.closed) finish('closed');
-    }, 500);
-  });
-}
 
 /**
  * Which vendor account this is, for the "Connected as" line.
@@ -400,12 +360,14 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
       elsewhereNote,
       el('div', { class: 'intg-note warn' }, [
         isAdmin
-          ? `Engine's ${vendor} app is not registered for this workspace yet. Register it once under Settings, and every client can connect from here.`
+          // "under Settings" and a button to Settings, both of which stopped
+          // being true when the operator panels moved to their own screen.
+          ? `Engine's ${vendor} app is not registered for this workspace yet. Register it once on the Platform screen, and every client can connect from here.`
           : `${vendor} is not set up for this workspace yet. Ask your administrator to finish the setup.`,
       ]),
       isAdmin
         ? el('div', { class: 'form-actions' }, [
-            el('button', { class: 'btn primary', onclick: () => ctx.navigate('settings') }, [`Finish ${vendor} setup`]),
+            el('button', { class: 'btn primary', onclick: () => ctx.navigate('platform') }, [`Finish ${vendor} setup`]),
           ])
         : null,
     ]);

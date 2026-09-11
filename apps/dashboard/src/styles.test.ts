@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -18,6 +19,7 @@ import { fileURLToPath } from 'node:url';
  * silence.
  */
 const css = readFileSync(fileURLToPath(new URL('../styles.css', import.meta.url)), 'utf8');
+const SRC = fileURLToPath(new URL('.', import.meta.url));
 
 describe('styles.css base rules', () => {
   it('gives every link its context colour instead of the browser default', () => {
@@ -80,6 +82,39 @@ describe('styles.css base rules', () => {
     expect(block.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? []).toEqual([]);
     const reduced = block.slice(block.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(reduced).toMatch(/\.skel-bar \{[^}]*animation: none/);
+  });
+
+  it('makes el.hidden beat any class that sets display', () => {
+    // The UA's own `[hidden] { display: none }` loses to every author rule, so
+    // a class with a `display` leaves a hidden element on screen. The
+    // stylesheet patched that per class twice and missed `.intg-planned-grid`,
+    // which shipped the planned-integrations disclosure permanently open.
+    expect(css).toMatch(/^\[hidden\] \{[^}]*display:\s*none\s*!important/m);
+  });
+
+  it('has no per-class [hidden] patches left, which is what the global rule replaced', () => {
+    // A new one means someone hit the trap again and treated it as local.
+    const patches = [...css.matchAll(/^\.[\w-]+\[hidden\]\s*\{/gm)].map((m) => m[0]);
+    expect(patches).toEqual([]);
+  });
+
+  it('sets visibility with el.hidden rather than style.display', () => {
+    // `style.display` is an inline style, which beats the rule above and puts
+    // two mechanisms in charge of one element's visibility. Scanned across the
+    // whole source tree, not just `views/`: the deploy-target form is a shared
+    // module a level above it and was the last place doing this.
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+          if (/\.style\.display\s*=/.test(readFileSync(full, 'utf8'))) offenders.push(entry.name);
+        }
+      }
+    };
+    walk(SRC);
+    expect(offenders).toEqual([]);
   });
 
   it('defines every token the stylesheet spends', () => {
