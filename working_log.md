@@ -1374,3 +1374,35 @@ actually true.
 
 Promotion of the Driver document to `docs/feature-specs/D1-driver.md` is now due and was not done;
 §9a has to be folded into §4 when it happens rather than appended to it.
+
+## 2026-09-11 (build plan for the remainder)
+Wrote `docs/reviews/2026-09-11-remaining-build-plan.md` off `91bf455`. Covers everything left
+across the redesign plan, the action plan and the Driver document, sized and sequenced.
+
+**The order, and the reasoning that decided it:**
+1. **The two deployment steps** — the user's, minutes. `GITHUB_WEBHOOK_SECRET` and the App's
+   webhook URL. The #120 code is inert until both are done.
+2. **The two gating checks** (S, half a day) — the `kind` gate and the Local tab. Neither adds a
+   row, a stat cell or an empty state, so neither collides with the layout pass.
+3. **The Driver vendor probe** (S, a day) — Driver §7 step 1, unblocked since #111 landed. Put
+   before the layout pass because it is the only remaining item whose result can change a *design*
+   rather than an implementation: if a worst-case turn does not fit a Worker invocation, the loop
+   moves off the Worker.
+4. **The layout pass**, redesign step 9 (L, 3–4 days) split into three PRs — rows and stat cells,
+   empty states, then breakpoints and field widths.
+5. **Data screen 3** (S/M) after the layout pass, so the brand-strength Findings group is built on
+   the new grammar rather than adding a tenth row.
+6. **Driver steps 2–11**, after the layout pass.
+
+**Why not Driver first, written down so it is not re-argued:** Driver is the largest new surface
+left — thread list, message list, tool-call blocks, metric and table parts, three-plus empty
+states — and every one of those is a list row, a stat cell or an empty state. Building it before
+step 9 repeats the #119 mistake at roughly four times the size. The plan warned about this once,
+we did it anyway, and `.oprow` and `.fstrip` are the receipts.
+
+Two measurements corrected while drafting, both caught by grep rather than shipped: the row split
+is **five grid / four flex**, not four/five as first written, and `.fq-note` spans **17** files,
+not 16.
+
+Recommendation given: §3 if the user wants something shipped today, §4 if they want the biggest
+risk retired today.
