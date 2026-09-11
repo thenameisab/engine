@@ -176,6 +176,18 @@ const COPY = {
    Page shell
    ———————————————————————————————————————————————— */
 
+/**
+ * Setup guides. Not in NAV — see buildGuides().
+ */
+const GUIDES = [
+  {
+    slug: 'connecting-google',
+    title: 'Connecting Google',
+    description:
+      'How to connect Search Console, Analytics 4 and Business Profile to Engine — registering the Google client once, then connecting an account.',
+  },
+];
+
 const NAV = [
   ['/docs', 'Overview'],
   ['/docs/architecture', 'Architecture'],
@@ -665,6 +677,40 @@ ${md2html(ROADMAP_MD)}
   });
 }
 
+/**
+ * Long-form setup guides, authored as HTML rather than markdown because they
+ * carry figures and callouts that markdown cannot express without a pile of
+ * inline tags. Each guide owns a body fragment in content/guides/ and a folder
+ * of screenshots beside it.
+ *
+ * The screenshots are copied rather than linked: OUT is wiped on every build,
+ * so anything living there is output, and the source of truth stays under
+ * content/. Guides are deliberately absent from NAV — they are linked from the
+ * page that needs them, not from the top-level docs navigation.
+ */
+function buildGuides() {
+  for (const g of GUIDES) {
+    const src = join(WEB, 'content', 'guides', g.slug + '.html');
+    const route = join('guides', g.slug);
+    write(route, {
+      title: g.title,
+      description: g.description,
+      active: '/docs',
+      body: readFileSync(src, 'utf8'),
+    });
+    // Screenshots land beside the page, so the fragment can use img/<name>.
+    const imgFrom = join(WEB, 'content', 'guides', 'img');
+    if (existsSync(imgFrom)) {
+      const imgTo = join(OUT, route, 'img');
+      mkdirSync(imgTo, { recursive: true });
+      for (const name of readdirSync(imgFrom)) {
+        if (name.startsWith('.')) continue;
+        writeFileSync(join(imgTo, name), readFileSync(join(imgFrom, name)));
+      }
+    }
+  }
+}
+
 function buildIndex(specs) {
   const available = specs.filter((s) => s.status === 'available').length;
   write('', {
@@ -733,6 +779,7 @@ buildArchitecture(specs);
 buildFeatures(specs);
 buildChangelog();
 buildRoadmap();
+buildGuides();
 
 if (leaks.length) {
   console.error(
