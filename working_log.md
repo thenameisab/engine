@@ -2181,3 +2181,20 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
   **8-second** abort, against the loop's **45-second** budget. The Driver call cannot go through
   it unchanged.
 - Green: `turbo typecheck test --force` 65/65. Driver **84**, up from 67; API **553**, up from 548.
+
+## 2026-09-11 — Fix the Integrations banner I shipped broken
+- Branch `fix/integrations-banner` off `origin/main` (7473862). #135 was already merged, so it
+  was not reused; main had also taken #136 in between.
+- Three defects in the banner from #135, all visible in one screenshot: it overlapped the line
+  below it, said "Github", and used the loudest box on the page for an optional vendor.
+- **Overlap:** `.intg-scope` carries `margin-top: -4px` to sit tight under a pagehead, and rode
+  up through the banner's bottom border. Measured with Playwright against the real stylesheet:
+  **-4px before, +12px after**. New `.intg-banner { margin-bottom: 16px }` rather than removing
+  the negative margin, which is still right on the screens with no banner.
+- **"Github":** `vendorsConfigured` is keyed by a lowercased vendor, and title-casing a key does
+  not give a brand back. Display names now come from the catalogue, which spells it "GitHub".
+- **Weight:** dropped `warn`. `styles.css:189` documents `.notebox` as "a prerequisite the user
+  has to satisfy first", which is exactly what this is; every affected tile already says
+  "Needs setup". Button is secondary now, and the copy is singular when one vendor is named.
+- Verification was the gap this build closed: #135 shipped with no browser walk, and this is
+  what that cost. Harness in the session scratchpad, not committed.
