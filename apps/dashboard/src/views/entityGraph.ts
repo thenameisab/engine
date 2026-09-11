@@ -70,7 +70,7 @@ export async function entityGraphView(ctx: AppContext): Promise<HTMLElement> {
     listWrap.replaceChildren(
       rows.length === 0
         ? el('section', { class: 'panel' }, [
-            el('div', { class: 'fq-note' }, [
+            el('div', { class: 'emptybox' }, [
               'Nothing to score yet. This audit runs by itself after every crawl — run one now if you would rather not wait.',
             ]),
           ])
@@ -100,7 +100,7 @@ export async function entityGraphView(ctx: AppContext): Promise<HTMLElement> {
 
   if (loadError) {
     listWrap.append(
-      el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load entity strengths: ${loadError}`])]),
+      el('section', { class: 'panel' }, [el('div', { class: 'errbox' }, [`Could not load entity strengths: ${loadError}`])]),
     );
   } else {
     render(strengths);

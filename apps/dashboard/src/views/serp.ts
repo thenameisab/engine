@@ -160,7 +160,7 @@ export async function serpView(ctx: AppContext): Promise<HTMLElement> {
       loadError
         ? el('div', { class: 'errbox' }, [loadError])
         : trackedKeywords.length === 0
-        ? el('div', { class: 'fq-note' }, [
+        ? el('div', { class: 'emptybox' }, [
             'Nothing tracked yet. Track a keyword below and its position is polled every week.',
           ])
         : el('div', {}, [
@@ -184,7 +184,7 @@ export async function serpView(ctx: AppContext): Promise<HTMLElement> {
     if (!search) {
       suggestWrap.replaceChildren(
         el('header', {}, [el('h3', {}, ['Suggestions from Search Console'])]),
-        el('div', { class: 'fq-note' }, [
+        el('div', { class: 'notebox' }, [
           'Connect Google Search Console and Engine will suggest the queries this site nearly ranks for.',
         ]),
       );
@@ -207,7 +207,7 @@ export async function serpView(ctx: AppContext): Promise<HTMLElement> {
         el('span', { class: 'kw-country-wrap' }, [el('span', { class: 'label' }, ['Track for']), suggestCountry]),
       ]),
       candidates.length === 0
-        ? el('div', { class: 'fq-note' }, ['Every query Search Console suggests is already tracked.'])
+        ? el('div', { class: 'emptybox' }, ['Every query Search Console suggests is already tracked.'])
         : el('div', { class: 'kw-list' }, candidates.map((q) => {
             const btn = el('button', { class: 'frow-act' }, ['Track']);
             btn.addEventListener('click', async () => {

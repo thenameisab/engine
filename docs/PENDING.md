@@ -4,9 +4,10 @@
 `working_log.md` is the history; this is the state. If the two disagree, this file is wrong and
 should be corrected from the source.
 
-Last updated: 2026-09-11, against `origin/main` at `f2f74c9` (#125 merged) with
-`feat/row-grammar` applied. Every row below was re-measured against the tree, not carried
-forward.
+Last updated: 2026-09-11, against `origin/main` at `a65a34d` (#126 merged) with
+`feat/empty-state-grammar` applied. Every row below was re-measured against the tree, not
+carried forward — and doing so retired one row that had gone stale. See "What changed in this
+audit".
 
 Sequence and reasoning: `docs/reviews/2026-09-11-remaining-build-plan.md`. Read the linked
 detail before starting an item — it is more precise than the one-liners here.
@@ -17,16 +18,16 @@ detail before starting an item — it is more precise than the one-liners here.
 
 | # | Item | Size | State | Detail | Blocked by |
 |---|---|---|---|---|---|
-| 1 | **Layout pass 5b — empty states.** Six become one. `.fq-note` is used 63 times across 17 files and prices a one-line message as a centred full-height panel. | S | next | **redesign plan, step 9** | — |
-| 2 | **Layout pass 5c — breakpoints and field widths.** Seven breakpoints become three, named; `.serp-form-row .field { flex: 1 }` goes; Competitors' cards clamped and its control row labelled consistently. | S | open | redesign plan, step 9 | 1 |
-| 3 | **Entity audit on a crawl.** Three of four deterministic audits run nightly; entity has no automatic trigger. Then brand strength as a Findings group. | S | open | **v1 readiness, step 4**, first bullet | 2 |
-| 4 | **Two Tier 2 leftovers.** Delete `packages/connectors/src/google/oauth.ts`, its test and its line in `google/index.ts`; schedule `reapExpiredFlows` so `oauth_flows` stops growing forever. | S | open | ship-readiness review, Tier 2 | — |
-| 5 | **Driver, steps 2–11.** Connector tool calling, the agent loop, persistence (migration 0036+), the response protocol, the screen, write tools, injection controls, the bar, evaluation. | L | open | driver scoping, §7 + **§9a** | 2, and the probe's findings |
+| 1 | **Layout pass 5c — breakpoints and field widths.** Seven breakpoints become three, named; `.serp-form-row .field { flex: 1 }` goes; Competitors' cards clamped and its control row labelled consistently. Also fixes `.flabel.check`. | S | next | **redesign plan, step 9** | — |
+| 2 | **Brand strength as a Findings group.** The entity audit already runs on every crawl; what is missing is surfacing its strengths as a group on Findings. | S | open | v1 readiness, step 4, first bullet — **second half only** | — |
+| 3 | **Two Tier 2 leftovers.** Delete `packages/connectors/src/google/oauth.ts`, its test and its line in `google/index.ts`; schedule `reapExpiredFlows` so `oauth_flows` stops growing forever. | S | open | ship-readiness review, Tier 2 | — |
+| 4 | **`NIGHTLY_AUDIT_KINDS` is dead.** Declared in `deterministicAudits.ts:30` and read nowhere; `listDueAudits` hardcodes the kinds in its SQL instead. Found during this audit, not deleted — it is not this build's mess. | XS | open | — | — |
+| 5 | **Driver, steps 2–11.** Connector tool calling, the agent loop, persistence (migration 0036+), the response protocol, the screen, write tools, injection controls, the bar, evaluation. | L | open | driver scoping, §7 + **§9a** | the probe's findings |
 
-Item 4 has no dependencies and fits in any branch. Items 1–2 are serial: both touch
-`styles.css`, which is the repo's one-branch-at-a-time rule.
+Item 1 is the only one that touches `styles.css`, so it is the only one bound by the
+one-branch-at-a-time rule. Items 2, 3 and 4 are independent and fit in any branch.
 
-**The Driver vendor probe has moved out of Open** — it is not pending work, it is blocked on a
+**The Driver vendor probe is not in Open** — it is not pending work, it is blocked on a
 credential. See the table below.
 
 ### What each row was measured against
@@ -35,25 +36,37 @@ Recorded so the next audit re-measures rather than trusting this line.
 
 | Row | Measurement |
 |---|---|
-| 1 | `fq-note` appears 63 times across 17 non-test files under `apps/dashboard/src`. Unchanged by the row grammar, which moved no empty state |
-| 2 | Seven media breakpoints — 560, 620, 640, 720, 760, 860, 1080. One `max-width` that is an element width remains (1180 on `.content`); the 110px one went with `.gm-bar`'s flex sizing. `.serp-form-row .field { flex: 1; min-width: 160px }` at `:639`; `.ci-blurb` at `:994` sets no clamp. This build added a second rule at 620 and removed one at 560, so the set is the same seven |
-| 3 | `NIGHTLY_AUDIT_KINDS = ['offsite', 'competitor', 'local']` (`deterministicAudits.ts:30`) — no `entity`. `runQueue.ts` names `entity-audit` nowhere. No brand-strength string anywhere in the dashboard |
-| 4 | `google/oauth.ts` and its test exist; `google/index.ts:3` re-exports them and nothing consumes the result. `reapExpiredFlows` (`oauthFlows.ts:139`) still has no caller anywhere under `apps/api/src` |
+| 1 | Seven distinct `max-width` breakpoints — 560 (×9), 620 (×5), 640, 720, 760, 860 (×3), 1080. `.serp-form-row .field { flex: 1; min-width: 160px }` at `:650`; `.ci-blurb` at `:1004` sets no clamp. `.flabel` (`:598`) still sets no `display: flex`, so `.flabel.check`'s (`:235`) `flex-direction` and `gap` still render nothing. Pass 5b moved none of these |
+| 2 | `runEntityAuditAfterCrawl` (`deterministicAudits.ts:218`) is called at `index.ts:2800` on the runner's finish route and records the run with `trigger: 'crawl'`. So the trigger exists. `grep -ri "brand strength" apps/dashboard/src` returns 0 |
+| 3 | `google/oauth.ts` and `oauth.test.ts` both exist; `google/index.ts:3` re-exports them and nothing consumes the result. `reapExpiredFlows` (`oauthFlows.ts:139`) has one occurrence in the tree — its own definition |
+| 4 | `NIGHTLY_AUDIT_KINDS` has one occurrence across `apps` and `packages` excluding `dist`: its declaration. `listDueAudits` (`:111`) selects `'offsite'::text as kind` and its siblings directly in SQL |
+
+### What changed in this audit
+
+Row 3 of the previous ledger said the entity audit "has no automatic trigger". That was wrong
+against this tree: `runEntityAuditAfterCrawl` runs it after every crawl. The previous audit
+measured the row by grepping `runQueue.ts` under `apps/api/src`, where no such file exists — it
+lives at `packages/crawler/src/runQueue.ts`, and the trigger was never going to be there anyway,
+because the API's finish route is what calls it. The row is now scoped to the half that is
+genuinely open, and its measurement names a call site instead of an absence.
 
 ### What step 9 has left
 
-Pass 5a is done. The sheet went from 827 rule blocks to 812, and the row count the plan worked
-from was wrong in three ways worth not rediscovering:
+Passes 5a and 5b are done. 5c is the last of the redesign.
 
-- **`.row` was dead** — zero construction sites — so there were eight live row classes, not nine.
-  It is now deleted. `.list`, `.dot` and `.mv` are dead alongside it and were left, since the step
-  did not name them.
-- **Only `.gm-row` was ragged.** The four grid rows already aligned by construction. The plan's
-  own reasoning — that `.kw-row` is the right base because a fixed-track grid is the one mechanism
-  that works — was right, and is now the shared rule.
-- **`.oprow` and `.serp-row` are deliberately outside the grammar.** `.oprow` has no figures at all
-  and aligns on the baseline; `.serp-row` puts its one number first inside an `<a>`. Both are in
-  the deferred table with the trigger that would reopen them.
+Pass 5b shipped three named roles rather than the one the plan asked for, because measuring the
+63 `.fq-note` uses first showed they were not one thing: 43 empty states, 21 failed requests and
+19 standing explanations. `.emptybox`, `.errbox` and `.notebox` now carry those three, `.loading`
+stays as the fourth state, and all four share box metrics. Three things the plan did not know:
+
+- **`.serp-empty` was dead** — zero call sites — so it was deleted, not merged.
+- **`.intg-note` was a seventh note class** whose declarations were identical to
+  `.intg-body .fq-note`. It is now `.notebox.framed`.
+- **`.intg-body .fq-note.warn` had never matched anything.** The warn variant is worn by
+  `.intg-note`. Both `.intg-body` rules are gone.
+
+`.gm-note` is a further note class with its own smaller type, used 5 times by the Google panels.
+Step 9 did not name it, so it stays.
 
 ## Waiting on something outside the code
 
@@ -79,20 +92,19 @@ From `2026-09-10-action-plan.md` unless noted. These are decisions, not backlog.
 | Promote the Driver doc to `docs/feature-specs/D1-driver.md` | Before Driver step 2, folding §9a into §4 rather than appending |
 | Gate "+ New client" inside `views/accounts.ts` | Never, unless the Clients grid becomes reachable without an agency account. #124 redirects `#/clients` to Home for every other kind, so the button is already unreachable |
 | Fold `.oprow` and `.serp-row` into the row grammar | A figure appearing in either. Today `.oprow` has no numeric cell and aligns on baseline because its body is two lines of prose, and `.serp-row`'s one number leads the row inside an `<a>`. Widening the grammar to cover them would make it say nothing |
-| Fix `.flabel.check` (`styles.css:224`) | Layout pass 5b–5c. The rule sets `flex-direction` and `gap` but `.flabel` never sets `display: flex`, so the checkbox gap has never rendered. Pre-existing; folded into the passes that rewrite the file rather than opened as its own branch |
+| Retire `.loading` | A fourth state stops being a distinct fact, or its five call sites in `copilot.ts` and `serp.ts` go. Pass 5b's plan assumed it would already be unused; it is not, and a request in flight is not an empty panel |
+| Fold `.gm-note` into `.notebox` | The Google panels needing a note at body size. Today it is deliberately `--t-2xs`, which the note grammar is not |
 | The crawl-coverage half of v1 readiness step 6 | Never — already shipped. `crawlCoverageLine` renders pages found, whether a sitemap was read, and how many links were followed |
 
 ## Done since the redesign began
 
 Kept short on purpose; `working_log.md` has the detail. Redesign steps 1–8 (#105, #107, #108,
-#113–#117, #119, #120, and the `kind` gate in #124, which completes step 1), data screens 1, 4,
-5 and 7, action-plan waves 0–3, and PR merge verification both ways (nightly pass and webhook).
-This build closes **v1 readiness step 6**: the Local tab is gated on a Business Profile
-connection or typed-in location facts, and the form that supplies those facts moved to the
-Business Profile panel on Integrations, where it works with no Google connection and no
-registered Google app. Its other two parts — the entity dropdown and crawl coverage — were
-already done and were confirmed against the tree rather than rebuilt. **Step 9's pass 5a** also
-landed: five list rows onto one grammar, the two stat strips merged, the `min-height: 0` override
-gone, and dead `.row` deleted — verified by a harness that measures every numeric column's x down
-every list, which went from 5 ragged lists to 0 at 1440, 620 and 390. Passes 5b and 5c are what
-remains of the redesign.
+#113–#117, #119, #120, and the `kind` gate in #124), data screens 1, 4, 5 and 7, action-plan
+waves 0–3, PR merge verification both ways, v1 readiness step 6 (#125), and step 9's passes 5a
+(#126) and 5b (this build). 5b put the dashboard's empty states, errors and standing notes onto
+three named classes across 70 call sites in 20 files, deleted two dead rules and one dead class,
+and left the sheet three rule blocks smaller. Measured on the real stylesheet at 620px, the four
+states went 80→67, 131→113, 64→48 and 64→48 pixels tall and all moved from centred to
+left-aligned; a failed request is now `--risk` red instead of the same grey as an empty panel.
+This audit also found that **the entity audit already runs on every crawl**, which retires the
+first half of v1 readiness step 4.

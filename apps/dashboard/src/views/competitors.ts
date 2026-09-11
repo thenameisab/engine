@@ -63,7 +63,7 @@ function gapTable(type: GapType, gaps: CompetitorGap[]): HTMLElement {
     el('header', {}, [el('h3', {}, [GAP_LABELS[type]]), el('span', { class: 'num muted' }, [String(rows.length)])]),
     el('p', { class: 'ci-blurb' }, [GAP_BLURB[type]]),
     rows.length === 0
-      ? el('div', { class: 'fq-note' }, ['No gaps on this dimension.'])
+      ? el('div', { class: 'emptybox' }, ['No gaps on this dimension.'])
       : el(
           'div',
           { class: 'ci-rows' },
@@ -101,7 +101,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
   ]);
 
   if (loadError) {
-    root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load entities: ${loadError}`])]));
+    root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'errbox' }, [`Could not load entities: ${loadError}`])]));
     return root;
   }
   // The old wall here was "track at least two entities to compare", which no
@@ -109,7 +109,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
   // brands, and nothing in the product created a second one. One brand is now
   // enough — the competitor arrives by domain.
   if (entities.length === 0) {
-    root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, ['Add a brand for this site first, then name the competitors to compare it against.'])]));
+    root.append(head, el('section', { class: 'panel' }, [el('div', { class: 'notebox' }, ['Add a brand for this site first, then name the competitors to compare it against.'])]));
     return root;
   }
 
@@ -156,7 +156,7 @@ export async function competitorsView(ctx: AppContext): Promise<HTMLElement> {
     leadWrap.replaceChildren(
       el('header', {}, [el('h3', {}, ['Biggest gaps to close'])]),
       gaps.length === 0
-        ? el('div', { class: 'fq-note' }, ['No analysis yet, or no gaps found. Add competitors and run the analysis.'])
+        ? el('div', { class: 'emptybox' }, ['No analysis yet, or no gaps found. Add competitors and run the analysis.'])
         : el('div', { class: 'ci-lead-rows' }, gaps.slice(0, 8).map(leadRow)),
     );
     tablesWrap.replaceChildren(...ORDER.map((t) => gapTable(t, gaps)));

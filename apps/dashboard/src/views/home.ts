@@ -82,7 +82,7 @@ const POLL_MS = 20_000;
  */
 function firstRunBlock(ctx: AppContext, latest: ApiAuditRequest | null, reload: () => Promise<void>): HTMLElement {
   return el('section', { class: 'panel hm-health' }, [
-    el('div', { class: 'gm-empty' }, [
+    el('div', { class: 'emptybox' }, [
       el('p', {}, [
         'Engine reads the site the way a search engine and an AI assistant do, then lists what it finds and which of it can be fixed for you.',
       ]),
@@ -224,7 +224,7 @@ function fixesBlock(ctx: AppContext, actions: ActionCard[]): HTMLElement {
             ]),
           ),
         )
-      : el('div', { class: 'fq-note' }, [
+      : el('div', { class: 'emptybox' }, [
           counts.proposed + counts.approved + counts.deployed + counts.verified === 0
             ? 'No fixes proposed yet. Findings that Engine can fix get a fix from the Findings screen.'
             : 'Nothing waiting to be read. Every proposed fix has been dealt with.',
@@ -269,7 +269,7 @@ function visibilityBlock(ctx: AppContext, d: PulseData): HTMLElement {
         el('h3', {}, [screenName('visibility')]),
         el('a', { class: 'more', href: '#/visibility' }, ['Open Visibility →']),
       ]),
-      el('div', { class: 'gm-empty' }, [
+      el('div', { class: 'emptybox' }, [
         el('p', {}, [
           'How often this site is found in search and named in AI answers. It fills once keywords are tracked and AI prompts are sampled.',
         ]),
@@ -369,7 +369,7 @@ function panelHead(title: string, source: string, summary: { current: { to: stri
 
 function nextStepPanel(ctx: AppContext, status: ProviderStatus, providerName: string, dataNoun: string): HTMLElement {
   const step = providerNextStep(status, providerName, dataNoun);
-  return el('div', { class: 'gm-empty' }, [
+  return el('div', { class: 'emptybox' }, [
     el('p', {}, [step.line]),
     step.action ? el('button', { class: 'btn primary', onclick: () => ctx.navigate('integrations') }, [step.button ?? '']) : null,
   ]);
@@ -667,7 +667,7 @@ function namesBlock(
   if (d.accounts === null) {
     return el('section', { class: 'panel' }, [
       head,
-      el('div', { class: 'fq-note' }, [`Could not load the ${v.one} and site names: ${d.accountsError}`]),
+      el('div', { class: 'errbox' }, [`Could not load the ${v.one} and site names: ${d.accountsError}`]),
     ]);
   }
   if (!account || !project) {
@@ -676,7 +676,7 @@ function namesBlock(
     // lands here rather than on three empty fields.
     return el('section', { class: 'panel' }, [
       head,
-      el('div', { class: 'fq-note' }, ['This site is not in your list any more. Choose one from the switcher at the top of the rail.']),
+      el('div', { class: 'notebox' }, ['This site is not in your list any more. Choose one from the switcher at the top of the rail.']),
     ]);
   }
 
@@ -707,12 +707,12 @@ function namesBlock(
   ];
 
   if (d.entitiesError !== null) {
-    rows.push(el('div', { class: 'fq-note' }, [`Could not load the brand name: ${d.entitiesError}`]));
+    rows.push(el('div', { class: 'errbox' }, [`Could not load the brand name: ${d.entitiesError}`]));
   } else if (d.entities.length === 0) {
     // Set up always creates one, so this is a site added before it did, or
     // through the API. Saying so beats leaving the row out and letting the
     // panel look as though a brand has no name.
-    rows.push(el('div', { class: 'fq-note' }, ['This site has no brand yet. Add one from Set up.']));
+    rows.push(el('div', { class: 'notebox' }, ['This site has no brand yet. Add one from Set up.']));
   }
   for (const entity of d.entities) {
     rows.push(
@@ -816,7 +816,7 @@ export async function homeView(ctx: AppContext): Promise<HTMLElement> {
           trafficPanel(ctx, d.searchTraffic.traffic, d.searchTraffic.connections.ga4),
         ])
       : el('section', { class: 'panel' }, [
-          el('div', { class: 'fq-note' }, [`Could not load search and traffic figures: ${d.searchTrafficError}`]),
+          el('div', { class: 'errbox' }, [`Could not load search and traffic figures: ${d.searchTrafficError}`]),
         ]);
 
     container.replaceChildren(
@@ -824,7 +824,7 @@ export async function homeView(ctx: AppContext): Promise<HTMLElement> {
         el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('home')]), el('p', {}, [summary])]),
         d.audit === null
           ? el('section', { class: 'panel' }, [
-              el('div', { class: 'fq-note' }, [`Could not load the audit: ${d.auditError}`]),
+              el('div', { class: 'errbox' }, [`Could not load the audit: ${d.auditError}`]),
             ])
           : d.audit.lastRunAt === null && !crawling
             ? firstRunBlock(ctx, d.crawl, load)

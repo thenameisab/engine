@@ -98,7 +98,7 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
     const accountId = getAccountId();
     if (!accountId) {
       ghSetup.replaceChildren(
-        el('div', { class: 'intg-note' }, [`${chooseAccountNote(v)} The GitHub installation belongs to one ${v.one}.`]),
+        el('div', { class: 'notebox framed' }, [`${chooseAccountNote(v)} The GitHub installation belongs to one ${v.one}.`]),
       );
       return;
     }
@@ -123,7 +123,7 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
 
     if (!registered) {
       ghSetup.replaceChildren(
-        el('div', { class: 'intg-note warn' }, [
+        el('div', { class: 'notebox framed warn' }, [
           isAdmin
             ? `Engine’s GitHub App is not registered for this workspace yet. Register it once on the Platform screen, and every ${v.one} can install it from here.`
             : 'Needs setup by your administrator. Engine’s GitHub App is not registered for this workspace yet, so it cannot open pull requests for anyone.',
@@ -166,7 +166,7 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
     } }, [label]);
 
     ghSetup.replaceChildren(
-      el('div', { class: `intg-note${live ? '' : ' warn'}` }, [
+      el('div', { class: `notebox framed${live ? '' : ' warn'}` }, [
         live
           ? `Engine is installed on GitHub for this ${v.one}. Approved fixes open a pull request in the repository below.`
           : `Engine is not installed on GitHub for this ${v.one} yet, so a pull request cannot be opened. Install it once and every fix after this one goes there.`,
@@ -250,7 +250,7 @@ export function askForDeployTarget(ctx: AppContext): Promise<DeployTarget | null
   return new Promise((resolve) => {
     let saved: DeployTarget | null = null;
     const body = el('div', {}, [
-      el('p', { class: 'fq-note' }, [
+      el('p', { class: 'notebox' }, [
         'A fix has to land somewhere. Tell Engine where, once, and every fix after this one goes there.',
       ]),
       el('div', { class: 'dt-form' }, ['Loading…']),

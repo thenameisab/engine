@@ -381,7 +381,7 @@ async function cadencePanel(ctx: AppContext): Promise<HTMLElement> {
     try {
       rows = await fetchPlatformCadences();
     } catch (err) {
-      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
+      host.replaceChildren(el('div', { class: 'errbox' }, [readableError(err)]));
       return;
     }
     host.replaceChildren(
@@ -415,7 +415,7 @@ async function usersPanel(ctx: AppContext): Promise<HTMLElement> {
     try {
       data = await fetchPlatformUsers();
     } catch (err) {
-      host.replaceChildren(el('div', { class: 'fq-note' }, [readableError(err)]));
+      host.replaceChildren(el('div', { class: 'errbox' }, [readableError(err)]));
       return;
     }
     host.replaceChildren(
@@ -521,7 +521,7 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
     } catch (err) {
       return el('section', { class: 'panel' }, [
         el('header', {}, [logoTile(form.logoDomain, form.name), el('h3', {}, [form.panelTitle])]),
-        el('div', { class: 'fq-note' }, [readableError(err)]),
+        el('div', { class: 'errbox' }, [readableError(err)]),
       ]);
     }
     return el('section', { class: 'panel' }, [
@@ -566,7 +566,7 @@ export async function platformSection(ctx: AppContext): Promise<HTMLElement> {
 /** One panel's failure, named, so the rest of the screen still renders. */
 function failedPanel(what: string, err: unknown): HTMLElement {
   return el('section', { class: 'panel' }, [
-    el('div', { class: 'fq-note' }, [`Could not load ${what}: ${readableError(err)}`]),
+    el('div', { class: 'errbox' }, [`Could not load ${what}: ${readableError(err)}`]),
   ]);
 }
 

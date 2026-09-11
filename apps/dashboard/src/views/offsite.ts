@@ -160,7 +160,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
   }
   if (entities.length === 0) {
     root.append(head, el('section', { class: 'panel' }, [
-      el('div', { class: 'fq-note' }, ['Add your brand under Settings first — AI visibility is measured per brand.']),
+      el('div', { class: 'notebox' }, ['Add your brand under Settings first — AI visibility is measured per brand.']),
     ]));
     return root;
   }
@@ -196,7 +196,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
         el('span', { class: 'num muted' }, [`last ${v.lookbackDays} days`]),
       ]),
       v.engines.length === 0
-        ? el('div', { class: 'fq-note' }, [
+        ? el('div', { class: 'emptybox' }, [
             v.promptsTracked === 0
               ? 'Nothing sampled yet. Add a prompt below and the weekly poll starts measuring — or try one now to see an answer immediately.'
               : `${v.promptsTracked} prompt${v.promptsTracked === 1 ? '' : 's'} tracked, nothing sampled yet. The poll runs overnight; a prompt is sampled once a week.`,
@@ -246,20 +246,20 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
     const v = voice;
     let body: HTMLElement;
     if (v.samples === 0) {
-      body = el('div', { class: 'fq-note' }, ['Nothing sampled yet. Share of voice is counted over the same answers as the cited share above.']);
+      body = el('div', { class: 'emptybox' }, ['Nothing sampled yet. Share of voice is counted over the same answers as the cited share above.']);
     } else if (v.minedSamples === 0) {
-      body = el('div', { class: 'fq-note' }, [
+      body = el('div', { class: 'emptybox' }, [
         `${v.samples} answer${v.samples === 1 ? '' : 's'} stored, none with its text kept — answers sampled before 2026-09-10 were not stored, so there is nothing to mine. The next poll fills this in.`,
       ]);
     } else {
       body = el('div', {}, [
-        el('div', { class: 'fq-note' }, [
+        el('div', { class: 'notebox' }, [
           `Over ${v.minedSamples} of ${v.samples} stored answers` +
             (v.minedSamples < v.samples ? ` (the rest were sampled before answers were kept)` : '') +
             '. A brand named once in three answers shows as 33% with a wide range, because that is all three samples can say.',
         ]),
         v.brands.length === 0
-          ? el('div', { class: 'fq-note' }, ['No company was named in any mined answer.'])
+          ? el('div', { class: 'emptybox' }, ['No company was named in any mined answer.'])
           : el('div', { class: 'ai-engs' }, v.brands.slice(0, 12).map(brandRow)),
       ]);
     }
@@ -354,11 +354,11 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
         el('h3', {}, ['Prompts']),
         el('span', { class: 'num muted' }, [String(draft.length)]),
       ]),
-      el('div', { class: 'fq-note' }, [
+      el('div', { class: 'notebox' }, [
         'These are the questions Engine asks each AI engine every week. Each one is sampled three times per engine, so the cited share above carries a real confidence range.',
       ]),
       draft.length === 0
-        ? el('div', { class: 'fq-note' }, ['No prompts yet. Add one below, or take a suggestion.'])
+        ? el('div', { class: 'emptybox' }, ['No prompts yet. Add one below, or take a suggestion.'])
         : el('div', { class: 'kw-list' }, draft.map((p) =>
             el('div', { class: 'kw-row kw-2' }, [
               el('div', { class: 'kw-main' }, [el('div', { class: 't' }, [p])]),
@@ -393,7 +393,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
             })),
           ]),
       bank.keywordsTracked === 0
-        ? el('div', { class: 'fq-note' }, ['Track a keyword under Rankings and Engine will suggest prompts from it.'])
+        ? el('div', { class: 'emptybox' }, ['Track a keyword under Rankings and Engine will suggest prompts from it.'])
         : null,
     ];
     promptPanel.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
@@ -510,7 +510,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
 
     tryPanel.replaceChildren(...[
       el('header', {}, [el('h3', {}, ['Try a prompt now'])]),
-      el('div', { class: 'fq-note' }, [
+      el('div', { class: 'notebox' }, [
         'A single live answer, shown as it is written. Useful for reading what an engine actually says; it is not stored, because one answer is not a measurement.',
       ]),
       el('div', { class: 'ai-try-row' }, [input, go]),
@@ -520,7 +520,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
       // screen says which one is measured rather than letting the two be
       // confused.
       models && picker.current() && picker.current() !== models.pollModel
-        ? el('div', { class: 'fq-note' }, [
+        ? el('div', { class: 'notebox' }, [
             `The weekly measurement above uses ${modelLabel(models.pollModel, models)}, not this model.`,
           ])
         : null,
@@ -543,23 +543,23 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
      */
     function emptyNote(): HTMLElement {
       if (!coverage) {
-        return el('div', { class: 'fq-note' }, [
+        return el('div', { class: 'emptybox' }, [
           'No analysis yet, or no gaps found. Run the off-site audit to mine the AI citation archive.',
         ]);
       }
       if (coverage.samples === 0) {
-        return el('div', { class: 'fq-note' }, [
+        return el('div', { class: 'emptybox' }, [
           'Nothing to mine yet — this panel is built from the sources AI answers name, so it needs sampled answers first.',
         ]);
       }
       if (coverage.withSources === 0) {
-        return el('div', { class: 'fq-note' }, [
+        return el('div', { class: 'notebox' }, [
           `None of the ${coverage.samples} stored answer${coverage.samples === 1 ? '' : 's'} named a source. ` +
             'The engine this deployment polls answers from what it already knows rather than by searching the web, so there are no cited domains to mine. ' +
             'This panel fills once a browsing engine is connected — it is a limit of the engine, not a sign that there is nothing to fix.',
         ]);
       }
-      return el('div', { class: 'fq-note' }, [
+      return el('div', { class: 'emptybox' }, [
         `Only ${coverage.withSources} of ${coverage.samples} stored answers named a source, because this engine does not browse — ` +
           'so there is little to mine yet. Run the off-site audit to mine what there is.',
       ]);

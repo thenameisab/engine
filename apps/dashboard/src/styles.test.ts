@@ -199,4 +199,45 @@ describe('styles.css base rules', () => {
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]));
     expect([...used].filter((t) => !declared.has(t))).toEqual([]);
   });
+
+  it('states what a panel shows instead of its content in exactly four classes', () => {
+    // Six classes used to say the same thing in six registers, and the one
+    // that won was named after the fix queue. `.fq-note` priced a one-line
+    // message as a centred full-height panel, so Home's visibility block
+    // spent a bordered box the height of a chart to say nothing was measured.
+    expect(css).toMatch(/^\.loading, \.emptybox, \.errbox, \.notebox \{/m);
+    for (const dead of ['fq-note', 'gm-empty', 'lane-empty', 'serp-empty', 'copilot-empty', 'intg-note']) {
+      expect(css).not.toMatch(new RegExp(`\\.${dead}[\\s,{:.]`));
+    }
+  });
+
+  it('never centres a state, and never reserves height to say one sentence', () => {
+    // The whole point of the pass: a sentence costs a sentence. A scoped
+    // override may retune padding for a container that already pads itself,
+    // but none of them may centre the text or set a height.
+    const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [...bare.matchAll(/^[^\n@}]*\.(?:emptybox|errbox|notebox)\b[^{]*\{([^}]*)\}/gm)];
+    expect(rules.length).toBeGreaterThan(0);
+    for (const [, body] of rules) {
+      expect(body).not.toMatch(/text-align:\s*center/);
+      expect(body).not.toMatch(/(?:^|;)\s*(?:min-)?height:/);
+    }
+  });
+
+  it('builds no retired state class anywhere in the source tree', () => {
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+          if (/\b(?:fq-note|gm-empty|lane-empty|serp-empty|copilot-empty|intg-note)\b/.test(readFileSync(full, 'utf8'))) {
+            offenders.push(entry.name);
+          }
+        }
+      }
+    };
+    walk(SRC);
+    expect(offenders).toEqual([]);
+  });
 });

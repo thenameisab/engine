@@ -16,7 +16,7 @@ export async function reportView(ctx: AppContext): Promise<HTMLElement> {
     return el('div', {}, [
       el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('report')])]),
       el('section', { class: 'panel' }, [
-        el('div', { class: 'fq-note' }, [chooseAccountNote(currentAccountVocabulary())]),
+        el('div', { class: 'notebox' }, [chooseAccountNote(currentAccountVocabulary())]),
       ]),
     ]);
   }
@@ -33,7 +33,7 @@ export async function reportView(ctx: AppContext): Promise<HTMLElement> {
     return el('div', {}, [
       el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('report')])]),
       el('section', { class: 'panel' }, [
-        el('div', { class: 'fq-note' }, [`Could not load the report: ${loadError}`]),
+        el('div', { class: 'errbox' }, [`Could not load the report: ${loadError}`]),
       ]),
     ]);
   }

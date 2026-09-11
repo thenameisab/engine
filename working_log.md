@@ -1633,3 +1633,60 @@ row variant a view names has a `--lrow-cols` in the sheet; `.cell .top` keeps it
 `.list`, `.dot` and `.mv` are dead alongside `.row` but were not named by the
 step, so they stay. `.ci-blurb` is still unclamped and `.serp-form-row .field`
 still `flex: 1` — both are pass 5c.
+
+## 2026-09-11 — One empty state, one error, one note (ledger item 1, redesign step 9 / pass 5b)
+
+Step 9's pass 5b said six classes say the same thing in six registers and should
+collapse into one. Measuring them first changed the shape of the job: of the 63
+`.fq-note` uses, only 43 were empty states. 21 were failed requests and 19 were
+standing explanations or prerequisites. Collapsing all three into one class
+would have made a timed-out request look exactly like a panel that has nothing
+in it yet — which is what main does today, both grey and both centred.
+
+So the pass ships three named roles instead of one, agreed before any edit:
+
+- `.emptybox` — nothing measured yet, and normal use or time will fill it.
+- `.errbox` — the request failed. Already existed and already carried
+  `--risk`; 21 `.fq-note` errors moved onto it rather than a new class.
+- `.notebox` — a standing explanation, or a prerequisite waiting will not
+  satisfy. `.framed` is its bordered variant, `.warn` its coloured one.
+
+`.loading` stays as the fourth state. Pass 5b's plan retired it "once
+`copilot.ts` and `serp.ts` stop using it" and they have not — it is still five
+live call sites, and a request in flight is a different fact from an empty
+panel. All four share box metrics so a slot does not jump as it moves between
+them.
+
+### What the tree said that the plan did not
+- `.serp-empty` had zero call sites. It was a dead rule, so it was deleted
+  rather than merged.
+- `.intg-note` was a seventh note class whose two rules were declaration-for-
+  declaration identical to `.intg-body .fq-note`. It is now `.notebox.framed`.
+- `.intg-body .fq-note.warn` had never matched anything: the warn variant is
+  worn by `.intg-note`, not `.fq-note`. Both `.intg-body` rules were dead once
+  the errors moved, and both are gone. `.intg-body` is built only in
+  `platform.ts`, whose four states are all errors.
+- `.copilot-panel` and `.lane` already pad themselves, so the state inside them
+  sets no padding of its own. Those are the only two scoped overrides.
+
+70 call sites across 20 files. 765 rule blocks to 762, counted after stripping
+comments.
+
+### Guards
+Three new cases in `styles.test.ts`. The four state classes are declared in one
+rule and none of the six retired names survives in the sheet; no rule on the
+three centres its text or sets a height; and no file in the source tree builds a
+retired class. The middle one was mutation-tested — injecting `text-align:
+center; min-height: 120px` onto `.errbox` fails it, and only it.
+
+- **Green bar:** typecheck 41/41, test 39/39, build 24/24. Dashboard tests 180
+  (was 177). No lint task is defined in this repo.
+- **Measured, not asserted:** rendered on the real sheet at 620px, the four
+  states went 80→67, 131→113, 64→48 and 64→48 pixels tall, and all four moved
+  from centred to left-aligned. The error also went from grey to `--risk`,
+  which is the part main could not say.
+
+### Noticed, not fixed
+`.gm-note` is a further note class, used by the Google panels with its own
+smaller type. It was not among the six the step named, so it stays. `.ci-blurb`
+is still unclamped and `.serp-form-row .field` is still `flex: 1` — both 5c.

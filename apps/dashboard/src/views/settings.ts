@@ -25,7 +25,7 @@ async function brandKindSection(ctx: AppContext): Promise<HTMLElement> {
   if (!getProjectId()) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Your brand'])]),
-      el('div', { class: 'fq-note' }, ['Choose a site from the switcher at the top of the rail first.']),
+      el('div', { class: 'notebox' }, ['Choose a site from the switcher at the top of the rail first.']),
     ]);
   }
   let entities;
@@ -34,13 +34,13 @@ async function brandKindSection(ctx: AppContext): Promise<HTMLElement> {
   } catch (err) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Your brand'])]),
-      el('div', { class: 'fq-note' }, [`Could not load your brands: ${readableError(err)}`]),
+      el('div', { class: 'errbox' }, [`Could not load your brands: ${readableError(err)}`]),
     ]);
   }
   if (entities.length === 0) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Your brand'])]),
-      el('div', { class: 'fq-note' }, ['This site has no brand yet. Add one from Set up a site.']),
+      el('div', { class: 'notebox' }, ['This site has no brand yet. Add one from Set up a site.']),
     ]);
   }
 
@@ -146,7 +146,7 @@ async function cadenceSection(): Promise<HTMLElement> {
   if (!accountId) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Polling cadence'])]),
-      el('div', { class: 'fq-note' }, [chooseAccountNote(currentAccountVocabulary())]),
+      el('div', { class: 'notebox' }, [chooseAccountNote(currentAccountVocabulary())]),
     ]);
   }
   let c: EffectiveCadence;
@@ -155,7 +155,7 @@ async function cadenceSection(): Promise<HTMLElement> {
   } catch (err) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Polling cadence'])]),
-      el('div', { class: 'fq-note' }, [`Could not load the cadence: ${readableError(err)}`]),
+      el('div', { class: 'errbox' }, [`Could not load the cadence: ${readableError(err)}`]),
     ]);
   }
   const row = (label: string, value: string, source: string, why: string) =>

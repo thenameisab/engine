@@ -65,7 +65,7 @@ export async function integrationsSection(): Promise<HTMLElement> {
   try {
     report = await fetchIntegrations();
   } catch (err) {
-    return el('div', { class: 'fq-note' }, [
+    return el('div', { class: 'errbox' }, [
       `Could not read integration readiness: ${readableError(err)}`,
     ]);
   }

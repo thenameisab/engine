@@ -36,7 +36,7 @@ function summaryBlock(s: CopilotSummary): HTMLElement {
       ? el('ul', { class: 'copilot-findings' }, s.topFindings.map((f) =>
           el('li', {}, [`${f.issueType} — ${f.evidence.url ?? 'no url'} (impact ${(f.predictedImpact * 10).toFixed(1)})`]),
         ))
-      : el('div', { class: 'copilot-empty' }, ['No open findings for this entity.']),
+      : el('div', { class: 'emptybox' }, ['No open findings for this entity.']),
   ]);
 }
 
@@ -245,7 +245,7 @@ export function mountCopilot(root: HTMLElement): void {
     clear(panel);
     panel.append(pickerHead);
     if (!getApiBaseUrl()) {
-      panel.append(el('div', { class: 'copilot-empty' }, ['Set an API base URL under Settings first.']));
+      panel.append(el('div', { class: 'notebox' }, ['Set an API base URL under Settings first.']));
       return;
     }
     // The catalogue decides whether the ask bar carries a picker at all, so it
@@ -274,7 +274,7 @@ export function mountCopilot(root: HTMLElement): void {
       clear(entitiesRegion);
     }
     if (entities.length === 0) {
-      entitiesRegion.append(el('div', { class: 'copilot-empty' }, ['No entities in this project yet.']));
+      entitiesRegion.append(el('div', { class: 'emptybox' }, ['No entities in this project yet.']));
       return;
     }
     entitiesRegion.append(
