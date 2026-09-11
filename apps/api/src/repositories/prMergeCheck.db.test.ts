@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Action } from '@engine/core';
 import { createDb, type Db } from '../db.js';
-import { createAction, listDeployedPrActions, saveActionTransition } from './actions.js';
+import { createAction, findDeployedPrAction, listDeployedPrActions, saveActionTransition } from './actions.js';
 
 /**
  * The work list for the scheduled PR merge check.
@@ -109,5 +109,49 @@ describe.skipIf(!url)('listDeployedPrActions (Postgres)', () => {
     const retried = await action('deployed', [entry({ prNumber: 11 }), entry({ prNumber: 12 })]);
     const found = (await listDeployedPrActions(db)).find((p) => p.actionId === retried.id);
     expect(found?.prNumber).toBe(12);
+  });
+
+  /**
+   * The webhook's lookup. Same rules as the list above, but from the other end:
+   * a delivery names one repository and one number, and the question is which
+   * deployed fix — if any — that merge finished.
+   */
+  describe('findDeployedPrAction', () => {
+    it('finds the deployed fix a merge belongs to', async () => {
+      const deployed = await action('deployed', [entry({ prNumber: 501 })]);
+      expect(await findDeployedPrAction(db, 'acme/site', 501)).toEqual({
+        actionId: deployed.id, projectId, repo: 'acme/site', prNumber: 501,
+      });
+    });
+
+    it('is null for a merge in a repository we have no fix in', async () => {
+      // Someone else's pull request in a repository the App is installed on.
+      await action('deployed', [entry({ prNumber: 502 })]);
+      expect(await findDeployedPrAction(db, 'rival/site', 502)).toBeNull();
+    });
+
+    it('is null for another pull request in the same repository', async () => {
+      await action('deployed', [entry({ prNumber: 503 })]);
+      expect(await findDeployedPrAction(db, 'acme/site', 999)).toBeNull();
+    });
+
+    it('does not match a number recorded against a different repository', async () => {
+      // Numbers are per repository, so 504 in one is unrelated to 504 in
+      // another — matching on the number alone would verify the wrong fix.
+      await action('deployed', [entry({ prNumber: 504 })], { kind: 'github-pr', repo: 'other/site', branch: 'main', path: 'index.html' });
+      expect(await findDeployedPrAction(db, 'acme/site', 504)).toBeNull();
+      expect((await findDeployedPrAction(db, 'other/site', 504))?.prNumber).toBe(504);
+    });
+
+    it('ignores a fix that already verified', async () => {
+      await action('verified', [entry({ prNumber: 505 })]);
+      expect(await findDeployedPrAction(db, 'acme/site', 505)).toBeNull();
+    });
+
+    it('matches the newest number after a retried deploy, not the abandoned one', async () => {
+      const retried = await action('deployed', [entry({ prNumber: 506 }), entry({ prNumber: 507 })]);
+      expect((await findDeployedPrAction(db, 'acme/site', 507))?.actionId).toBe(retried.id);
+      expect(await findDeployedPrAction(db, 'acme/site', 506)).toBeNull();
+    });
   });
 });

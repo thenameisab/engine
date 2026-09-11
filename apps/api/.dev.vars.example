@@ -109,3 +109,5 @@ SARVAM_MODEL=sarvam-105b
 # (optional for pre-alpha)
 # Token used to call GitHub's REST API on the customer's behalf. Bound as a Worker secret. Per-account tokens are a later scope; this is a single shared token for pre-alpha. [secret, required]
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# Shared secret on the App's webhook, so POST /webhooks/github can tell a real delivery from anyone who knows the URL. Optional: without it merged pull requests are found by the nightly pass instead, which is slower but never wrong. [secret, optional]
+GITHUB_WEBHOOK_SECRET=a long random string
