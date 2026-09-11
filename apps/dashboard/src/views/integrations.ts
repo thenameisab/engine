@@ -7,6 +7,7 @@ import {
   fetchConnections,
   fetchIntegrations,
   fetchPlatformAccess,
+  fetchProviderCatalog,
   getAccountId,
 } from '../api.js';
 import { readableError } from '../errors.js';
@@ -96,34 +97,48 @@ async function setupBanner(ctx: AppContext): Promise<HTMLElement | null> {
   // API about an empty id would only produce a 400 to swallow.
   if (!accountId) return null;
 
-  let unconfigured: string[];
+  let names: string[];
   let isAdmin = false;
   try {
-    const [connectionState, access] = await Promise.all([
+    const [catalog, connectionState, access] = await Promise.all([
+      fetchProviderCatalog(),
       fetchConnections(accountId),
       fetchPlatformAccess().catch(() => ({ isAdmin: false })),
     ]);
     isAdmin = access.isAdmin;
-    unconfigured = Object.entries(connectionState.vendorsConfigured)
+
+    // `vendorsConfigured` is keyed by a lowercased vendor, so its keys cannot
+    // be title-cased back into a brand — that produced "Github". The catalogue
+    // carries the real spelling, so the display name comes from there and the
+    // map is used only for the yes/no.
+    const spelling = new Map<string, string>();
+    for (const entry of catalog) {
+      if (entry.vendor) spelling.set(entry.vendor.toLowerCase(), entry.vendor);
+    }
+    names = Object.entries(connectionState.vendorsConfigured)
       .filter(([, ready]) => !ready)
-      .map(([vendor]) => vendor);
+      .map(([vendor]) => spelling.get(vendor) ?? vendor);
   } catch {
     // The tiles below report their own failure; a second copy here would say
     // the same thing twice.
     return null;
   }
-  if (unconfigured.length === 0) return null;
+  if (names.length === 0) return null;
 
-  const names = unconfigured.map((v) => v.charAt(0).toUpperCase() + v.slice(1));
-  return el('div', { class: 'notebox framed warn' }, [
+  // A prerequisite, which is what `.notebox` is for — not `warn`. Every tile
+  // affected already carries its own "Needs setup", so shouting the same fact
+  // in the loudest box on the page made an optional vendor look like a fault.
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  const connection = names.length === 1 ? 'that connection' : 'those connections';
+  return el('div', { class: 'notebox framed intg-banner' }, [
     el('div', {}, [
       isAdmin
-        ? `Engine’s own app is not registered with ${names.join(' or ')} yet, so those connections cannot be completed by anyone on this deployment.`
-        : `${names.join(' and ')} are not set up for this workspace yet. Ask your administrator to finish the setup.`,
+        ? `Engine’s own app is not registered with ${list} yet, so ${connection} cannot be completed by anyone on this deployment.`
+        : `${list} ${names.length === 1 ? 'is' : 'are'} not set up for this workspace yet. Ask your administrator to finish the setup.`,
     ]),
     isAdmin
       ? el('div', { class: 'form-actions' }, [
-          el('button', { class: 'btn primary', onclick: () => ctx.navigate('platform') }, ['Finish setup on Platform']),
+          el('button', { class: 'btn', onclick: () => ctx.navigate('platform') }, ['Finish setup on Platform']),
         ])
       : null,
   ]);
