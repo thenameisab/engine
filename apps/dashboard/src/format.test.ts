@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
-import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist } from './format.js';
+import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, accountVocabulary, showsClientColumn, chooseAccountNote, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist } from './format.js';
 import { VISIBILITY_TABS, visibilityTabId } from './views/visibility.js';
 import { firstSentence } from './views/home.js';
 import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
@@ -521,9 +521,11 @@ describe('readableError', () => {
       .toBe('Publishing to GitHub is not configured on this deployment.');
   });
 
-  it('points a 403 at the client picker', () => {
+  it('points a 403 at the switcher, which every kind of account has', () => {
+    // Not the Clients grid: a company or an individual has neither the grid
+    // nor the word, so the recovery it named did not exist for them.
     expect(readableError(new Error('403 {"error":"project not in your account"}')))
-      .toBe('project not in your account. Pick the right client from the Clients grid.');
+      .toBe('project not in your account. Check which site is open in the switcher at the top of the rail.');
   });
 
   it('passes through a message that is not a status-prefixed body', () => {
@@ -794,11 +796,58 @@ describe('the workspace rail', () => {
     });
   });
 
+  describe('accountVocabulary', () => {
+    it('says "client" for an agency and "account" for everyone else', () => {
+      expect(accountVocabulary(['agency'])).toEqual({
+        agency: true, one: 'client', many: 'clients', One: 'Client', Many: 'Clients',
+      });
+      expect(accountVocabulary(['company'])).toEqual({
+        agency: false, one: 'account', many: 'accounts', One: 'Account', Many: 'Accounts',
+      });
+      expect(accountVocabulary(['individual'])).toEqual(accountVocabulary(['company']));
+    });
+
+    it('reads as a company before the first /accounts response, not as an agency', () => {
+      // The cache is empty on a first-ever visit. The quiet answer is the safe
+      // one: a company must never see a flash of the client layer, and an
+      // agency's own vocabulary arriving a frame late costs nothing.
+      expect(accountVocabulary([]).agency).toBe(false);
+    });
+
+    it('is an agency as soon as one account is, whatever the others are', () => {
+      // Someone who runs an agency also has their own company account. They
+      // think in clients on both.
+      expect(accountVocabulary(['company', 'agency']).agency).toBe(true);
+    });
+  });
+
+  describe('showsClientColumn', () => {
+    it('hides the column from a company with one account', () => {
+      expect(showsClientColumn(['company'])).toBe(false);
+      expect(showsClientColumn(['individual'])).toBe(false);
+      expect(showsClientColumn([])).toBe(false);
+    });
+
+    it('shows it to an agency, and to anyone with more than one account', () => {
+      expect(showsClientColumn(['agency'])).toBe(true);
+      expect(showsClientColumn(['company', 'company'])).toBe(true);
+    });
+  });
+
+  describe('chooseAccountNote', () => {
+    it('points an agency at the grid and everyone else at the switcher', () => {
+      expect(chooseAccountNote(accountVocabulary(['agency']))).toContain('Clients grid');
+      const company = chooseAccountNote(accountVocabulary(['company']));
+      expect(company).toContain('switcher');
+      expect(company).not.toMatch(/client/i);
+    });
+  });
+
   describe('needsWorkspaceSearch', () => {
     it('is quiet until a search field would have something to find', () => {
-      expect(needsWorkspaceSearch(clients)).toBe(false);
-      const many = Array.from({ length: 9 }, (_, i) => ({ ...clients[1], id: `a${i}` }));
-      expect(needsWorkspaceSearch(many)).toBe(true);
+      expect(needsWorkspaceSearch(clients.length)).toBe(false);
+      expect(needsWorkspaceSearch(8)).toBe(false);
+      expect(needsWorkspaceSearch(9)).toBe(true);
     });
   });
 

@@ -10,6 +10,7 @@
  */
 import { el } from './dom.js';
 import {
+  currentAccountVocabulary,
   fetchConnectUrl,
   fetchConnections,
   fetchDeployTarget,
@@ -17,6 +18,7 @@ import {
   getAccountId,
   saveDeployTarget,
 } from './api.js';
+import { chooseAccountNote } from './format.js';
 import { readableError } from './errors.js';
 import { openDialog } from './dialog.js';
 import { openConsentPopup } from './consentPopup.js';
@@ -32,6 +34,7 @@ export interface DeployTargetFormOptions {
 
 /** The fields and the Save button, without any panel or dialog around them. */
 export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOptions): HTMLElement {
+  const v = currentAccountVocabulary();
   const current = options.current;
   // Ordered by how much work the customer has left after choosing.
   //
@@ -95,7 +98,7 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
     const accountId = getAccountId();
     if (!accountId) {
       ghSetup.replaceChildren(
-        el('div', { class: 'intg-note' }, ['Pick a client first — the GitHub installation belongs to one.']),
+        el('div', { class: 'intg-note' }, [`${chooseAccountNote(v)} The GitHub installation belongs to one ${v.one}.`]),
       );
       return;
     }
@@ -122,7 +125,7 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
       ghSetup.replaceChildren(
         el('div', { class: 'intg-note warn' }, [
           isAdmin
-            ? 'Engine’s GitHub App is not registered for this workspace yet. Register it once on the Platform screen, and every client can install it from here.'
+            ? `Engine’s GitHub App is not registered for this workspace yet. Register it once on the Platform screen, and every ${v.one} can install it from here.`
             : 'Needs setup by your administrator. Engine’s GitHub App is not registered for this workspace yet, so it cannot open pull requests for anyone.',
         ]),
       );
@@ -165,8 +168,8 @@ export function deployTargetFields(ctx: AppContext, options: DeployTargetFormOpt
     ghSetup.replaceChildren(
       el('div', { class: `intg-note${live ? '' : ' warn'}` }, [
         live
-          ? 'Engine is installed on GitHub for this client. Approved fixes open a pull request in the repository below.'
-          : 'Engine is not installed on GitHub for this client yet, so a pull request cannot be opened. Install it once and every fix after this one goes there.',
+          ? `Engine is installed on GitHub for this ${v.one}. Approved fixes open a pull request in the repository below.`
+          : `Engine is not installed on GitHub for this ${v.one} yet, so a pull request cannot be opened. Install it once and every fix after this one goes there.`,
       ]),
       el('div', { class: 'form-actions' }, [install]),
     );

@@ -22,6 +22,7 @@ import {
   LANE_ORDER,
 } from '../format.js';
 import {
+  currentAccountVocabulary,
   fetchPulse,
   fetchSearchTraffic,
   fetchAudit,
@@ -640,10 +641,10 @@ function nameRow(ctx: AppContext, row: NameRow): HTMLElement {
 /**
  * What Engine calls this site.
  *
- * Set up asks for one address and reads the rest off it: the client's name,
+ * Set up asks for one address and reads the rest off it: the account's name,
  * the site's name and the brand's name all come out of `onboardingPlan`,
  * which makes "Getacme" of getacme.io. None of the three is cosmetic — the
- * client name heads every branded report, the site name is what the switcher
+ * account name heads every branded report, the site name is what the switcher
  * and the breadcrumb say, and the brand name is what Engine checks that
  * search engines and AI answers call the business. A name Engine guessed has
  * to be correctable, and this is the place.
@@ -657,6 +658,7 @@ function namesBlock(
   ctx: AppContext,
   d: { accounts: AccountCard[] | null; accountsError: string | null; entities: ApiEntity[]; entitiesError: string | null },
 ): HTMLElement {
+  const v = currentAccountVocabulary();
   const head = el('header', {}, [el('h3', {}, ['Names'])]);
   const projectId = getProjectId();
   const account = d.accounts?.find((a) => a.projects.some((p) => p.id === projectId));
@@ -665,7 +667,7 @@ function namesBlock(
   if (d.accounts === null) {
     return el('section', { class: 'panel' }, [
       head,
-      el('div', { class: 'fq-note' }, [`Could not load the client and site names: ${d.accountsError}`]),
+      el('div', { class: 'fq-note' }, [`Could not load the ${v.one} and site names: ${d.accountsError}`]),
     ]);
   }
   if (!account || !project) {
@@ -674,19 +676,19 @@ function namesBlock(
     // lands here rather than on three empty fields.
     return el('section', { class: 'panel' }, [
       head,
-      el('div', { class: 'fq-note' }, ['This site is not in your client list any more. Choose one from the switcher at the top of the rail.']),
+      el('div', { class: 'fq-note' }, ['This site is not in your list any more. Choose one from the switcher at the top of the rail.']),
     ]);
   }
 
   const rows: HTMLElement[] = [
     nameRow(ctx, {
-      key: 'Client',
+      key: v.One,
       value: account.branding.companyName ?? account.name,
-      hint: 'The name at the top of every report for this client.',
+      hint: 'The name at the top of every branded report.',
       save: async (next) => {
         // The whole branding object, not just the changed field: the API
         // replaces the stored one, so sending `companyName` alone would drop
-        // this client's logo and colour with it.
+        // this account's logo and colour with it.
         await updateBrandingApi(account.id, { ...account.branding, companyName: next });
         account.branding = { ...account.branding, companyName: next };
         await ctx.refreshWorkspace();
@@ -728,11 +730,11 @@ function namesBlock(
 
   return el('section', { class: 'panel' }, [
     head,
-    // Client, Site and Brand are three names for what a customer thinks of as
-    // one thing, so the panel says which is which before it offers to change
-    // them.
+    // The account, the site and the brand are three names for what a customer
+    // thinks of as one thing, so the panel says which is which before it
+    // offers to change them.
     el('p', { class: 'hm-names-note' }, [
-      'What Engine calls this client, this site and this brand. Engine derived all three when the site was added.',
+      `What Engine calls this ${v.one}, this site and this brand. Engine derived all three when the site was added.`,
     ]),
     el('div', { class: 'hm-names' }, rows),
   ]);

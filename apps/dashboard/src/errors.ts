@@ -26,7 +26,11 @@ export function readableError(err: unknown): string {
   // token" is our vocabulary, not theirs, so it is replaced rather than
   // appended to.
   if (status === '401') return 'Your session has expired. Sign in again.';
-  if (status === '403') return `${detail}. Pick the right client from the Clients grid.`;
+  // Not "pick the right client from the Clients grid": a company or an
+  // individual has no client layer and no grid, so the recovery it named did
+  // not exist for them. The switcher is where the open site is changed
+  // whatever kind of account this is.
+  if (status === '403') return `${detail}. Check which site is open in the switcher at the top of the rail.`;
   if (status === '404') return `${detail}.`;
   if (status === '503') return detail;
   return detail || `Request failed (${status}).`;

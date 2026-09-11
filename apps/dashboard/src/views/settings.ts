@@ -1,6 +1,7 @@
 import { el } from '../dom.js';
-import { screenName } from '../format.js';
+import { chooseAccountNote, screenName } from '../format.js';
 import {
+  currentAccountVocabulary,
   getProjectId,
   getAccountId,
   fetchEntities,
@@ -145,7 +146,7 @@ async function cadenceSection(): Promise<HTMLElement> {
   if (!accountId) {
     return el('section', { class: 'panel' }, [
       el('header', {}, [el('h3', {}, ['Polling cadence'])]),
-      el('div', { class: 'fq-note' }, ['Pick a client from the Clients grid first.']),
+      el('div', { class: 'fq-note' }, [chooseAccountNote(currentAccountVocabulary())]),
     ]);
   }
   let c: EffectiveCadence;

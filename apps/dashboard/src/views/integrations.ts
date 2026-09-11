@@ -3,6 +3,7 @@ import { screenName } from '../format.js';
 import { logoTile } from '../logo.js';
 import { infoCard } from '../hovercard.js';
 import {
+  currentAccountVocabulary,
   fetchAccounts,
   fetchDeployTarget,
   fetchIntegrations,
@@ -235,6 +236,7 @@ export async function vendorKeysPanel(): Promise<HTMLElement | null> {
     return null;
   }
   if (!isAdmin) return null;
+  const v = currentAccountVocabulary();
   return el('div', {}, [
     el('div', { class: 'settings-sec' }, ['Vendor keys']),
     el('section', { class: 'panel' }, [
@@ -244,7 +246,7 @@ export async function vendorKeysPanel(): Promise<HTMLElement | null> {
           title: 'Our keys, not yours',
           body: [
             'Whether this deployment has its own vendor keys wired: search results, AI answers, billing.',
-            'Separate from the connections on the Integrations page, which belong to a client and only that client can revoke.',
+            `Separate from the connections on the Integrations page, which belong to one ${v.one} and only that ${v.one} can revoke.`,
           ],
         }),
       ]),

@@ -117,6 +117,19 @@ describe('styles.css base rules', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('drops the workspace track on a phone even with the no-clients class', () => {
+    // A media query adds no specificity. `.app.no-clients` is two classes and
+    // `.app.no-clients.rail-collapsed` is three, so both beat the `.app` rule
+    // inside `@media (max-width: 860px)` and would keep a sidebar track on a
+    // phone unless the mobile rule names them too.
+    const start = css.indexOf('@media (max-width: 860px) {\n  /* `.app.no-clients`');
+    expect(start).toBeGreaterThan(-1);
+    const rule = css.slice(start, css.indexOf('}', css.indexOf('.app,', start)));
+    expect(rule).toContain('.app.no-clients');
+    expect(rule).toContain('.app.no-clients.rail-collapsed');
+    expect(rule).toContain('grid-template-columns: 1fr');
+  });
+
   it('defines every token the stylesheet spends', () => {
     // Tokens are declared several to a line, so this cannot anchor to the
     // line start. A use is `var(--x)` and carries no colon, so matching on

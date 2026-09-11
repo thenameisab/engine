@@ -14,7 +14,7 @@ import { accountsView } from './views/accounts.js';
 import { reportView } from './views/report.js';
 import { onboardingView } from './views/onboarding.js';
 import { platformView } from './views/platform.js';
-import { getProjectId } from './api.js';
+import { getProjectId, isAgencyWorkspace, knownAccountKinds } from './api.js';
 import { screenName, breadcrumb } from './format.js';
 import { readableError } from './errors.js';
 import { createWorkspace } from './workspace.js';
@@ -242,8 +242,18 @@ export function mountShell(root: HTMLElement): void {
   // and replacing it would throw away whatever else was open on it.
   ctx.refreshWorkspace = async () => {
     await workspace.refresh();
+    applyClientColumn();
     paintCrumb();
   };
+
+  /**
+   * The page grid has a 56 px track for the workspace column. Hiding the
+   * column alone leaves the track, so the whole product sits 56 px in from the
+   * left with nothing in the gap; the class drops the track with it.
+   */
+  function applyClientColumn(): void {
+    appEl.classList.toggle('no-clients', !workspace.showsColumn());
+  }
 
   const rail = el('aside', { class: 'rail' }, [
     el('div', { class: 'brand' }, [
@@ -300,6 +310,10 @@ export function mountShell(root: HTMLElement): void {
     /* ignore */
   }
   applyRail(startCollapsed);
+  // Before the fetch, from the kinds the last visit stored. A first-ever visit
+  // has none, which reads as one company: no column, and no 56 px gap that
+  // appears and then closes on the frame the accounts arrive.
+  applyClientColumn();
   // After the first paint: the column renders from what is already selected, so
   // the shell is never blank waiting on the network, and fills in when the
   // client list arrives.
@@ -320,6 +334,21 @@ export function mountShell(root: HTMLElement): void {
     if (PROJECT_ROUTES.has(id) && !getProjectId()) {
       location.hash = '#/get-started';
       return;
+    }
+    // The Clients grid belongs to the client layer, which a company or an
+    // individual does not have. Same shape as `platform`'s non-admin
+    // redirect: the route stays in the table, and the screen is simply not
+    // this user's. Reached by a bookmark or an old link, since nothing in the
+    // product links to it for them.
+    if (id === 'clients') {
+      // The answer is cached from the last visit, and a cold browser has no
+      // cache. Guessing there would send an agency following its own bookmark
+      // to Home, so this one route waits for `/accounts` instead.
+      if (knownAccountKinds().length === 0) await ctx.refreshWorkspace();
+      if (!isAgencyWorkspace()) {
+        location.hash = '#/home';
+        return;
+      }
     }
     const route = ALL_ROUTES.find((r) => r.id === id)!;
     navItems.forEach((n) => {

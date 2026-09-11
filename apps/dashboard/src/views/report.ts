@@ -5,8 +5,8 @@
  * preview) with a link to open it standalone for printing/sharing.
  */
 import { el } from '../dom.js';
-import { screenName } from '../format.js';
-import { fetchReportUrl, getAccountId } from '../api.js';
+import { chooseAccountNote, screenName } from '../format.js';
+import { currentAccountVocabulary, fetchReportUrl, getAccountId } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
 
@@ -16,7 +16,7 @@ export async function reportView(ctx: AppContext): Promise<HTMLElement> {
     return el('div', {}, [
       el('div', { class: 'pagehead' }, [el('h1', {}, [screenName('report')])]),
       el('section', { class: 'panel' }, [
-        el('div', { class: 'fq-note' }, ['Pick a client from the Clients grid first.']),
+        el('div', { class: 'fq-note' }, [chooseAccountNote(currentAccountVocabulary())]),
       ]),
     ]);
   }
@@ -41,7 +41,7 @@ export async function reportView(ctx: AppContext): Promise<HTMLElement> {
   return el('div', {}, [
     el('div', { class: 'pagehead' }, [
       el('h1', {}, [screenName('report')]),
-      el('p', {}, ['A shareable, printable summary for this client — open it standalone to save as PDF.']),
+      el('p', {}, [`A shareable, printable summary for this ${currentAccountVocabulary().one} — open it standalone to save as PDF.`]),
       el('a', { href: url, target: '_blank', rel: 'noopener', class: 'btn primary' }, ['Open standalone ↗']),
     ]),
     el('section', { class: 'panel', style: 'padding:0;overflow:hidden' }, [
