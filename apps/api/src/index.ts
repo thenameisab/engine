@@ -171,6 +171,7 @@ import { insertCitationEvents, citedShareByEngine } from './repositories/citatio
 import { assembleSurfaceScores } from './repositories/pulseRollup.js';
 import { brandTerms, searchSummary, trafficSummary, type SyncState } from './repositories/googleMetrics.js';
 import { askDriver } from './driver/ask.js';
+import { messagesWithParts } from './driver/parts.js';
 import {
   listReadableThreads,
   listThreadShares,
@@ -959,6 +960,10 @@ app.post('/projects/:projectId/driver/ask', async (c) => {
   return c.json({
     source: answer.source,
     answer: answer.text,
+    // The typed parts §4.5 defines. `answer` stays alongside them as the plain
+    // prose, because a caller that only wants the sentence should not have to
+    // walk the array to find it.
+    parts: answer.parts,
     ...(answer.threadId ? { threadId: answer.threadId } : {}),
     ...(answer.modelEngine ? { engine: answer.modelEngine } : {}),
     ...(answer.fellBackBecause ? { fellBackBecause: answer.fellBackBecause } : {}),
@@ -1040,7 +1045,14 @@ app.get('/projects/:projectId/driver/threads/:threadId', async (c) => {
     thread.createdBy === user.id ? listThreadShares(db, threadId) : Promise.resolve([]),
   ]);
 
-  return c.json({ thread, messages, ...(thread.createdBy === user.id ? { shares } : {}) });
+  // Each answer carries the parts it was built on, rebuilt from the stored
+  // envelopes. A thread opened tomorrow renders the same way as one answered
+  // just now, through the same builder.
+  return c.json({
+    thread,
+    messages: messagesWithParts(messages),
+    ...(thread.createdBy === user.id ? { shares } : {}),
+  });
 });
 
 const THREAD_VISIBILITIES: readonly ThreadVisibility[] = ['private', 'named', 'organisation'];

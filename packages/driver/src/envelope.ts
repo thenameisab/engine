@@ -23,7 +23,10 @@
  * scope. This file buys none of those; it buys only that a payload cannot
  * impersonate the transcript around it.
  */
-import type { ToolResult } from './types.js';
+import type { ToolResult, ToolState } from './types.js';
+
+/** The four states an envelope can carry. `error` is a separate shape, not a state. */
+const STATES: readonly ToolState[] = ['ok', 'zero', 'not-connected', 'no-data-yet'];
 
 /**
  * The closing delimiter an injection would have to produce to escape.
@@ -85,6 +88,61 @@ export function toolErrorEnvelope(name: string, message: string): string {
     encodePayload({ error: message }),
     CLOSE,
   ].join('\n');
+}
+
+/**
+ * An envelope, read back into the result that produced it.
+ *
+ * Kept beside the encoder for the same reason `SYSTEM_PROMPT_RULE` is: a parser
+ * that drifts from its writer fails silently and late. A round-trip test holds
+ * the two together.
+ *
+ * This exists so a stored thread can be rendered. `driver_messages` holds the
+ * envelope string, because that is what the model was actually shown and
+ * replay fidelity is the point of storing it. Reading a thread back needs the
+ * structured result instead, to rebuild its parts. Parsing is the cheaper of
+ * the two ways to get there: the alternative is a second column holding the
+ * same data in a second encoding, which is a migration and a way for the two
+ * to disagree.
+ *
+ * The payload round-trips exactly. `encodePayload` escapes `<` and `>` to
+ * `\u003c` and `\u003e`, which are ordinary JSON string escapes, so
+ * `JSON.parse` restores the original characters.
+ *
+ * Returns `null` rather than throwing for anything it does not recognise —
+ * including the `state="error"` envelope, which describes a tool that never
+ * ran and so has no result to return.
+ */
+export function parseToolResultEnvelope(
+  content: string,
+): { name: string; result: ToolResult } | null {
+  const header = /^<tool_result name="([^"]*)" state="([^"]*)">\n/.exec(content);
+  if (!header) return null;
+  const [, name, state] = header;
+  if (!STATES.includes(state as ToolState)) return null;
+  if (!content.endsWith(`\n${CLOSE}`)) return null;
+
+  const payload = content.slice(header[0].length, content.length - CLOSE.length - 1);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const body = parsed as { data?: unknown; provenance?: unknown; nextStep?: unknown };
+  if (!body.provenance || typeof body.provenance !== 'object') return null;
+
+  return {
+    name: name!,
+    result: {
+      state: state as ToolState,
+      data: body.data,
+      provenance: body.provenance as ToolResult['provenance'],
+      ...(body.nextStep ? { nextStep: body.nextStep as ToolResult['nextStep'] } : {}),
+    },
+  };
 }
 
 /**

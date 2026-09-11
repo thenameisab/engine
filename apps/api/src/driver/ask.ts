@@ -17,13 +17,24 @@
  *     seconds. That fallback is the reason `packages/copilot` stays.
  */
 import { createConversationalLlmConnector } from '@engine/connectors';
-import { buildSystemPrompt, runTurn, type LoopBounds, type RoundRecord, type TurnResult } from '@engine/driver';
+import {
+  assembleAnswer,
+  buildParts,
+  buildSystemPrompt,
+  runTurn,
+  type LoopBounds,
+  type ResponsePart,
+  type RoundRecord,
+  type ToolResult,
+  type TurnResult,
+} from '@engine/driver';
 import type { LlmMessage, LlmTokenUsage } from '@engine/connectors';
 import type { Db } from '../db.js';
 import { getProject } from '../repositories/accounts.js';
 import { answerQuestion } from '../repositories/copilotQuery.js';
 import { loadHistory, persistTurn } from '../repositories/driverThreads.js';
 import type { DriverToolContext } from './context.js';
+import { RENDER_SPECS } from './parts.js';
 import { runToolCall } from './registry.js';
 
 export interface AskInput {
@@ -71,6 +82,14 @@ export type AnswerSource = 'driver' | 'copilot-fallback';
 export interface AskResponse {
   source: AnswerSource;
   text: string;
+  /**
+   * The answer as typed parts — §4.5.
+   *
+   * The prose, then the figures the tools returned. Every value in a non-text
+   * part came from a tool result, never from the model, which is §4.6 rule 1
+   * made structural rather than promised.
+   */
+  parts: ResponsePart[];
   /** The thread this turn was stored in. Absent when nothing was stored. */
   threadId?: string;
   /** Present only for a Driver answer. */
@@ -156,13 +175,25 @@ export async function askDriver(
    * called four tools and then timed out keeps those calls in the audit trail
    * rather than throwing them away with the answer.
    */
-  const fallback = async (why: string, before: readonly LlmMessage[] = [], rounds: readonly RoundRecord[] = []) => {
+  const fallback = async (
+    why: string,
+    before: readonly LlmMessage[] = [],
+    rounds: readonly RoundRecord[] = [],
+    gathered: readonly ResponsePart[] = [],
+  ) => {
     const result = await answerQuestion(db, projectId, input.question);
     const text = result.answer.answer;
     const messages = before.length > 0
       ? [...before, { role: 'assistant', content: text } as const]
       : exchange(input.question, text);
-    return record({ source: 'copilot-fallback', text, fellBackBecause: why }, messages, { rounds });
+    // A turn that gathered four tables and then timed out keeps them. The
+    // deterministic answer is narrower than what was on the table, and
+    // throwing the evidence away as well makes it narrower still.
+    return record(
+      { source: 'copilot-fallback', text, parts: assembleAnswer(text, gathered), fellBackBecause: why },
+      messages,
+      { rounds },
+    );
   };
 
   const connector = createConversationalLlmConnector(env);
@@ -190,6 +221,18 @@ export async function askDriver(
   // model believes it said before — that is the whole point of this step.
   const history = input.threadId ? await loadHistory(db, input.threadId) : [];
 
+  // Every tool result this turn produced, in call order, kept for the parts.
+  // The loop's `ToolRunner` returns only the envelope, which is all the model
+  // needs; the screen needs the structure behind it, so it is captured here
+  // rather than parsed back out of a string the loop already discarded.
+  const gathered: ResponsePart[] = [];
+  const collect = async (name: string, rawArguments: string): Promise<string> => {
+    const { envelope, result } = await runToolCall(ctx, name, rawArguments);
+    const render = RENDER_SPECS[name];
+    if (result && render) gathered.push(...buildParts(name, render, result satisfies ToolResult));
+    return envelope;
+  };
+
   try {
     const turn = await runTurn(
       {
@@ -199,7 +242,7 @@ export async function askDriver(
       },
       {
         connector,
-        runTool: (name, rawArguments) => runToolCall(ctx, name, rawArguments),
+        runTool: collect,
         ...(input.bounds ? { bounds: input.bounds } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
       },
@@ -215,14 +258,20 @@ export async function askDriver(
     // show. The deterministic answer is better than an empty one, and saying
     // which is which is the whole point of `source`.
     if (!turn.text) {
-      return await fallback(`the turn stopped early: ${turn.stopReason}`, added, turn.rounds);
+      return await fallback(`the turn stopped early: ${turn.stopReason}`, added, turn.rounds, gathered);
     }
 
     // `return await`, not a bare `return`: a promise returned from inside a
     // `try` settles after the block has already exited, so its rejection would
     // sail past the `catch` below rather than being handled by it.
     return await record(
-      { source: 'driver', text: turn.text, turn, modelEngine: connector.engine },
+      {
+        source: 'driver',
+        text: turn.text,
+        parts: assembleAnswer(turn.text, gathered),
+        turn,
+        modelEngine: connector.engine,
+      },
       added,
       { rounds: turn.rounds, modelId: connector.model, usage: turn.usage },
     );

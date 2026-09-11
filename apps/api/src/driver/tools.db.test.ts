@@ -2,6 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { READ_TOOLS, READ_TOOLS_BY_NAME } from '@engine/driver';
 import { createDb, type Db } from '../db.js';
 import type { DriverToolContext } from './context.js';
+import { buildParts, pick, type ToolRender } from '@engine/driver';
+import { RENDER_SPECS } from './parts.js';
 import { assertRegistryMatchesCatalogue, READ_HANDLERS, runToolCall } from './registry.js';
 
 /**
@@ -243,7 +245,7 @@ describe.skipIf(!url)('driver read tools (Postgres)', () => {
 
   /** Run a tool through the registry and parse the envelope back out. */
   async function call(name: string, args: Record<string, unknown> = {}) {
-    const envelope = await runToolCall(ctx, name, JSON.stringify(args));
+    const { envelope } = await runToolCall(ctx, name, JSON.stringify(args));
     const state = /state="([^"]+)"/.exec(envelope)?.[1] ?? null;
     const body = envelope.slice(envelope.indexOf('\n') + 1, envelope.lastIndexOf('\n'));
     return { state, envelope, ...JSON.parse(body) };
@@ -942,7 +944,7 @@ describe.skipIf(!url)('driver read tools (Postgres)', () => {
     it('returns a well-formed, single-delimiter envelope for all nineteen', async () => {
       for (const tool of READ_TOOLS) {
         const args = tool.name === 'fix_verification' ? { actionId: crypto.randomUUID() } : {};
-        const envelope = await runToolCall(ctx, tool.name, JSON.stringify(args));
+        const { envelope } = await runToolCall(ctx, tool.name, JSON.stringify(args));
         expect(envelope.match(/<tool_result/g), tool.name).toHaveLength(1);
         expect(envelope.match(/<\/tool_result>/g), tool.name).toHaveLength(1);
         expect(envelope.startsWith(`<tool_result name="${tool.name}"`), tool.name).toBe(true);
@@ -965,6 +967,180 @@ describe.skipIf(!url)('driver read tools (Postgres)', () => {
         expect(result.nextStep, `${tool.name} (${result.state}) gave no next step`).toBeTruthy();
         expect(result.nextStep.reason.length, tool.name).toBeGreaterThan(10);
         expect(result.nextStep.action.length, tool.name).toBeGreaterThan(10);
+      }
+    });
+  });
+
+  /* ── the render specs, against real data ────────────────────────────────── */
+
+  describe('every render spec points at data that exists', () => {
+    /**
+     * Enough data for every tool to answer `ok`.
+     *
+     * The describes above each seed only what their own assertion needs, so by
+     * the time this one runs the tables are empty again. A path check against
+     * an empty result checks nothing, so this seeds the lot.
+     */
+    beforeEach(async () => {
+      await connectGoogle('gsc');
+      await connectGoogle('ga4');
+
+      await addSiteDay(DAY(1), 40, 900, 8);
+      await addQuery(DAY(1), 'driver test co', 30, 300, 2);
+      // A non-brand query in the 11-20 band with enough impressions, which is
+      // the only shape `queries_within_reach` reports.
+      await addQuery(DAY(1), 'seo monitoring tool', 2, 400, 14);
+      await db`
+        insert into gsc_page_daily (project_id, date, page, clicks, impressions, ctr, position)
+        values (${projectId}, ${DAY(1)}, 'https://drivertest.example/pricing', 12, 200, 0.06, 6)
+        on conflict (project_id, date, page) do nothing
+      `;
+      await db`
+        insert into ga4_channel_daily (project_id, date, channel_group, source, sessions, engaged_sessions, conversions)
+        values (${projectId}, ${DAY(1)}, 'Referral', 'chatgpt.com', 40, 30, 2),
+               (${projectId}, ${DAY(1)}, 'Organic Search', 'google', 500, 400, 9)
+        on conflict (project_id, date, channel_group, source) do nothing
+      `;
+
+      await db`
+        insert into keyword_configs (entity_id, keyword, geo_country, device, language, engine)
+        values (${entityId}, 'seo monitoring tool', 'us', 'desktop', 'en', 'google')
+      `;
+      await db`
+        insert into serp_positions (entity_id, keyword, geo_country, device, language, engine, position, url, raw_snapshot_ref, polled_at)
+        values (${entityId}, 'seo monitoring tool', 'us', 'desktop', 'en', 'google', 4,
+                'https://drivertest.example/p', 'ref', ${DAY(1)})
+      `;
+
+      await addCitation(true, { sources: ['wikipedia.org', 'drivertest.example'] });
+      await addCitation(false);
+
+      const findingId = await addFinding({ severity: 90 });
+      const actionId = await addAction(findingId, 'deployed');
+      await db`
+        insert into audit_requests (project_id, entity_id, root_url, requested_by, kind, action_id, status, verified)
+        values (${projectId}, ${entityId}, 'https://drivertest.example', 'tester', 'verify', ${actionId}, 'done', true)
+      `;
+      verifiableActionId = actionId;
+
+      await db`
+        insert into audit_runs (project_id, pages_audited, findings_count, health_score, robots_found)
+        values (${projectId}, 30, 3, 72, true)
+      `;
+      await db`
+        insert into crawled_pages (project_id, url, status_code)
+        values (${projectId}, 'https://drivertest.example/pricing', 200)
+        on conflict do nothing
+      `;
+
+      await db`
+        insert into entity_graph_audits (entity_id, project_id, score, wikidata_score, schema_score, sameas_score, corroboration_score, corroborating_domains)
+        values (${entityId}, ${projectId}, 64, 40, 80, 70, 60, 3)
+        on conflict (entity_id) do nothing
+      `;
+      await db`
+        insert into local_audits (entity_id, project_id, score, gbp_score, nap_score, review_score, reviews_considered)
+        values (${entityId}, ${projectId}, 61, 70, 80, null, 0)
+      `;
+
+      const [rival] = await db<{ id: string }[]>`
+        insert into entities (project_id, canonical_name) values (${projectId}, 'Rival') returning id
+      `;
+      await db`
+        insert into competitor_sets (project_id, self_entity_id, competitor_entity_id)
+        values (${projectId}, ${entityId}, ${rival.id})
+      `;
+      await db`
+        insert into competitor_gaps (project_id, self_entity_id, gap_type, item, held_by_count, held_by, impact)
+        values (${projectId}, ${entityId}, 'schema', 'FAQPage', 2, '["Rival"]'::jsonb, 30)
+      `;
+    });
+
+    /** The action `fix_verification` can actually report on, set by the seed. */
+    let verifiableActionId = '';
+
+    /** `fix_verification` needs a real action id; everything else takes no arguments. */
+    function argsFor(name: string): Record<string, unknown> {
+      return name === 'fix_verification' ? { actionId: verifiableActionId } : {};
+    }
+
+    /** Every dotted path a spec declares, paired with where it is read from. */
+    function declaredPaths(render: ToolRender): { at: string; within: 'data' | 'row' | 'point' }[] {
+      const paths: { at: string; within: 'data' | 'row' | 'point' }[] = [];
+      for (const m of render.metrics ?? []) {
+        paths.push({ at: m.at, within: 'data' });
+        if (m.bandAt) paths.push({ at: m.bandAt, within: 'data' });
+      }
+      if (render.table) {
+        paths.push({ at: render.table.at, within: 'data' });
+        for (const c of render.table.columns) paths.push({ at: c.at, within: 'row' });
+      }
+      if (render.series) {
+        paths.push({ at: render.series.at, within: 'data' });
+        paths.push({ at: render.series.xAt, within: 'point' });
+        paths.push({ at: render.series.yAt, within: 'point' });
+      }
+      if (render.component) paths.push({ at: render.component.at, within: 'data' });
+      return paths;
+    }
+
+    /**
+     * The test that closes the one weakness of declarative paths.
+     *
+     * `RENDER_SPECS` addresses handler output with dotted strings, so nothing
+     * at compile time catches `totals.click` for `totals.clicks`. This runs
+     * every spec against the seeded fixtures and fails on any path that
+     * resolves to `undefined` on an `ok` result.
+     *
+     * `null` passes on purpose. A review score of null means "there were no
+     * reviews to score", which is a measurement; `undefined` means the path is
+     * wrong. Keeping those apart is the whole point.
+     */
+    it('resolves every declared path on a live ok result', async () => {
+      const covered: string[] = [];
+
+      for (const tool of READ_TOOLS) {
+        const result = await call(tool.name, argsFor(tool.name));
+        if (result.state !== 'ok') continue;
+        covered.push(tool.name);
+
+        const render = RENDER_SPECS[tool.name]!;
+        for (const { at, within } of declaredPaths(render)) {
+          if (within === 'data') {
+            expect(pick(result.data, at), `${tool.name}: data.${at} does not exist`).not.toBeUndefined();
+            continue;
+          }
+          // A row or point path is read against the first element of the
+          // collection the spec already named.
+          const collection = within === 'row'
+            ? pick(result.data, render.table!.at)
+            : pick(result.data, render.series!.at);
+          const first = Array.isArray(collection) ? collection[0] : undefined;
+          if (first === undefined) continue;
+          expect(pick(first, at), `${tool.name}: row.${at} does not exist`).not.toBeUndefined();
+        }
+      }
+
+      // The seed reaches `ok` on all nineteen, so every declared path is
+      // checked against live data. Asserted as a number rather than left
+      // implicit: without it this test passes by checking nothing on the day a
+      // fixture stops producing data, which is exactly when it is needed.
+      expect(covered.length, `only ${covered.length} tools reached ok: ${covered.join(', ')}`)
+        .toBe(READ_TOOLS.length);
+    });
+
+    it('renders something for every tool that has data', async () => {
+      for (const tool of READ_TOOLS) {
+        const result = await call(tool.name, argsFor(tool.name));
+        const parts = buildParts(tool.name, RENDER_SPECS[tool.name]!, result);
+
+        // Either evidence, or one notice saying why there is none. Never
+        // nothing: a blank answer to a question that worked is the failure
+        // this whole file guards against.
+        expect(parts.length, `${tool.name} (${result.state}) rendered no parts`).toBeGreaterThan(0);
+        if (result.state !== 'ok') {
+          expect(parts.map((p) => p.kind), tool.name).toEqual(['notice']);
+        }
       }
     });
   });
