@@ -1907,3 +1907,61 @@ changed. `.gm-note` is still its own note class at `--t-2xs`, unchanged since
   tests 152, up from 124 — 28 new. Dashboard 194 and API 438, both unchanged,
   which is the point: the citation poll and the live-answer surface go through
   rewritten code and their assertions did not move.
+
+## 2026-09-11 — Driver step 1 (vendor probe) and step 3a (the read-tool catalogue)
+
+- **Vendor probe run against the live Sarvam API**, unblocking step 1 — the key landed in
+  `apps/api/.dev.vars`. 23 calls, all 200, driven through `SarvamConnector.converse` and
+  `streamConverse` rather than raw `fetch`, so the wire format recorded is the bytes the
+  connector actually sends. Written up as `docs/reviews/2026-09-11-driver-vendor-probe.md`.
+- **Parallel tool calls work** — four independent calls returned in one assistant turn, streaming
+  and not. `ToolCallAccumulator`'s `index` assumption is confirmed: every fragment carried an
+  integer index. It needs no change. One honest caveat in the writeup: the vendor emitted
+  fragments grouped rather than interleaved, so the index was never strictly load bearing in the
+  runs observed.
+- **CPU is the binding Worker limit, not subrequests, and only when streaming.** The account is on
+  Workers Free (10 ms CPU, 50 subrequests). Parsing one turn as a non-streamed JSON body costs
+  0.018 ms; parsing the same turn as SSE costs 5.96 ms, a 300× gap caused by ~400 bytes per token
+  across 3,651 frames. Worst-case subrequests are ~25 against 50. The loop shape that fits is
+  non-streamed tool rounds with only the final answer streamed. The absolute numbers are Node on
+  a laptop, not workerd, and the writeup says so rather than rounding it away.
+- **`reasoning_effort` does not predict latency.** 15 runs, 5 per level; `high` was *faster* than
+  `medium` at the median. Completion tokens explain wall clock almost completely (r = 0.9996 at
+  ~185 tokens/sec). Recommendation: omit the parameter.
+- **`packages/driver` created — the semantic layer, no SQL and no database.** Types, the
+  nineteen-tool catalogue, the tool-result envelope and argument validation. Two invariants run at
+  module load in production, not only under test: a tool whose schema offers the model a
+  `projectId` or `accountId` throws (§4.2 rule 1), and a tool declaring a JSON Schema keyword the
+  validator does not enforce throws.
+- **Nineteen tools, not twenty.** `page_content` is deliberately absent rather than present and
+  disabled — §9a decision 7 ships it at step 9 behind the poisoned-page test, and a definition the
+  loop can see is one somebody can switch on. `DEFERRED_TOOLS` names it and a test asserts it stays out.
+- **Handlers live in `apps/api/src/driver/`, not in the package.** No package in this repo touches
+  the database — measured, 19 of 19 before this one — and the six Google tools would otherwise
+  have had to restate `googleMetrics.ts`'s definitions of brand, "within reach", AI-assistant
+  classification and derived CTR. Those are imported instead. `registry.ts` binds each definition
+  to exactly one handler and throws at module load if the two sets differ, so the split cannot
+  drift silently.
+- **The only edit to shipped code is two words**: `toTotals` and `TotalsRow` in `googleMetrics.ts`
+  are now exported, so Driver derives click-through rate and impression-weighted position with the
+  same function Pulse does instead of a second copy.
+- **The three-state rule is the load-bearing part** (§4.2 rule 3, made load bearing by §9a decision
+  6). `not-connected`, `no-data-yet` and `zero` are distinct in the envelope attribute itself, and
+  every non-`ok` result carries a reason and a specific action. Search Console alone produces four
+  distinguishable answers — never connected, expired, connected-but-unassigned, synced-but-empty.
+- **Periods end on the latest synced day, not today.** A source a week behind, read against today,
+  reports a collapse that did not happen. There is a test for it.
+- **Bands stay bands** (§4.2 rule 4). `ai_citations` returns `{low, point, high}` from the same
+  `wilsonInterval` the scoring package uses, with the sample count in provenance. Zero citations
+  over three samples is reported as a measurement whose band still reaches 0.3+, not as "0%".
+- **Tenancy is tested against a real second tenant.** A second account, project and entity are
+  seeded into every table with a `DO-NOT-LEAK` marker and left populated for the whole run; all
+  nineteen tools are asserted never to return them, both with this project empty and with it
+  populated. One test asserts the second tenant is actually populated, so the suite cannot pass
+  vacuously.
+- Two defects the tests caught, both fixed in the handler rather than the test: `fix_verification`
+  returned `{action: null}` on the not-found path and `{fix: ...}` on the found path, two shapes
+  for one tool; and the tenancy check initially proved nothing until the non-vacuity guard was added.
+- Green bar: `turbo typecheck` 43/43, `turbo test` 41/41 with `TEST_DATABASE_URL` set against a
+  local Postgres 16 migrated to 0035. `@engine/driver` 39 unit tests; API **501, up from 438** —
+  63 new, all in `src/driver/tools.db.test.ts`. No migration was added; the read tools need none.
