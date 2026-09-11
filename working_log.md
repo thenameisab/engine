@@ -1515,3 +1515,53 @@ plus computed `display`, `visibility` and `opacity` — which still catches the
 
 - **Green bar:** `turbo typecheck test lint build --force` 68/68. API 433,
   deploy 75, dashboard 167 (was 158).
+
+## 2026-09-11 — Gate the Local tab (ledger item 1)
+
+- Read v1 data readiness step 6 first, as the remaining-build-plan says to.
+  Two of its three parts turned out to be already done, so the item shrank:
+  `local.ts` already carried a complete NAP form, and `googleIntegrations.ts`
+  already picks an entity from a `<select>` rather than a typed uuid (no
+  `locationId` identifier remains in the file). Only the gate was left.
+- Surfaced a circularity in the plan's own wording before building: it hides
+  Local until a GBP connection or profile facts exist, but the form that
+  creates the facts lived on Local. Asked; the answer was to move the form to
+  Integrations.
+- **API.** `hasLocalPresence` in `repositories/local.ts` — one query, two
+  `exists` arms OR-ed: a `local_profiles` row, or a `gbp` row in
+  `integration_assignments`. The assignment arm is what makes the tab appear
+  the moment Business Profile is connected, before the first sync writes a
+  profile. Served by `GET /projects/:projectId/local-availability`.
+- **Dashboard.** New `views/localProfile.ts` holds the form and its location
+  picker; `local.ts` keeps only the scores and points at Integrations.
+  `visibleVisibilityTabs(localAvailable)` filters the strip, and
+  `visibilityView` awaits the gate before building it, so there is no flash.
+  `visibilityTabId` is untouched — it is synchronous and the breadcrumb uses
+  it. A hash at a gated tab redirects to Rankings, the shape `clients` uses.
+- **Unknown is not false.** The gate is `boolean | null`; a failed request
+  shows the tab. A blip must not move a customer off the screen they are on.
+
+### The bug the walk caught
+`providerPanel` returns early when Engine's Google app is not registered for
+the workspace, and my first version put the form after that return. Google
+registration is still the user's task, so on production today that return is
+the live path: the form would have been unreachable for every customer, and
+Local gated off permanently. The section is now built above the blocked cases
+and returned by them too — a name and an address need no connection, no
+granted scope and no registered app.
+
+### Verification
+- `hasLocalPresence` ran against the local `engine-pg` container rather than
+  being left skipped: 5/5, each arm of the OR asserted alone and together,
+  plus one project not reading another's location.
+- 17 Playwright checks: the strip with the gate true, false and failing; the
+  bookmark redirect both ways; and the form present in the GBP panel with the
+  Google app registered and not registered.
+- **Green bar:** `turbo typecheck test lint build --force` 68/68. API 438
+  (was 433), dashboard 172 (was 167).
+
+### Noticed, not fixed
+`.flabel.check` (`styles.css:224`) sets `flex-direction` and `gap` on a rule
+whose base `.flabel` never sets `display: flex`, so the checkbox gap has never
+rendered. Pre-existing, and in the file layout passes 5a–5c rewrite; left for
+them rather than opening a conflict surface here.

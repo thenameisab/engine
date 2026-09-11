@@ -123,6 +123,7 @@ import {
   getLocalProfile,
   runProjectLocalAudit,
   listLocalVisibility,
+  hasLocalPresence,
   type ProfileInput,
 } from './repositories/local.js';
 import {
@@ -1764,6 +1765,20 @@ app.post('/projects/:projectId/entities/:entityId/local-audit', async (c) => {
     visibility: result.visibility,
     findings: result.findings,
   });
+});
+
+/**
+ * Whether the Local screen applies to this project at all — a Business Profile
+ * connection, or location facts someone typed in. The dashboard asks before it
+ * draws the Visibility tab strip, so a business with no location never sees a
+ * tab it can do nothing with.
+ */
+app.get('/projects/:projectId/local-availability', async (c) => {
+  const projectId = c.req.param('projectId');
+  const db = createDb(c.env.DATABASE_URL);
+  const accessError = await projectAccessError(db, projectId, c.get('user'));
+  if (accessError) return c.json(accessError.body, accessError.status);
+  return c.json({ available: await hasLocalPresence(db, projectId) });
 });
 
 /** The project's persisted local visibility scores, weakest first. */

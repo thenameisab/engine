@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readableError } from './errors.js';
 import { pctChange, fmtChange, fmtRatio, fmtPosition, syncStatusLine, providerNextStep, diffLines, actionChanges, bandPositions, sparklinePath, sparklineArea, fmtDelta, nextAction, clamp, hostname, normalizeDomain, domainRank, serpFeatureLabel, toActionCard, actionTitle, effortLabel, targetLabel, impactPoints, toFindingRow, issueLabel, severityBand, toPulseData, groupFindings, pagePath, onboardingDefaults, onboardingPlan, brandNameFromDomain, personNameFrom, auditRequestStatusLine, integrationTileState, rankChange, rankLabel, auditLastRunLine, crawlCoverageLine, accountVocabulary, showsClientColumn, chooseAccountNote, clientInitials, filterWorkspace, needsWorkspaceSearch, openSiteLabel, issueExplanation, manualFixReason, verifyLine, screenName, breadcrumb, SCREEN_NAMES, homeSummary, healthBand, severityCounts, laneCounts, operatorChecklist } from './format.js';
-import { VISIBILITY_TABS, visibilityTabId } from './views/visibility.js';
+import { VISIBILITY_TABS, visibilityTabId, visibleVisibilityTabs } from './views/visibility.js';
 import { firstSentence } from './views/home.js';
 import type { ActionCard, ApiAction, ApiAuditRequest, ApiFinding, ApiPulseResponse, FindingRow } from './types.js';
 
@@ -1034,6 +1034,32 @@ describe('visibilityTabId', () => {
   it('falls back to the first tab for a bare route or an unknown tab', () => {
     expect(visibilityTabId('#/visibility')).toBe('rankings');
     expect(visibilityTabId('#/visibility/nope')).toBe('rankings');
+  });
+});
+
+describe('visibleVisibilityTabs', () => {
+  const ids = (available: boolean | null): string[] => visibleVisibilityTabs(available).map((t) => t.id);
+
+  it('drops Local for a business with no location', () => {
+    expect(ids(false)).not.toContain('local');
+  });
+
+  it('drops only Local, so gating one tab cannot cost another', () => {
+    expect(ids(false)).toEqual(VISIBILITY_TABS.filter((t) => t.id !== 'local').map((t) => t.id));
+  });
+
+  it('shows Local once a connection or typed-in facts exist', () => {
+    expect(ids(true)).toContain('local');
+  });
+
+  it('shows Local when the answer is unknown, rather than moving the customer off it', () => {
+    expect(ids(null)).toEqual(VISIBILITY_TABS.map((t) => t.id));
+  });
+
+  it('never gates the tab the redirect lands on, or a gated bookmark would loop', () => {
+    const fallback = visibilityTabId('#/visibility');
+    expect(ids(false)).toContain(fallback);
+    expect(ids(true)).toContain(fallback);
   });
 });
 

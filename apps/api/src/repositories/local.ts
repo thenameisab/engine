@@ -35,6 +35,31 @@ export async function getLocalProfile(db: Db, projectId: string, entityId: strin
   return rows.length > 0 ? rows[0].profile : null;
 }
 
+/**
+ * Whether the Local screen has anything to be about for this project.
+ *
+ * Two sources, deliberately OR-ed rather than one. A `gbp` assignment answers
+ * yes the moment a customer connects Business Profile, before the first sync
+ * has written a profile row — gating on stored facts alone would hide the
+ * screen for as long as that gap lasts, which reads as the connection not
+ * working. A stored profile answers yes for the customer who has no Google
+ * connection and typed the facts in on Integrations instead.
+ *
+ * One query and one definition, so the tab strip and the screen cannot
+ * disagree about whether Local applies.
+ */
+export async function hasLocalPresence(db: Db, projectId: string): Promise<boolean> {
+  const rows = await db<{ present: boolean }[]>`
+    select
+      exists (select 1 from local_profiles where project_id::text = ${projectId})
+      or exists (
+        select 1 from integration_assignments
+        where project_id::text = ${projectId} and provider = 'gbp'
+      ) as present
+  `;
+  return rows[0]?.present === true;
+}
+
 export interface LocalAuditRunResult extends LocalAuditResult {
   entityId: string;
 }

@@ -3,6 +3,7 @@ import { logoTile } from '../logo.js';
 import { infoCard, type HoverCardContent } from '../hovercard.js';
 import { openDialog, type DialogHandle } from '../dialog.js';
 import { readableError } from '../errors.js';
+import { locationDetailsSection } from './localProfile.js';
 import { openConsentPopup } from '../consentPopup.js';
 import { integrationTileState, relativeTime, syncStatusLine, type IntegrationTileState } from '../format.js';
 import {
@@ -336,6 +337,17 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
     ? el('a', { class: 'linklike', href: entry.docsUrl, target: '_blank', rel: 'noopener' }, [`${entry.name} documentation ↗`])
     : null;
 
+  /**
+   * A location is a business fact, not a Google fact: a name and an address
+   * need no connection, no granted scope and no registered app. So this is
+   * built before the blocked cases below and returned by them too. It is also
+   * the only place the facts can be entered, and the Local screen stays hidden
+   * until they exist — behind the "not set up yet" notice it would be
+   * unreachable for exactly the customer it was written for, on a workspace
+   * whose Google app nobody has registered.
+   */
+  const locationDetails = entry.id === 'gbp' ? locationDetailsSection(ctx, live) : null;
+
   /* ── Blocked cases: say why, and what changes it ─────────────────────── */
 
   if (entry.availability === 'planned') {
@@ -372,6 +384,7 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
             el('button', { class: 'btn primary', onclick: () => ctx.navigate('platform') }, [`Finish ${vendor} setup`]),
           ])
         : null,
+      locationDetails,
     ]);
   }
 
@@ -592,6 +605,8 @@ function providerPanel(input: ProviderPanelInput): HTMLElement {
           pickerHost,
         ])
       : null,
+
+    locationDetails,
 
     live || connection?.status === 'needs_reauth'
       ? el('div', { class: 'form-actions' }, [

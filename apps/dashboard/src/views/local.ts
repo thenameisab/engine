@@ -1,6 +1,6 @@
 import { el } from '../dom.js';
 import { auditLastRunLine, screenName } from '../format.js';
-import { fetchEntities, fetchLocalProfile, fetchLocalVisibility, runLocalAudit, saveLocalProfile, type AuditLastRun } from '../api.js';
+import { fetchEntities, fetchLocalVisibility, runLocalAudit, type AuditLastRun } from '../api.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
 import type { ApiEntity, LocalVisibility } from '../types.js';
@@ -10,9 +10,13 @@ import type { ApiEntity, LocalVisibility } from '../types.js';
  * score (spec §8), then breaks it into the three components — GBP completeness,
  * NAP consistency, review health — so an owner sees *why* a location scores
  * low, each of which maps to a GBP/citation fix in the Fix Queue. Weakest
- * locations first. A location is an entity; pick one and run its audit. Profile
- * facts are set via the API/GBP connector; running without them returns a clear
- * "no profile set" message rather than a fake score.
+ * locations first. A location is an entity; pick one and run its audit.
+ *
+ * Read-only about the facts themselves: they are set on Integrations, under
+ * the Google Business Profile tile, either by connecting it or by typing them
+ * in. This screen is reachable only once one of those has happened, so it does
+ * not carry the form. Running against a location whose facts are missing still
+ * returns a clear "no profile set" message rather than a fake score.
  */
 
 function pct(n: number): string {
@@ -59,85 +63,6 @@ function visibilityCard(v: LocalVisibility): HTMLElement {
   ]);
 }
 
-/**
- * The facts a person can actually supply about their own location.
- *
- * Reviews and directory listings are deliberately absent: nobody types their
- * review history or every directory they appear in, and a form that asked for
- * them would be abandoned. What is typed here is marked as not having sourced
- * reviews, so the score is renormalized rather than penalised for the gap.
- */
-function profileForm(
-  ctx: AppContext,
-  entityId: string,
-  existing: Record<string, unknown> | null,
-  onSaved: () => void,
-): HTMLElement {
-  const str = (k: string): string => (typeof existing?.[k] === 'string' ? (existing[k] as string) : '');
-  const name = el('input', { class: 'field', type: 'text', value: str('name'), placeholder: 'Bright Smile Dental' }) as HTMLInputElement;
-  const address = el('input', { class: 'field', type: 'text', value: str('address'), placeholder: '12 High Street, Leeds, LS1 4DA' }) as HTMLInputElement;
-  const phone = el('input', { class: 'field', type: 'text', value: str('phone'), placeholder: '+44 113 496 0000' }) as HTMLInputElement;
-  const categories = el('input', {
-    class: 'field',
-    type: 'text',
-    value: Array.isArray(existing?.categories) ? (existing.categories as string[]).join(', ') : '',
-    placeholder: 'Dentist, Cosmetic dentist',
-  }) as HTMLInputElement;
-  const description = el('textarea', { class: 'field', rows: '3', placeholder: 'What this location does, in a sentence or two.' }) as HTMLTextAreaElement;
-  description.value = str('description');
-  const hoursSet = el('input', { type: 'checkbox' }) as HTMLInputElement;
-  hoursSet.checked = existing?.hoursSet === true;
-
-  const save = el('button', { class: 'btn primary' }, ['Save location details']);
-  save.addEventListener('click', async () => {
-    if (!name.value.trim() || !address.value.trim()) {
-      ctx.toast('A name and an address are the two facts the audit cannot work without.');
-      return;
-    }
-    save.setAttribute('disabled', 'true');
-    try {
-      await saveLocalProfile(entityId, {
-        name: name.value.trim(),
-        address: address.value.trim(),
-        phone: phone.value.trim(),
-        categories: categories.value.split(',').map((c) => c.trim()).filter(Boolean),
-        hoursSet: hoursSet.checked,
-        attributes: Array.isArray(existing?.attributes) ? existing.attributes : [],
-        photoCount: typeof existing?.photoCount === 'number' ? existing.photoCount : 0,
-        description: description.value.trim() || null,
-        // Kept from a previous Google sync if there was one; never invented.
-        directoryListings: Array.isArray(existing?.directoryListings) ? existing.directoryListings : [],
-        reviews: Array.isArray(existing?.reviews) ? existing.reviews : [],
-        // The whole point of the flag: a person cannot type a review history,
-        // so an empty list here means unknown, not none.
-        reviewsSourced: Array.isArray(existing?.reviews) && (existing.reviews as unknown[]).length > 0,
-      });
-      ctx.toast('Saved. Run the audit to score this location.');
-      onSaved();
-    } catch (err) {
-      ctx.toast(readableError(err));
-    } finally {
-      save.removeAttribute('disabled');
-    }
-  });
-
-  return el('section', { class: 'panel' }, [
-    el('h3', {}, ['Location details']),
-    el('p', { class: 'fq-note' }, [
-      'Connect Google Business Profile on Integrations to fill these automatically, including reviews. Typed in here, the score covers the listing and its address consistency; review health is left unmeasured rather than counted as zero.',
-    ]),
-    el('div', { class: 'form' }, [
-      el('label', { class: 'flabel' }, ['Business name']), name,
-      el('label', { class: 'flabel' }, ['Address']), address,
-      el('label', { class: 'flabel' }, ['Phone']), phone,
-      el('label', { class: 'flabel' }, ['Categories (comma separated)']), categories,
-      el('label', { class: 'flabel' }, ['Description']), description,
-      el('label', { class: 'flabel check' }, [hoursSet, 'Opening hours are published']),
-      el('div', { class: 'form-actions' }, [save]),
-    ]),
-  ]);
-}
-
 export async function localView(ctx: AppContext): Promise<HTMLElement> {
   let entities: ApiEntity[] = [];
   let visibility: LocalVisibility[] = [];
@@ -156,26 +81,12 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
   const runBtn = el('button', { class: 'btn' }, ['Run local audit']);
   const listWrap = el('div', { class: 'eg-list' });
   const lastRunLine = el('p', { class: 'lastrun' }, [auditLastRunLine(lastRun)]);
-  const formWrap = el('div', {});
-
-  // The form follows whichever location is selected, and shows what is already
-  // there so a Google-synced profile can be corrected rather than retyped.
-  async function loadForm(): Promise<void> {
-    if (!select.value) {
-      formWrap.replaceChildren();
-      return;
-    }
-    const entityId = select.value;
-    const existing = await fetchLocalProfile(entityId).catch(() => null);
-    formWrap.replaceChildren(profileForm(ctx, entityId, existing, () => void loadForm()));
-  }
-  select.addEventListener('change', () => void loadForm());
 
   function render(rows: LocalVisibility[]): void {
     listWrap.replaceChildren(
       rows.length === 0
         ? el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [
-              'No location scored yet. Fill in the details below, or connect Google Business Profile, then run the audit — the nightly pass keeps it current from then on.',
+              'No location scored yet. Run the audit — the nightly pass keeps it current from then on. Location details are on Integrations, under Google Business Profile.',
             ])])
         : el('div', {}, rows.map(visibilityCard)),
     );
@@ -209,7 +120,6 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
     listWrap.append(el('section', { class: 'panel' }, [el('div', { class: 'fq-note' }, [`Could not load local visibility: ${loadError}`])]));
   } else {
     render(visibility);
-    void loadForm();
   }
 
   // No brand, nothing to be local about. Said plainly rather than showing a
@@ -231,6 +141,5 @@ export async function localView(ctx: AppContext): Promise<HTMLElement> {
       el('div', { class: 'ci-controls' }, [el('label', { class: 'ci-lbl' }, ['Location', select]), runBtn]),
     ]),
     listWrap,
-    formWrap,
   ]);
 }
