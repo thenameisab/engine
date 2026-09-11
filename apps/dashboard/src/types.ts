@@ -838,6 +838,18 @@ export interface LlmModelChoice {
   maxTokens: number;
 }
 
+/**
+ * A surface that asks a model something live.
+ *
+ * Mirrors `ModelSurface` in `@engine/connectors`. The dashboard does not
+ * import from the package — it is bundled for a browser and the package is
+ * built for a worker — so the union is restated here and the server sends the
+ * membership. A surface added on one side and not the other shows up as a
+ * missing key in Settings rather than as a wrong model reaching the vendor,
+ * because the route validates the id against its own list either way.
+ */
+export type ModelSurface = 'prompt' | 'ask' | 'driver';
+
 export interface AiModels {
   /** Empty when this deployment has no LLM key wired. */
   models: LlmModelChoice[];
@@ -848,4 +860,183 @@ export interface AiModels {
    * brand.
    */
   pollModel: string;
+  /**
+   * Which models each surface may offer, by id — §9a decision 5.
+   *
+   * A model declares its context window once and every surface filters on it,
+   * so Driver never offers a 32K model in the first place. The filtering is
+   * done on the server against the same numbers the connector enforces; this
+   * is the answer, not the rule.
+   *
+   * Optional because an older deployment does not send it. A surface with no
+   * entry offers the whole catalogue, which is what every surface did before
+   * this existed.
+   */
+  surfaces?: Partial<Record<ModelSurface, string[]>>;
+}
+
+/* ── Driver ───────────────────────────────────────────────────────────────── */
+
+/**
+ * One part of a Driver answer — the browser's mirror of `ResponsePart` in
+ * `packages/driver`.
+ *
+ * Restated rather than imported, for the same reason `ModelSurface` is. The
+ * shape is the wire contract between `/driver/ask` and this screen, and it is
+ * pinned on both sides by tests rather than by a shared type.
+ *
+ * `text` is the only kind whose content the model authored. Every figure in
+ * every other kind came out of a tool result — §4.6 rule 1, which the server
+ * makes structural by building parts from `ToolResult` and never from prose.
+ */
+export type PartUnit = 'count' | 'percent' | 'position' | 'score' | 'date' | 'text';
+
+/** One cell. `null` is "not measured", which is neither zero nor an empty string. */
+export type PartCell = string | number | null;
+
+/** A figure that rests on a sample. Three fields, never one — §4.6 rule 4. */
+export interface PartBand {
+  low: number;
+  point: number;
+  high: number;
+}
+
+export interface PartColumn {
+  label: string;
+  unit: PartUnit;
+}
+
+/** Where a part's figures came from, carried so the screen can show it without a round trip. */
+export interface PartProvenance {
+  tables: string[];
+  period?: { from: string; to: string };
+  sampleCount?: number;
+  rowIds?: string[];
+}
+
+export type ResponsePart =
+  | { kind: 'text'; markdown: string }
+  | {
+      kind: 'metric';
+      label: string;
+      value: PartCell;
+      unit: PartUnit;
+      band?: PartBand;
+      provenance: PartProvenance;
+    }
+  | {
+      kind: 'table';
+      title: string;
+      columns: PartColumn[];
+      rows: PartCell[][];
+      provenance: PartProvenance;
+    }
+  | {
+      kind: 'series';
+      title: string;
+      unit: PartUnit;
+      points: { at: string; value: number }[];
+      provenance: PartProvenance;
+    }
+  | { kind: 'findings'; findings: Record<string, unknown>[]; provenance: PartProvenance }
+  | { kind: 'fixes'; fixes: Record<string, unknown>[]; provenance: PartProvenance }
+  | {
+      kind: 'notice';
+      tool: string;
+      /**
+       * Three states, never one — §4.2 rule 3, and §9a decision 6 is what makes
+       * it load bearing. `zero` is a measurement and keeps its figures;
+       * `not-connected` and `no-data-yet` are absences and render alone.
+       */
+      state: 'zero' | 'not-connected' | 'no-data-yet' | 'error';
+      reason: string;
+      action: string;
+      provenance: PartProvenance;
+    };
+
+/** Which engine produced an answer. A fallback shown as a Driver answer is a silent downgrade. */
+export type DriverSource = 'driver' | 'copilot-fallback';
+
+/** `POST /projects/:id/driver/ask`. */
+export interface DriverAnswer {
+  source: DriverSource;
+  answer: string;
+  parts: ResponsePart[];
+  threadId?: string;
+  engine?: string;
+  /** Present only on a fallback, and it is what the screen tells the customer. */
+  fellBackBecause?: string;
+  /** Present only on a Driver answer — a fallback has no turn to report. */
+  stopReason?: string;
+  partial?: boolean;
+  usage?: { promptTokens?: number; completionTokens?: number };
+  rounds?: unknown[];
+}
+
+export type ThreadVisibility = 'private' | 'named' | 'organisation';
+
+/** One row of the thread list. */
+export interface DriverThread {
+  id: string;
+  projectId: string;
+  createdBy: string;
+  title: string | null;
+  visibility: ThreadVisibility;
+  createdAt: string;
+  lastMessageAt: string;
+}
+
+/** One person a private thread has been shared with. */
+export interface ThreadShare {
+  userId: string;
+  email: string | null;
+  name: string | null;
+  sharedBy: string | null;
+  createdAt: string;
+}
+
+export interface DriverToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+  durationMs: number | null;
+  skipped: string | null;
+  error: string | null;
+  result: string | null;
+}
+
+/**
+ * One stored message, with the parts the server rebuilt for it.
+ *
+ * `parts` is present on assistant messages that said something, and absent on
+ * the pure tool-call turns and on the `tool` messages themselves — the
+ * evidence belongs to the answer that reads it out.
+ */
+export interface DriverMessage {
+  id: string;
+  seq: number;
+  role: 'user' | 'assistant' | 'tool';
+  content: string | null;
+  toolCallId: string | null;
+  modelId: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  createdAt: string;
+  toolCalls: DriverToolCall[];
+  parts?: ResponsePart[];
+}
+
+/** `GET /projects/:id/driver/threads/:threadId`. `shares` comes back for the author only. */
+export interface DriverThreadDetail {
+  thread: DriverThread;
+  messages: DriverMessage[];
+  shares?: ThreadShare[];
+}
+
+/** `GET /accounts/:accountId/members` — who a thread can be shared with. */
+export interface AccountMember {
+  userId: string;
+  email: string | null;
+  name: string | null;
+  role: 'owner' | 'member';
 }

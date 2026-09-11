@@ -13,12 +13,124 @@ import {
   fetchDeployTarget,
   setAccountKindApi,
   updateBrandingApi,
+  fetchAiModels,
+  getAiModel,
+  modelsFor,
+  setAiModel,
 } from '../api.js';
 import { ENTITY_KIND_OPTIONS, DEFAULT_ENTITY_KIND, ACCOUNT_TYPE_OPTIONS } from '../format.js';
 import { deployTargetFields } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import type { AppContext } from '../context.js';
-import type { AccountCard, AccountKind, DeployTarget, EffectiveCadence } from '../types.js';
+import type { AccountCard, AccountKind, AiModels, DeployTarget, EffectiveCadence, ModelSurface } from '../types.js';
+
+/**
+ * Which model answers, per surface — §9a decision 5.
+ *
+ * The decision rejected both of §9's options. Not a per-screen picker with no
+ * owner, and not "Driver offers no choice": Settings lists, for each surface,
+ * only the models that can run it, so Driver never offers a 32K model in the
+ * first place. That list is not maintained here — a model declares its context
+ * window once, each surface states what it needs, and the server filters. This
+ * screen shows the answer.
+ *
+ * The choice is per browser rather than per account, like the picker it
+ * replaces: it is a preference about waiting, not a property of the brand being
+ * measured, and one person on an account can want a considered answer while
+ * another wants a quick one. The panels keep a control seeded from this, so a
+ * choice can still be changed for one question without coming here.
+ *
+ * The citation poll's model is named and not selectable. A band mixed across
+ * models would report a change in the instrument as a change in the brand.
+ */
+const MODEL_SURFACES: { id: ModelSurface; label: string; blurb: string }[] = [
+  {
+    id: 'driver',
+    label: screenName('driver'),
+    blurb: 'Reads your data through nineteen tools to answer a question. Needs a large context window, so not every model can run it.',
+  },
+  {
+    id: 'prompt',
+    label: 'Try a prompt',
+    blurb: 'Asks an engine your own prompt on Visibility › AI answers, then reports whether your brand was named.',
+  },
+  {
+    id: 'ask',
+    label: 'Search and ask',
+    blurb: 'The ⌘K palette. Questions typed there go to Ask, so this is the model that answers them.',
+  },
+];
+
+function modelRow(surface: { id: ModelSurface; label: string; blurb: string }, catalogue: AiModels): HTMLElement {
+  const models = modelsFor(catalogue, surface.id);
+  const chosen = models.find((m) => m.id === getAiModel(surface.id))
+    ?? models.find((m) => m.id === catalogue.defaultModel)
+    ?? models[0];
+
+  const right = models.length === 0
+    ? el('div', { class: 'fhint' }, ['No model on this deployment can run this.'])
+    : models.length === 1
+      // One option is not a choice. Naming it still answers "which model
+      // answered this", which §8's trust paragraph says the product must
+      // always be able to say.
+      ? el('div', { class: 'dv-model-one' }, [el('b', {}, [models[0].label]), el('span', { class: 'fhint' }, ['the only model with enough context for this'])])
+      : (() => {
+          const select = el('select', { class: 'field', 'aria-label': `Model for ${surface.label}` },
+            models.map((m) => el('option', { value: m.id }, [m.label]))) as HTMLSelectElement;
+          select.value = chosen.id;
+          const byline = el('div', { class: 'fhint' }, [chosen.byline]);
+          select.addEventListener('change', () => {
+            setAiModel(surface.id, select.value);
+            byline.textContent = models.find((m) => m.id === select.value)?.byline ?? '';
+          });
+          return el('div', { class: 'dv-model-pick' }, [select, byline]);
+        })();
+
+  return el('div', { class: 'dv-model-row' }, [
+    el('div', { class: 'dv-model-what' }, [
+      el('div', { class: 'dv-model-name' }, [surface.label]),
+      el('div', { class: 'fhint' }, [surface.blurb]),
+    ]),
+    right,
+  ]);
+}
+
+async function modelSection(): Promise<HTMLElement> {
+  if (!getProjectId()) {
+    return el('section', { class: 'panel' }, [
+      el('div', { class: 'form' }, [
+        el('div', { class: 'notebox' }, ['Open a site first — the model list is read per project.']),
+      ]),
+    ]);
+  }
+  let catalogue: AiModels;
+  try {
+    catalogue = await fetchAiModels();
+  } catch (err) {
+    return el('section', { class: 'panel' }, [
+      el('div', { class: 'form' }, [
+        el('div', { class: 'errbox' }, [`Could not read the model list: ${readableError(err)}`]),
+      ]),
+    ]);
+  }
+  if (catalogue.models.length === 0) {
+    return el('section', { class: 'panel' }, [
+      el('div', { class: 'form' }, [
+        el('div', { class: 'notebox' }, [
+          'No model is wired on this deployment. Ask still works — it answers from your own data with every figure cited — but it cannot follow up on an answer.',
+        ]),
+      ]),
+    ]);
+  }
+  return el('section', { class: 'panel' }, [
+    el('div', { class: 'form dv-models' }, [
+      ...MODEL_SURFACES.map((s) => modelRow(s, catalogue)),
+      el('div', { class: 'fhint' }, [
+        `The scheduled citation poll always uses ${catalogue.pollModel}, and that is not a choice: a band measured across two models would report a change in the instrument as a change in your brand.`,
+      ]),
+    ]),
+  ]);
+}
 
 /**
  * What kind of thing each brand on this site is. Engine writes it into the
@@ -402,6 +514,8 @@ export async function settingsView(ctx: AppContext): Promise<HTMLElement> {
     el('div', { class: 'settings-sec' }, ['Where fixes go']),
     deploy,
     ...(branding ? [el('div', { class: 'settings-sec' }, ['Report branding']), branding] : []),
+    el('div', { class: 'settings-sec' }, ['Which model answers']),
+    await modelSection(),
     el('div', { class: 'settings-sec' }, ['Polling cadence']),
     await cadenceSection(),
     el('div', { class: 'settings-sec' }, ['Sign-in']),

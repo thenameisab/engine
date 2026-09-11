@@ -50,6 +50,8 @@ import {
   isKnownLlmModel,
   LLM_MODEL_CHOICES,
   DEFAULT_LLM_MODEL_ID,
+  modelIdsBySurface,
+  modelsForSurface,
   type SerpQuery,
   type PromptQuery,
 } from '@engine/connectors';
@@ -187,6 +189,7 @@ import { getProject,
   upsertUser,
   createAccount,
   isAccountMember,
+  listAccountMembers,
   getAccountRole,
   setAccountKind,
   countAccountsForUser,
@@ -870,6 +873,13 @@ app.get('/projects/:projectId/ai/models', async (c) => {
     models: configured ? LLM_MODEL_CHOICES : [],
     defaultModel: DEFAULT_LLM_MODEL_ID,
     pollModel: (c.env as unknown as Record<string, string | undefined>).SARVAM_MODEL ?? AI_POLL_MODEL,
+    // Which of those models each surface may offer — §9a decision 5. The
+    // catalogue goes out once and the caller filters it, rather than three
+    // requests for three overlapping lists. Sent even when nothing is
+    // configured, because the shape of the answer should not depend on whether
+    // this deployment has a key: Settings renders the surfaces either way and
+    // says there is nothing to choose between.
+    surfaces: modelIdsBySurface(),
   });
 });
 
@@ -926,7 +936,7 @@ app.post('/projects/:projectId/driver/ask', async (c) => {
 
   const raw = await readJson(c);
   if (raw === UNPARSEABLE) return c.json({ error: 'body is not valid JSON' }, 400);
-  const body = raw as { question?: unknown; threadId?: unknown };
+  const body = raw as { question?: unknown; threadId?: unknown; model?: unknown };
 
   const question = typeof body.question === 'string' ? body.question.trim() : '';
   if (!question) return c.json({ error: 'question is required', field: 'question' }, 400);
@@ -935,6 +945,23 @@ app.post('/projects/:projectId/driver/ask', async (c) => {
   if (threadId) {
     const invalidThread = checkUuidParam(threadId, 'threadId');
     if (invalidThread) return c.json({ error: invalidThread.message, field: invalidThread.field }, 400);
+  }
+
+  // The customer's pick from Settings, refused here rather than forwarded. A
+  // model the Driver surface cannot run is not a smaller answer — the loop
+  // fails part-way through a conversation — so the list Settings offered is
+  // the list this accepts, and anything else is a 400 naming what is allowed.
+  // The connector applies the same context filter again; this exists so a bad
+  // id is a stated error rather than a silent substitution.
+  const model = typeof body.model === 'string' && body.model.trim() !== '' ? body.model.trim() : undefined;
+  if (model && !modelsForSurface('driver').some((m) => m.id === model)) {
+    return c.json(
+      {
+        error: `model must be one of ${modelsForSurface('driver').map((m) => m.id).join(', ')}`,
+        field: 'model',
+      },
+      400,
+    );
   }
 
   const db = createDb(c.env.DATABASE_URL);
@@ -955,6 +982,7 @@ app.post('/projects/:projectId/driver/ask', async (c) => {
     // stored and it gets the single-turn behaviour it has always had.
     ...(user.isService ? {} : { userId: user.id }),
     ...(threadId ? { threadId } : {}),
+    ...(model ? { model } : {}),
   });
 
   return c.json({
@@ -3452,6 +3480,26 @@ app.patch('/accounts/:accountId', async (c) => {
  * Who has been invited and has not yet signed in. Any member may see it; only
  * an owner may change it (below).
  */
+/**
+ * Who is on this account.
+ *
+ * Members only, and it returns email addresses, so the check is the same one
+ * `/invitations` makes. It exists for Driver's sharing picker: a thread is
+ * shared with a `userId`, and nothing in the product could name one before
+ * this.
+ */
+app.get('/accounts/:accountId/members', async (c) => {
+  const accountId = c.req.param('accountId');
+  const invalidId = checkUuidParam(accountId, 'accountId');
+  if (invalidId) return c.json({ error: invalidId.message, field: invalidId.field }, 400);
+  const db = createDb(c.env.DATABASE_URL);
+  const user = c.get('user');
+  if (!(await isAccountMember(db, accountId, user.id))) {
+    return c.json({ error: 'you are not a member of this account', accountId }, 403);
+  }
+  return c.json({ members: await listAccountMembers(db, accountId) });
+});
+
 app.get('/accounts/:accountId/invitations', async (c) => {
   const accountId = c.req.param('accountId');
   const invalidId = checkUuidParam(accountId, 'accountId');

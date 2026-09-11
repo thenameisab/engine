@@ -16,7 +16,7 @@
  *     four-intent Copilot, which needs no key and answers in under three
  *     seconds. That fallback is the reason `packages/copilot` stays.
  */
-import { createConversationalLlmConnector } from '@engine/connectors';
+import { DRIVER_MIN_CONTEXT_TOKENS, createConversationalLlmConnector } from '@engine/connectors';
 import {
   assembleAnswer,
   buildParts,
@@ -65,6 +65,17 @@ export interface AskInput {
    * rewrite the rules above it.
    */
   screenContext?: string;
+  /**
+   * The model the customer picked for this surface, from Settings.
+   *
+   * Checked by the route against the ids Driver may run before it gets here,
+   * and checked again by `createConversationalLlmConnector` against the
+   * surface's context requirement — which is the check that matters, because
+   * it is the one that cannot be talked past. An id that does not clear the
+   * requirement is ignored rather than refused: the customer asked a question,
+   * and the right answer is the answer from a model that can give one.
+   */
+  model?: string;
   bounds?: Partial<LoopBounds>;
   signal?: AbortSignal;
 }
@@ -196,7 +207,7 @@ export async function askDriver(
     );
   };
 
-  const connector = createConversationalLlmConnector(env);
+  const connector = createConversationalLlmConnector(env, DRIVER_MIN_CONTEXT_TOKENS, input.model);
   if (!connector) {
     return fallback('no conversational model is configured on this deployment');
   }

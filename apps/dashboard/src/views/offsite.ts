@@ -422,7 +422,7 @@ export async function offsiteView(ctx: AppContext): Promise<HTMLElement> {
     }) as HTMLInputElement;
     const out = el('div', { class: 'ai-try-out' });
     const go = el('button', { class: 'btn primary' }, ['Ask']);
-    const picker = modelPicker(models);
+    const picker = modelPicker(models, 'prompt');
     // The note under the picker depends on the pick, so the panel is rebuilt
     // on change. Cheap: nothing in it is in flight at that moment.
     picker.root.addEventListener('change', () => renderTry());

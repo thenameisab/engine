@@ -1,4 +1,5 @@
 import { el, svg } from '../dom.js';
+import { askBar } from '../askBar.js';
 import {
   bandPositions,
   sparklinePath,
@@ -839,6 +840,12 @@ export async function homeView(ctx: AppContext): Promise<HTMLElement> {
         // then left alone.
         namesBlock(ctx, d),
       ]),
+      // Floating, over everything above. Home is where a customer arrives with
+      // a question the six screens did not anticipate, and the bar is the
+      // shortest path from that question to an answer — it navigates to Driver
+      // rather than answering here, so there is one conversation and one place
+      // it lives.
+      askBar(ctx, { placeholder: 'Ask about your traffic, your findings, what is connected…' }),
     );
     schedulePoll(d.crawl);
   }

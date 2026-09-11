@@ -20,6 +20,10 @@ export const ICONS = {
   versus: '<path d="M4 6l3 12 3-12M20 6l-3 12M20 6h-4a2 2 0 0 0 0 4h1a2 2 0 0 1 0 4h-4" stroke-linecap="round" stroke-linejoin="round"/>',
   link: '<path d="M9 15l6-6M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   pin: '<path d="M12 21s7-6.3 7-11a7 7 0 0 0-14 0c0 4.7 7 11 7 11Z" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.5"/>',
+  // Driver. A speech bubble with a spark in it: the product's one place to ask
+  // a question, and the only screen where an answer is written rather than read
+  // off a table.
+  ask: '<path d="M20 14.5a3 3 0 0 1-3 3H9l-4.5 3.5v-3.5a3 3 0 0 1-1.5-2.6V6.5a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3Z" stroke-linejoin="round"/><path d="M11.6 7.4 12.6 10l2.6 1-2.6 1-1 2.6-1-2.6L8 11l2.6-1Z" stroke-linejoin="round"/>',
 } as const;
 
 export function icon(markup: string, cls = ''): string {

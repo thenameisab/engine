@@ -1,10 +1,11 @@
 import { el } from '../dom.js';
+import { findingGroupBlock } from '../findingGroup.js';
 import { fetchAudit, fetchDeployTarget, fetchEntityStrengths, fetchLatestAuditRequest, proposeBatch, proposeFix } from '../api.js';
 import { askForDeployTarget } from '../deployTargetForm.js';
 import { readableError } from '../errors.js';
 import { runAuditButton } from '../runAuditButton.js';
 import type { AppContext } from '../context.js';
-import { BRAND_STRENGTH_EXPLANATION, auditRequestStatusLine, brandStrengthSummary, crawlCoverageLine, groupFindings, healthBand, issueExplanation, manualFixReason, pagePath, scorePct, screenName, severityCounts } from '../format.js';
+import { BRAND_STRENGTH_EXPLANATION, auditRequestStatusLine, brandStrengthSummary, crawlCoverageLine, groupFindings, healthBand, scorePct, screenName, severityCounts } from '../format.js';
 import type { BrandStrengthSummary } from '../format.js';
 import type { ApiAuditRequest, AuditData, DeployTarget, EntityStrength, FindingGroup, FindingRow } from '../types.js';
 
@@ -52,67 +53,20 @@ function proposeButton(f: FindingRow, hasTarget: boolean, ctx: AppContext, onTar
 }
 
 /** One page inside an issue group: the path to scan by, the full URL under it. */
-function pageRow(f: FindingRow, hasTarget: boolean, ctx: AppContext, onTargetSaved: () => void): HTMLElement {
-  return el('div', { class: 'frow' }, [
-    el('div', { class: 'fmain' }, [
-      el('div', { class: 't' }, [f.url ? pagePath(f.url) : 'Site-wide']),
-      el('div', { class: 'm', title: f.url }, [f.url || 'Not tied to one page']),
-    ]),
-    el('span', { class: 'impact-n num' }, [`+${f.predictedImpact}`]),
-    f.autoFixable ? proposeButton(f, hasTarget, ctx, onTargetSaved) : null,
-  ]);
-}
-
 /**
- * One issue type with every page it affects.
+ * One issue type with every page it affects, with this screen's fix controls
+ * on it.
  *
- * Three changes from the row-per-page list this replaces. The issue is
- * explained, once, because "canonical-conflict" is a thing to look up rather
- * than a thing to decide about. The fix is offered for the whole group, because
- * the way to fix a missing <title> across 42 pages should not be 42 clicks. And
- * the pages are folded away by default, because they are the detail behind the
- * decision, not the decision.
+ * The group's markup moved to `findingGroup.ts` when Driver started rendering
+ * findings too — §4.5's rule is that a finding shown in Driver is the same row
+ * a customer clicks here, and a second hand-built `.fgroup` could not keep
+ * that true. What stays here is what is specific to this screen: the fix.
  */
 function groupBlock(g: FindingGroup, hasTarget: boolean, ctx: AppContext, onTargetSaved: () => void): HTMLElement {
-  const pages = g.pageCount === 1 ? '1 page' : `${g.pageCount} pages`;
-  const manual = manualFixReason(g.type);
-  const explanation = issueExplanation(g.type);
-
-  const list = el('div', { class: 'flist' }, g.findings.map((f) => pageRow(f, hasTarget, ctx, onTargetSaved)));
-  list.hidden = true;
-
-  const toggle = el('button', {
-    class: 'fgroup-toggle',
-    type: 'button',
-    'aria-expanded': 'false',
-  }, [`Show ${pages}`]);
-  toggle.addEventListener('click', () => {
-    list.hidden = !list.hidden;
-    toggle.setAttribute('aria-expanded', String(!list.hidden));
-    toggle.textContent = list.hidden ? `Show ${pages}` : `Hide ${pages}`;
+  return findingGroupBlock(g, {
+    ...(g.autoFixable ? { actions: [fixAllButton(g, hasTarget, ctx, onTargetSaved)] } : {}),
+    rowAction: (f) => (f.autoFixable ? proposeButton(f, hasTarget, ctx, onTargetSaved) : null),
   });
-
-  const actions: HTMLElement[] = [toggle];
-  if (g.autoFixable) actions.unshift(fixAllButton(g, hasTarget, ctx, onTargetSaved));
-
-  return el('div', { class: 'fgroup' }, [
-    el('div', { class: 'fgroup-head' }, [
-      el('span', { class: `sev ${g.severity}` }, [g.severity]),
-      el('div', { class: 'fmain' }, [
-        el('div', { class: 't' }, [g.title]),
-        el('div', { class: 'm' }, [pages]),
-      ]),
-      manual
-        ? el('span', { class: 'pill effort', title: manual }, ['Manual'])
-        : el('span', { class: 'pill impact' }, ['auto-fixable']),
-    ]),
-    ...(explanation ? [el('p', { class: 'fgroup-why' }, [explanation])] : []),
-    // A "Manual" pill with nothing after it is a dead end. The reason says what
-    // to do instead, which is the only useful thing left to say.
-    ...(manual ? [el('p', { class: 'fgroup-manual' }, [manual])] : []),
-    el('div', { class: 'fgroup-acts' }, actions),
-    list,
-  ]);
 }
 
 /**

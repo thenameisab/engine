@@ -88,6 +88,41 @@ describe('POST /projects/:projectId/driver/ask', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).field).toBe('projectId');
   });
+
+  it('refuses a model the Driver surface cannot run, and names what it can', async () => {
+    // The customer's pick from Settings, checked here rather than forwarded.
+    // A model too small for a nineteen-tool catalogue does not answer more
+    // briefly — it fails part-way through a conversation, after the wait.
+    const res = await post(`/projects/${PROJECT}/driver/ask`, {
+      question: 'how is search?',
+      model: 'sarvam-105b-conversations',
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.field).toBe('model');
+    expect(body.error).toContain('sarvam-105b');
+  });
+
+  it('refuses an invented model id before it can reach the vendor', async () => {
+    // The vendor's own 400 enumerates every model on the account, in a message
+    // a customer would see.
+    const res = await post(`/projects/${PROJECT}/driver/ask`, {
+      question: 'how is search?',
+      model: 'gpt-9',
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('model');
+  });
+
+  it('lets a model Driver can run through to the database attempt', async () => {
+    // Not a 400: it gets as far as `createDb` against an unreachable host,
+    // which is what every other accepted body does in this file.
+    const res = await post(`/projects/${PROJECT}/driver/ask`, {
+      question: 'how is search?',
+      model: 'sarvam-105b',
+    });
+    expect(res.status).not.toBe(400);
+  });
 });
 
 describe('driver thread routes', () => {
